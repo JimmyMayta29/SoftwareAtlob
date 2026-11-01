@@ -135,7 +135,7 @@
     │   ├── sireTxtGenerator.ts           # Generador de archivos TXT normativos RCE y RVIE
     │   ├── pdfExportService.ts           # Renderizado de libros en PDF Corporativo
     │   └── reports/formato_estandar/
-    │       └── formatoEstandarEngine.ts  # Motor de reportes monocromo estilo escritorio SISCONT
+    │       └── formatoEstandarEngine.ts  # Motor de reportes monocromo Formato estándar Atlob
     └── types/
         ├── menu.ts                       # Definición tipada de la estructura de menús y submenús (`MENU_DATA`)
         └── index.ts                      # Interfaces de Comprobante, AsientoContable, Liquidación, etc.
@@ -350,286 +350,122 @@ CREATE TABLE comprobantes_compras (
 
 ---
 
-## 4. INVENTARIO COMPLETO DE MÓDULOS DEL MENÚ SUPERIOR
+## 4. INVENTARIO COMPLETO DE MÓDULOS DEL MENÚ SUPERIOR (13 GRUPOS `MENU_DATA`)
 
-A continuación se auditan las **13 opciones de primer nivel** y sus respectivos submenús presentes en `src/types/menu.ts` y montados en `src/components/desktop/TopBar.tsx`.
-
----
-
-### MÓDULO 1: CONTABILIDAD
-
-#### 1.1. Plan de cuentas (PCGE)
-- **Ruta:** `Contabilidad › Plan de cuentas (PCGE)` | **ID:** `pcge`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/MaestrosView.tsx` en la pestaña de Plan Contable. Carga el catálogo completo de cuentas del PCGE desde `src/data/pcgeAccounts.ts` (más de 300 cuentas ordenadas de 2 a 6 dígitos). Permite búsqueda en vivo por código o denominación. En backend consulta `GET /api/empresas/:id/cuentas`.
-- **Entradas / Salidas:** Filtro de texto instantáneo. Salida visual de cuentas con badges de elemento contable (Activo, Pasivo, etc.).
-- **Archivos:** `src/components/views/MaestrosView.tsx`, `src/data/pcgeAccounts.ts`, `server/routes/empresaRoutes.ts`.
-- **Validaciones:** Códigos numéricos de 2 a 6 dígitos; cuentas de movimiento vs cuentas de acumulación.
-
-#### 1.2. Registro de asientos [F2]
-- **Ruta:** `Contabilidad › Registro de asientos` | **ID:** `asientos` | **Atajo:** `F2`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/VouchersView.tsx`. Permite filtrar por subdiario (`01` Compras, `02` Ventas, `03` Caja, etc.) y estado. Abre modal de creación de voucher con selección de cuenta PCGE interactiva, digitación de Debe/Haber y cálculo en tiempo real de diferencia de cuadre. Al guardar, invoca `POST /api/asientos`.
-- **Entradas / Salidas:** Formulario de cabecera (fecha, glosa, moneda, TC) y grilla de apuntes. Salida en tabla de asientos y voucher imprimible.
-- **Archivos:** `src/components/views/VouchersView.tsx`, `server/services/asientoService.ts`, `server/routes/asientoRoutes.ts`.
-- **Validaciones:** Partida doble obligatoria (diferencia == 0.00), período no cerrado, cuenta contable existente.
-
-#### 1.3. Libros auxiliares
-- **Subopciones:**
-  - `Libro diario`: `[COMPLETO]` (`LibroDiarioView.tsx`). Muestra la cronología de todos los asientos del mes agrupados por voucher con suma de comprobación.
-  - `Libro mayor`: `[COMPLETO]` (`LibroMayorView.tsx`). Agrupa los movimientos por código de cuenta contable calculando saldo deudor y acreedor.
-  - `Caja y bancos`: `[COMPLETO]` (`CajaBancosView.tsx`). Lista ingresos y egresos de efectivo y cuentas corrientes bancarias.
-- **Archivos:** `src/components/views/LibroDiarioView.tsx`, `LibroMayorView.tsx`, `CajaBancosView.tsx`.
-
-#### 1.4. Registro de compras
-- **Ruta:** `Contabilidad › Registro de compras` | **ID:** `reg-compras`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/RegistroComprasView.tsx`. Permite registrar comprobantes de compras (Factura 01, Recibo 02, Nota de Crédito 07, etc.), imputar cuentas de gasto (Elemento 6) y generar automáticamente el asiento en el Subdiario 01. Soporta cálculo de detracción SPOT con constancia bancaria.
-- **Entradas / Salidas:** Entrada manual o importación SIRE. Salida a tabla, exportación a Excel y PDF estándar/corporativo.
-- **Archivos:** `src/components/views/RegistroComprasView.tsx`, `src/services/accountingEngine.ts`.
-
-#### 1.5. Registro de ventas
-- **Ruta:** `Contabilidad › Registro de ventas` | **ID:** `reg-ventas`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/RegistroVentasView.tsx`. Registra facturas y boletas de venta, determina base imponible gravada, exonerada o inafecta, e IGV débito fiscal. Conexión directa al Subdiario 02.
-- **Archivos:** `src/components/views/RegistroVentasView.tsx`, `src/services/accountingEngine.ts`.
-
-#### 1.6. Centro de costos
-- **Ruta:** `Contabilidad › Centro de costos` | **ID:** `centro-costos`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `MaestrosView.tsx` filtrando la estructura de centros de costos vinculados al Elemento 9 (Administración, Ventas, Operaciones).
-- **Archivos:** `src/components/views/MaestrosView.tsx`, `server/storage/registroDatosEmpresa.ts`.
-
-#### 1.7. Ajustes y cierre
-- **Subopciones:** `Diferencia de cambio`, `Depreciación`, `Cierre mensual`, `Cierre anual` | **ID:** `ajustes-cierre`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/ProcesosCierreView.tsx`. Calcula la ganancia/pérdida por diferencia de cambio al Tipo de Cambio SBS fin de mes en cuentas en dólares (104, 121, 421). Simula los asientos de cierre del Elemento 8 (80 Margen Comercial hasta 89 Resultado del Ejercicio).
-- **Archivos:** `src/components/views/ProcesosCierreView.tsx`, `server/services/tributarioAnualService.ts`.
+A continuación se auditan los **13 grupos de primer nivel** y sus opciones hoja presentes en `src/types/menu.ts` y montados en `src/components/desktop/TopBar.tsx`, verificando la regla estricta **1 opción activa = 1 vista exclusiva**.
 
 ---
 
-### MÓDULO 2: INFORMES CONTABLES
+### GRUPO 1: ARCHIVO (`id: 'archivo'`)
 
-#### 2.1. Balance de comprobación (Hoja de Trabajo 10 Columnas)
-- **Ruta:** `Informes Contables › Balance de comprobación` | **ID:** `bal-comprobacion`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/HojaTrabajo10ColumnasView.tsx`. Calcula dinámicamente desde los asientos contables las 10 columnas normativas: Sumas del Mayor (Debe/Haber), Saldos (Deudor/Acreedor), Ajustes por Transferencia (Debe/Haber), Estado de Situación Financiera (Activo/Pasivo) y Estado de Resultados por Naturaleza (Pérdidas/Ganancias).
-- **Entradas / Salidas:** Asientos del período. Salida en pantalla con resaltado de cuadre al céntimo y exportación PDF/Excel.
-- **Archivos:** `src/components/views/HojaTrabajo10ColumnasView.tsx`, `src/services/reportesEngine.ts`.
-
-#### 2.2. Balance general, Estado de resultados y Flujo de efectivo
-- **Ruta:** `Informes Contables › Balance general / Estado de resultados / Flujo de efectivo`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/ReportesFinancierosView.tsx`. Genera los tres Estados Financieros con clasificación de Activo Corriente/No Corriente, Pasivo y Patrimonio, y desglose de margen bruto, operativo y neto.
-- **Archivos:** `src/components/views/ReportesFinancierosView.tsx`.
+- **1.1. Nueva empresa** (`id: 'nueva-empresa'` | `ModalNuevaEmpresaBlanco.tsx` | `[COMPLETO]`): Creación de empresa en blanco con validación de RUC Módulo 11 y aislamiento en base propia. Restringido a `ADMIN_ESTUDIO` / `ADMINISTRADOR`.
+- **1.2. Abrir empresa… [Ctrl+K]** (`id: 'abrir-empresa'` | `SearchEmpresasModal.tsx` | `[COMPLETO]`): Buscador instantáneo de cartera multiempresa con cambio de contexto auditado.
+- **1.3. Período de trabajo** (`id: 'periodo-trabajo'` | `PeriodosView.tsx` | `[COMPLETO]`): Gestión de períodos mensuales (`ABIERTO` / `CERRADO`), bloqueo contable y reapertura justificada.
+- **1.4. Datos de la empresa** (`id: 'datos-empresa'` | `ConfigEmpresaModal.tsx` | `[COMPLETO]`): Configuración de régimen tributario (`MYPE_TRIBUTARIO`, `REGIMEN_GENERAL`, `REGIMEN_ESPECIAL`), coeficiente de renta, domicilio fiscal y ambiente SUNAT (`BETA` / `PRODUCCION`).
+- **1.5. Importar datos (CSV)** (`id: 'importar-csv'` | `ModalImportacionCsv.tsx` | `[COMPLETO]`): Importación atómica de catálogos, comprobantes y saldos iniciales con sanitización anti-inyección de fórmulas.
+- **1.6. Cerrar sesión / Salir** (`id: 'cerrar-sesion'`, `id: 'salir-app'` | `[COMPLETO]`): Revocación inmediata de sesión JWT y limpieza de estado.
 
 ---
 
-### MÓDULO 3: REPORTES SUNAT
+### GRUPO 2: CONTABILIDAD (`id: 'contabilidad'`)
 
-#### 3.1. Libros Oficiales SUNAT
-- **Ruta:** `Reportes SUNAT › Libros` | **ID:** `rep-libros`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `ReportesSunatEspecialesView.tsx` permitiendo emitir las vistas oficiales del Libro Diario (5.1), Libro Mayor (6.1), Registro de Compras (8.1) y Registro de Ventas (14.1).
-- **Archivos:** `src/components/views/ReportesSunatEspecialesView.tsx`, `src/services/pdfExportService.ts`.
-
-#### 3.2. PDB (Programa de Declaración de Beneficios)
-- **Ruta:** `Reportes SUNAT › PDB › PDB Renta anual / PDB IGV-Renta mensual`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Genera los archivos planos de exportación para importación en el módulo PDB de SUNAT para exportadores y reintegro tributario.
-- **Archivos:** `src/components/views/ReportesSunatEspecialesView.tsx`.
-
-#### 3.3. DAOT (Operaciones con Terceros)
-- **Ruta:** `Reportes SUNAT › DAOT`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Totaliza transacciones anuales por proveedor y cliente y filtra aquellos que superan el umbral legal de 2 UITs (S/ 10,700).
-- **Archivos:** `src/components/views/ReportesSunatEspecialesView.tsx`, `server/services/tributarioAnualService.ts`.
-
-#### 3.4. PDT (PDT 621 IGV-Renta, PDT 601 PLAME, PDT 617)
-- **Ruta:** `Reportes SUNAT › PDT`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `LiquidacionTributariaView.tsx` y `PlanillaPlameView.tsx`.
-- **Archivos:** `src/components/views/LiquidacionTributariaView.tsx`, `src/components/views/PlanillaPlameView.tsx`.
-
-#### 3.5. Libros Electrónicos & TXT Valida Compras
-- **Ruta:** `Reportes SUNAT › Libros Electrónicos / TXT valida compras SUNAT`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Genera los archivos con validación de tuberías (`|`) exigidas por el aplicativo PLE 5.2.
-- **Archivos:** `src/services/sireTxtGenerator.ts`, `src/components/views/SireConciliadorView.tsx`.
+- **2.1. Asientos [F2]** (`id: 'asientos'` | `VouchersView.tsx` | `[COMPLETO]`): Registro, edición en borrador, contabilización y extorno de asientos con partida doble obligatoria al céntimo (`asientoService.ts`).
+- **2.2. Plan de cuentas** (`id: 'plan-cuentas'` | `PlanCuentasView.tsx` | `[COMPLETO]`): Catálogo PCGE 2019/2026 de 2 a 6 dígitos con cuentas de movimiento y amarres automáticos Elemento 9/79.
+- **2.3. Centros de costo** (`id: 'centros-costo'` | `CentrosCostoView.tsx` | `[COMPLETO]`): Estructura de centros de costos vinculados a gastos administrativos, ventas y operaciones.
+- **2.4. Libros › Diario / Mayor / Caja y bancos** (`LibroDiarioView.tsx`, `LibroMayorView.tsx`, `CajaBancosView.tsx` | `[COMPLETO]`): Tres vistas independientes conectadas al almacenamiento persistente de asientos contabilizados, con exportación PDF Formato estándar Atlob y Excel.
+- **2.5. Ajustes y cierres › Diferencia de cambio / Cierre mensual / Cierre anual** (`DiferenciaCambioView.tsx`, `CierreMensualView.tsx`, `CierreAnualView.tsx` | `[COMPLETO]`): Vistas dedicadas para ajuste cambiario SBS (cuentas 676/776), validación de cierre mensual y asientos de cierre anual del Elemento 8.
 
 ---
 
-### MÓDULO 4: SIRE SUNAT +
+### GRUPO 3: COMPRAS Y VENTAS (`id: 'compras-ventas'`)
 
-#### 4.1. Conciliador SIRE vs Registro
-- **Ruta:** `SIRE SUNAT + › Conciliador SIRE vs registro` | **ID:** `sire-conciliador`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/SireConciliadorView.tsx`. Compara comprobante por comprobante (mediante el Código de Anotación de Registro - CAR) la propuesta descargada de SUNAT contra el Registro de Compras interno del ERP. Identifica 4 estados: Coincidentes, En propuesta pero no en ERP, En ERP pero no en propuesta, y Con diferencias de importe/IGV.
-- **Entradas / Salidas:** Archivos TXT o ZIP de propuesta de compras/ventas SUNAT SIRE. Genera reporte de inconsistencias y archivo TXT de reemplazo o ajustes posteriores.
-- **Archivos:** `src/components/views/SireConciliadorView.tsx`, `server/services/sireConciliadorService.ts`.
-
-#### 4.2. Importación de Propuesta Compras y Ventas (TXT / ZIP)
-- **Ruta:** `SIRE SUNAT + › Importar propuesta compras / ventas`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Parser que descomprime archivos ZIP del SIRE y extrae el archivo delimitado por pipes, poblando la tabla `sire_propuestas`.
-- **Archivos:** `server/routes/sunatSirePleRoutes.ts`, `src/services/sireTxtGenerator.ts`.
+- **3.1. Registro de compras** (`id: 'reg-compras'` | `RegistroComprasView.tsx` | `[COMPLETO]`): Registro de comprobantes de compras separando destino gravado (`1`), mixto/común (`2`) y no gravado (`3`/`4`), cálculo de detracciones SPOT y generación automática de voucher en Subdiario `01`.
+- **3.2. Registro de ventas** (`id: 'reg-ventas'` | `RegistroVentasView.tsx` | `[COMPLETO]`): Registro de comprobantes de venta alimentado por ingreso manual, importación CSV o lectura XML (desacoplado del Facturador Atlob externo), con generación automática en Subdiario `02`.
+- **3.3. Detracciones y retenciones** (`id: 'detracciones-retenciones'` | `DetraccionesRetencionesView.tsx` | `[COMPLETO]`): Control de constancias SPOT y comprobantes de retención/percepción del IGV.
 
 ---
 
-### MÓDULO 5: FACTURACIÓN ELECTRÓNICA
+### GRUPO 4: FACTURACIÓN (`id: 'facturacion'`)
 
-#### 5.1. Emisión de Factura / Boleta [F3]
-- **Ruta:** `Facturación › Emitir factura / boleta` | **ID:** `emitir-cp` | **Atajo:** `F3`
-- **Estado:** `[PARCIAL]`
-- **Flujo:** Abre `src/components/views/FacturacionElectronicaView.tsx`. Formulario completo de emisión con serie (`F001`, `B001`), RUC del cliente, ítems con precio unitario, subtotal, IGV 18% y total. Genera la representación del comprobante y simula la aprobación en línea con CDR.
-- **Limitación Real:** La estructura XML UBL 2.1 se construye en el cliente, pero el envío SOAP real al endpoint de producción de SUNAT (`https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService`) requiere que el estudio contable configure un Certificado Digital Tributario (`.pfx`) con clave privada, el cual está emulado en la instalación de prueba.
-- **Archivos:** `src/components/views/FacturacionElectronicaView.tsx`.
-
-#### 5.2. Notas de Crédito, Débito, Guías GRE y Bajas
-- **Ruta:** `Facturación › Notas de crédito / Guías de remisión (GRE) / Comunicación de baja`
-- **Estado:** `[PARCIAL]`
-- **Flujo:** Interfaz interactiva para generación de notas de crédito ligadas a facturas previas, guías de remisión y resúmenes de anulación dentro del plazo de 7 días.
-- **Archivos:** `src/components/views/FacturacionElectronicaView.tsx`.
-
-#### 5.3. Lector XML UBL / CDR
-- **Ruta:** `Facturación › Lector XML UBL / CDR`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Lee y parsea archivos XML con firma digital XAdES-BES extrayendo RUC emisor, receptor, digest value y constancia de recepción de SUNAT.
-- **Archivos:** `src/components/views/FacturacionElectronicaView.tsx`, `server/routes/operacionesRoutes.ts`.
+- **Nota de alcance:** La emisión real con firma criptográfica se pospone para el **Facturador Atlob** independiente y posterior sincronización.
+- **4.1. Emitir factura o boleta [F3]** (`EmitirComprobanteView.tsx` | `[PARCIAL]`): Emisión con adaptador sandbox rotulado `SIMULADO`.
+- **4.2. Notas de crédito y débito** (`NotasCreditoDebitoView.tsx` | `[PARCIAL]`): Emisión de notas vinculadas en entorno sandbox.
+- **4.3. Consulta de comprobantes / Lector de XML y CDR** (`ConsultaComprobantesView.tsx`, `LectorXmlCdrView.tsx` | `[COMPLETO]`): Validación de estructura UBL 2.1 y extracción de constancias CDR.
+- **4.4. Guías de remisión / Resumen diario y bajas / Series y certificado digital**: Deshabilitadas en menú con etiqueta `próximamente` (`estado: 'proximamente'`).
 
 ---
 
-### MÓDULO 6: CRÉDITOS Y COBRANZA
+### GRUPO 5: TRIBUTOS (`id: 'tributos'`) — DECLARACIONES SEPARADAS
 
-#### 6.1. Cuentas por Cobrar (CxC) y Cuentas por Pagar (CxP)
-- **Ruta:** `Créditos y Cobranza › Cuentas por cobrar / Cuentas por pagar` | **ID:** `cxc`, `cxp`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/CarteraSaldosView.tsx`. Lee los comprobantes de venta y compra pendientes de cobro/pago. Permite registrar abonos parciales, emitir notas de crédito por descuento y consultar la antigüedad de la deuda en tramos: Corriente, 1-30 días, 31-60 días, y más de 90 días.
-- **Archivos:** `src/components/views/CarteraSaldosView.tsx`, `server/routes/operacionesRoutes.ts`.
-
-#### 6.2. Vencimientos SUNAT
-- **Ruta:** `Créditos y Cobranza › Vencimientos SUNAT` | **ID:** `vencimientos-sunat`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Cruza el último dígito del RUC de la empresa activa contra la tabla oficial de vencimientos de obligaciones mensuales de SUNAT, notificando días restantes para la declaración PDT 621, SIRE y PLAME.
-- **Archivos:** `src/components/views/CarteraSaldosView.tsx`, `src/data/empresasClientes.ts`.
-
----
-
-### MÓDULO 7: TESORERÍA
-
-#### 7.1. Conciliación Bancaria y Movimientos
-- **Ruta:** `Tesorería › Conciliación bancaria / Movimientos bancarios` | **ID:** `conciliacion-bancaria`, `mov-bancarios`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/TesoreriaAvanzadaView.tsx`. Monitorea cuentas corrientes bancarias en Soles y Dólares (BCP, BBVA, Interbank, Scotiabank). Compara extractos bancarios contra los registros del Libro Caja y Bancos, calculando el Impuesto a las Transacciones Financieras (ITF 0.005%) y alertando diferencias no cuadradas.
-- **Archivos:** `src/components/views/TesoreriaAvanzadaView.tsx`, `server/routes/tesoreriaPlanillaRoutes.ts`.
-
-#### 7.2. Flujo de Caja Proyectado
-- **Ruta:** `Tesorería › Flujo de caja proyectado` | **ID:** `flujo-caja-proyectado`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Proyecta la liquidez de la empresa activa a 30, 60 y 90 días considerando vencimientos de facturas de clientes, pagos a proveedores y tributos mensuales estimados.
-- **Archivos:** `src/components/views/TesoreriaAvanzadaView.tsx`.
+Cada obligación tributaria opera en su propia vista, ruta, servicio, tablas y suite de pruebas sin mezclar datos entre sí:
+- **5.1. Declaración mensual IGV-Renta (PDT 621)** (`id: 'declaracion-igv-renta'` | `LiquidacionTributariaView.tsx` | `server/services/liquidacionIGVService.ts` | `/api/tributos/pdt621` | `[COMPLETO]`):
+  - Calcula débito fiscal desde `comprobantes_venta`, crédito fiscal desde `comprobantes_compra` (separando destino gravado, destino común/mixto con prorrata opcional y destino no gravado), saldo a favor del período anterior, retenciones y percepciones del IGV, y pago a cuenta del Impuesto a la Renta según régimen (`MYPE_TRIBUTARIO`, `REGIMEN_GENERAL`, `REGIMEN_ESPECIAL`, `NRUS`) leyendo tasas y topes desde `parametros_tributarios`.
+  - Flujo de estados: `BORRADOR` → `PRELIQUIDADO` (genera automáticamente el asiento contable de determinación del impuesto y bloquea al rol `AUDITOR`) → `PRESENTADO` (registra número de orden y fecha manuales) → `RECTIFICATORIA` (crea nueva versión conservando intacta la liquidación sustituida en `declaraciones_pdt621`).
+  - Salida: Resumen imprimible en **PDF Formato estándar Atlob** con las casillas oficiales para llenado del PDT 621 (no declara directamente ante SUNAT).
+- **5.2. Prorrata del IGV** (`id: 'prorrata-igv'` | `ProrrataIgvView.tsx` | `server/services/prorrataIgvService.ts` | `/api/tributos/prorrata-igv` | `[COMPLETO]`):
+  - Determina el coeficiente y porcentaje de operaciones gravadas y de exportación acumuladas de los últimos 12 meses (Art. 23° TUO Ley del IGV y Art. 6° num. 6 Reglamento), prorratea el IGV de compras de destino común (`2`), envía la porción no admitida al gasto/costo (`Cuenta 64111`) y permite activar/desactivar su integración con la declaración mensual PDT 621.
+- **5.3. Declaración anual de Renta** (`id: 'declaracion-renta-anual'` | `DeclaracionRentaAnualView.tsx` | `server/services/djRentaAnualService.ts` | `/api/tributos/renta-anual` | `[COMPLETO]`):
+  - Papeles de trabajo de determinación anual para `REGIMEN_GENERAL` (29.5%) y `MYPE_TRIBUTARIO` (tramo hasta 15 UIT al 10% y exceso al 29.5%, leídos de `parametros_tributarios`), conciliación tributaria (utilidad contable + adiciones − deducciones), compensación de pérdidas arrastrables (Sistema A 4 años o Sistema B 50% de renta neta según Art. 50° LIR), descuento de pagos a cuenta mensuales y saldo por regularizar o a favor.
+- **5.4. Operaciones con terceros (DAOT)** (`id: 'daot'` | `DaotView.tsx` | `server/services/daotService.ts` | `/api/tributos/daot` | `[COMPLETO]`):
+  - Acumulado anual de base imponible neta (sin IGV) por cliente y proveedor, umbral parametrizable en UIT por año (`UMBRAL_DAOT_UIT = 2 UIT` = `S/ 11,000.00` en 2026 desde `parametros_tributarios`), depuración auditada con motivos de exclusión (`daot_exclusiones`) y exportación en formato TXT oficial PDT 3500 (`COSTOS.TXT` / `INGRESOS.TXT`).
+- **5.5. Cronograma de vencimientos** (`id: 'cronograma-vencimientos'` | `CronogramaVencimientosView.tsx` | `server/services/cronogramaVencimientosService.ts` | `/api/tributos/cronograma` | `[COMPLETO]`):
+  - Tabla versionada por año, período, último dígito de RUC (`0` al `9` y `B` Buenos Contribuyentes y UESP) y obligación (`PDT_621`, `PLAME`, `DAOT`, `RENTA_ANUAL`), editable por el administrador del estudio y con alerta de días restantes en la barra de estado y en los indicadores del estudio.
+- **5.6. Parámetros tributarios** (`id: 'parametros-tributarios'` | `ParametrosTributariosView.tsx` | `server/repositories/parametroRepository.ts` | `/api/parametros` | `[COMPLETO]`):
+  - Tabla editable por `ADMIN_ESTUDIO` / `ADMINISTRADOR` con vigencia temporal (`vigente_desde`, `vigente_hasta`) e historial de auditoría encadenado (`auditoriaChainService`) para UIT (`S/ 5,500` en 2026), tasa de IGV (`18%`), tasas y tramos de Renta y umbral DAOT.
+- **5.7. Simulador de fiscalización SUNAT** (`id: 'simulador-fiscalizacion'` | `SimuladorFiscalizacionView.tsx` | `[COMPLETO]`): Cruce preventivo de consistencia entre libros y declaraciones.
 
 ---
 
-### MÓDULO 8: CAJA CHICA
+### GRUPO 6: PLANILLAS (`id: 'planillas'`)
 
-#### 8.1. Apertura / Cierre de Caja, Registro de Gastos y Reposición
-- **Ruta:** `Caja Chica › Apertura / cierre de caja / Registro de gastos / Reposición` | **ID:** `caja-apertura-cierre`, `caja-gastos`, `caja-reposicion`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/CajaChicaView.tsx`. Administra fondos fijos autorizados, rendición de gastos menores con comprobantes físicos (movilidades, suministros, refrigerios), control de saldo disponible en tiempo real con barra de consumo y generación automática de la póliza de reembolso contable.
-- **Archivos:** `src/components/views/CajaChicaView.tsx`, `server/storage/registroDatosEmpresa.ts`.
+- **6.1. Trabajadores / Planilla mensual / Recibos por honorarios (4ta) / Exportar PLAME** (`TrabajadoresView.tsx`, `PlanillaPlameView.tsx`, `HonorariosView.tsx`, `ExportarPlameView.tsx` | `[PARCIAL]`): Cálculo de remuneraciones, ONP/AFP, EsSalud 9%, Renta 4ta/5ta y exportación de archivos `.rem` y `.jor`. Opciones `Boletas de pago`, `Gratificaciones y CTS` y `T-Registro` marcadas como `próximamente`.
 
 ---
 
-### MÓDULO 9: GESTIÓN DE NEGOCIO
+### GRUPO 7: REGISTROS ELECTRÓNICOS (`id: 'registros-electronicos'`)
 
-#### 9.1. Cartera de Empresas
-- **Ruta:** `Gestión de Negocio › Cartera de empresas` | **ID:** `cartera-empresas`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/MisEmpresasNivel1View.tsx`. Vista panorámica de todas las empresas clientes asignadas al estudio Atlob Consultores con semáforo de estado de declaración (Al día, Preliquidado, Por vencer) y buscador en tiempo real.
-- **Archivos:** `src/components/views/MisEmpresasNivel1View.tsx`.
-
-#### 9.2. Dashboard Gerencial
-- **Ruta:** `Gestión de Negocio › Dashboard gerencial` | **ID:** `dashboard-gerencial`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/DashboardView.tsx`. Gráficos ejecutivos de ventas mensuales, compras netas, IGV acumulado, resultado preliminar y estado del PDT 621.
-- **Archivos:** `src/components/views/DashboardView.tsx`.
-
-#### 9.3. Control de Calidad y Biblioteca de Documentos
-- **Ruta:** `Gestión de Negocio › Control de calidad / Biblioteca de documentos` | **ID:** `control-calidad`, `biblioteca-docs`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/GestionNegocioView.tsx`. Muestra el índice de cumplimiento tributario del estudio Atlob (98.5%) y ofrece un repositorio de plantillas normativas descargables (Actas de Junta General de Accionistas, Minutas de Constitución de S.A.C., Declaraciones de Domicilio Fiscal y Contratos de Locación de Servicios Contables).
-- **Archivos:** `src/components/views/GestionNegocioView.tsx`.
+- **7.1. SIRE › Propuesta de compras RCE / Propuesta de ventas RVIE / Conciliador SIRE vs registro / Ajustes y reemplazo TXT** (`SirePropuestaComprasView.tsx`, `SirePropuestaVentasView.tsx`, `SireConciliadorView.tsx`, `SireAjustesReemplazoView.tsx` | `[COMPLETO]`): Vistas desacopladas para importación de propuestas, conciliación determinista y generación de archivos TXT normativos.
+- **7.2. PLE 5.2 › Generar libros electrónicos / Validar estructura TXT** (`LibrosElectronicosView.tsx`, `ValidarLibrosElectronicosView.tsx` | `[COMPLETO]`): Generación y validación de libros 5.1, 6.1, 8.1 y 14.1 con nomenclatura oficial de 33 caracteres.
 
 ---
 
-### MÓDULO 10: EMPRESA
+### GRUPO 8: TESORERÍA (`id: 'tesoreria'`)
 
-#### 10.1. Nueva Empresa, Buscar Empresa y Configuración
-- **Ruta:** `Empresa › Nueva empresa / Buscar empresa [Ctrl+K] / Configurar empresa`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Modales modulares que permiten registrar nuevas empresas con validación RUC Módulo 11, buscar instantáneamente con `Ctrl+K` y actualizar Clave SOL, régimen tributario y dirección fiscal.
-- **Archivos:** `src/components/modals/SearchEmpresasModal.tsx`, `ConfigEmpresaModal.tsx`, `ModalNuevaEmpresaBlanco.tsx`.
-
-#### 10.2. Importar CSV
-- **Ruta:** `Empresa › Importar CSV` | **ID:** `importar-csv`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/modals/ModalImportacionCsv.tsx`. Permite importar catálogos de proveedores, clientes, plan de cuentas, trabajadores y saldos iniciales de apertura con verificación de partida doble y opción de rollback atómico.
-- **Archivos:** `src/components/modals/ModalImportacionCsv.tsx`, `server/services/importacionCsvService.ts`.
-
-#### 10.3. Cambiar Período
-- **Ruta:** `Empresa › Cambiar período` | **ID:** `cambiar-periodo`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/PeriodosView.tsx`. Lista los meses del ejercicio fiscal con estado Abierto/Cerrado, fecha y usuario de cierre, con capacidad de reapertura justificada.
-- **Archivos:** `src/components/views/PeriodosView.tsx`.
+- **8.1. Cuentas bancarias / Conciliación bancaria / Movimientos bancarios / Flujo de caja proyectado** (`CuentasBancariasView.tsx`, `ConciliacionBancariaView.tsx`, `MovimientosBancariosView.tsx`, `FlujoCajaProyectadoView.tsx` | `[PARCIAL]`): Gestión de extractos, conciliación asistida e ITF `0.005%` truncado.
+- **8.2. Cuentas por cobrar / Cuentas por pagar / Antigüedad de saldos** (`CuentasPorCobrarView.tsx`, `CuentasPorPagarView.tsx`, `AntiguedadSaldosView.tsx` | `[COMPLETO]`): Control de saldos comerciales sin mezclar obligaciones tributarias. `Letras y pagarés` en estado `próximamente`.
+- **8.3. Caja chica › Apertura y cierre / Gastos / Reposición** (`CajaChicaAperturaView.tsx`, `CajaChicaGastosView.tsx`, `CajaChicaReposicionView.tsx` | `[COMPLETO]`).
 
 ---
 
-### MÓDULO 11: TABLAS
+### GRUPO 9: INVENTARIOS Y ACTIVOS (`id: 'inventarios-activos'`)
 
-#### 11.1. Clientes y Proveedores, Tipos de Comprobante, Tipo de Cambio, Bancos
-- **Ruta:** `Tablas › Clientes y proveedores / Tipos de comprobante / Tipo de cambio / Bancos / Unidades de medida`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/views/MaestrosView.tsx` posicionando la pestaña requerida. Incluye sincronización oficial de Tipos de Cambio diarios SBS (Compra / Venta) y validación de RUCs habidos/activos.
-- **Archivos:** `src/components/views/MaestrosView.tsx`, `src/data/maestros.ts`.
+- **9.1. Kardex / Existencias / Activos fijos / Depreciación mensual**: Marcados honestamente como `próximamente` (`estado: 'proximamente'`) hasta su fase dedicada.
 
 ---
 
-### MÓDULO 12: UTILITARIOS
+### GRUPO 10: ESTADOS FINANCIEROS (`id: 'estados-financieros'`)
 
-#### 12.1. Respaldos
-- **Ruta:** `Utilitarios › Respaldos` | **ID:** `respaldos`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `src/components/modals/ModalBackupEmpresa.tsx`. Genera paquetes ZIP cifrados con algoritmo AES-256-GCM conteniendo todos los datos de la empresa en formato NDJSON con firma SHA-256 en su `manifest.json`. Excluye expresamente credenciales y usuarios por decisión de seguridad confirmada.
-- **Archivos:** `src/components/modals/ModalBackupEmpresa.tsx`, `server/services/backupEmpresaService.ts`.
-
-#### 12.2. Restaurar Demo
-- **Ruta:** `Utilitarios › Restaurar demo` | **ID:** `restaurar-demo`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Limpia mutaciones transitorias y restablece los saldos contables y comprobantes de prueba de la empresa demo corporativa.
-- **Archivos:** `src/App.tsx`, `src/data/empresasClientes.ts`.
-
-#### 12.3. Usuarios y Roles / Auditoría del Sistema
-- **Ruta:** `Utilitarios › Usuarios y roles / Auditoría del sistema`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre `UsuariosPermisosView.tsx` (administración de accesos RBAC) y `MapaAuditoriaSistemaView.tsx` (dossier interactivo de arquitectura, catálogo de base de datos y cumplimiento técnico SUNAT).
-- **Archivos:** `src/components/views/UsuariosPermisosView.tsx`, `src/components/views/MapaAuditoriaSistemaView.tsx`.
-
-#### 12.4. Formato de Reporte
-- **Ruta:** `Utilitarios › Formato de reporte › Estándar (monocromo) / Corporativo (color)`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Conmuta la variable global `REPORT_STYLE` entre `"estandar"` (formato blanco y negro estilo SISCONT de alta densidad) y `"actual"` (corporativo a color). Notifica el cambio mediante toast y actualiza inmediatamente todas las exportaciones a PDF y Excel.
-- **Archivos:** `src/context/ReportStyleContext.tsx`, `src/services/reports/formato_estandar/formatoEstandarEngine.ts`.
+- **10.1. Hoja de trabajo (10 columnas) / Estado de situación financiera / Estado de resultados / Estado de flujo de efectivo / Análisis de cuentas** (`HojaTrabajo10ColumnasView.tsx`, `BalanceGeneralView.tsx`, `EstadoResultadosView.tsx`, `FlujoEfectivoView.tsx`, `AnalisisCuentasView.tsx` | `[COMPLETO]`).
 
 ---
 
-### MÓDULO 13: AYUDA
+### GRUPO 11: ESTUDIO (`id: 'estudio'`)
 
-#### 13.1. Acerca de Atlob Consultores ERP / Desarrollado por Jimmy Mayta
-- **Ruta:** `Ayuda › Acerca de Atlob Consultores ERP / Desarrollado por Jimmy Mayta` | **ID:** `acerca-de`, `autor`
-- **Estado:** `[COMPLETO]`
-- **Flujo:** Abre el modal institucional `AcercaDeModal.tsx` mostrando el logo cuadrado azul "A", denominación oficial, versión 2026.1 Profesional, arquitectura técnica y firma de autoría de **Jimmy Mayta**.
-- **Archivos:** `src/components/modals/AcercaDeModal.tsx`.
+- **11.1. Cartera de empresas / Indicadores del estudio / Control de calidad / Biblioteca de plantillas** (`MisEmpresasNivel1View.tsx`, `DashboardView.tsx`, `ControlCalidadEstudioView.tsx`, `BibliotecaPlantillasView.tsx` | `[COMPLETO]`). `Portal del cliente` en estado `próximamente`.
+
+---
+
+### GRUPO 12: HERRAMIENTAS (`id: 'herramientas'`)
+
+- **12.1. Calculadora tributaria** (`CalculadoraContableModal.tsx` | `[COMPLETO]`).
+- **12.2. Tablas maestras › Clientes y proveedores / Tipos de comprobante / Tipo de cambio SBS / Bancos / Unidades de medida** (5 vistas independientes `[COMPLETO]`).
+- **12.3. Respaldos / Restaurar datos de demostración / Usuarios y permisos / Auditoría del sistema / Estilo de reporte** (`ModalBackupEmpresa.tsx`, `UsuariosPermisosView.tsx`, `MapaAuditoriaSistemaView.tsx` | `[COMPLETO]`).
+
+---
+
+### GRUPO 13: AYUDA (`id: 'ayuda'`)
+
+- **13.1. Guía rápida y atajos / Estado de conexión SUNAT / Acerca de Atlob Consultores ERP** (`GuiaRapidaAtajosView.tsx`, `SunatSyncView.tsx`, `AcercaDeModal.tsx` | `[COMPLETO]`).
 
 ---
 
@@ -641,46 +477,75 @@ A continuación se auditan las **13 opciones de primer nivel** y sus respectivos
   - Elemento 1, 2, 3: Activo Disponible, Exigible, Realizable e Inmovilizado.
   - Elemento 4: Pasivo (40111 IGV, 40171 Renta 3ra, 40172 Renta 4ta, 4031 EsSalud, 4032 ONP, 4111 Remuneraciones, 4212 Facturas emitidas por pagar).
   - Elemento 5: Patrimonio Neto (5011 Capital social, 5911 Utilidades acumuladas).
-  - Elemento 6: Gastos por Naturaleza (6011 Mercaderías, 6211 Sueldos, 6321 Honorarios, 6561 Suministros).
+  - Elemento 6: Gastos por Naturaleza (6011 Mercaderías, 6211 Sueldos, 6321 Honorarios, 64111 IGV no acreditable por prorrata, 6561 Suministros).
   - Elemento 7: Ingresos (70111 Ventas locales mercaderías, 70211 Exportación).
   - Elemento 8: Saldos Intermediarios de Gestión (80 al 89 para cierre anual).
   - Elemento 9: Contabilidad Analítica de Explotación (941 Gastos de Administración, 951 Gastos de Ventas, con abono correlativo a la 791 Cargas imputables a cuentas de costos).
 
 ### 5.2. Sistema Integrado de Registros Electrónicos (SIRE)
-- **Implementación:** `src/services/sireTxtGenerator.ts` y `server/services/sireConciliadorService.ts`.
-- **Estructura RCE (Compras):** Genera archivos `.txt` de 36 columnas según R.S. 112-2021/SUNAT.
-  - Campo 1: RUC del contribuyente.
-  - Campo 2: Razón social.
-  - Campo 3: Período (`AAAAMM00`).
-  - Campo 4: CAR (Código de Anotación de Registro de 27 caracteres).
-  - Campo 5 a 10: Fechas de emisión/vencimiento, tipo de comprobante, serie y número.
-  - Campo 11 a 26: Desglose de Base Gravada Operación Destinada a Ventas Gravadas, IGV, Adquisiciones Gravadas destinadas a Ventas No Gravadas, No Gravadas, ISC, ICBPER y Total.
-- **Conciliación Automática:** Cruce exhaustivo por clave compuesta `{tipoDoc}-{serie}-{numero}-{proveedorRuc}`.
+- **Implementación:** `src/services/sireTxtGenerator.ts`, `server/services/conciliadorSireService.ts` y vistas separadas `SirePropuestaComprasView.tsx`, `SirePropuestaVentasView.tsx`, `SireConciliadorView.tsx` y `SireAjustesReemplazoView.tsx`.
+- **Estructura RCE / RVIE (R.S. N° 000112-2021/SUNAT y R.S. N° 000040-2022/SUNAT):**
+  - Propuesta RCE (Compras): 41 campos; Reemplazo de Propuesta RCE (Anexo 11): 44 campos; Ajustes Posteriores RCE (Anexo 12): 45 campos.
+  - Propuesta RVIE (Ventas): 40 campos; Reemplazo de Propuesta RVIE (Anexo 3): 40 campos; Ajustes Posteriores RVIE (Anexo 4): 41 campos.
+  - Incluye RUC, Razón Social, Período, CAR SUNAT (27 dígitos: `RUC Emisor(11) + Tipo CP(2) + Serie(4) + Número(10)`), fechas, bases imponibles por destino (DG, DGNG, DNG), IGV, ICBPER, otros tributos y total.
+- **Conciliación Automática:** Cruce determinista mediante clave compuesta normalizada `{tipoDoc}-{serie}-{numero}-{proveedorRuc}` (isomorfa a los 27 dígitos del CAR SUNAT, permitiendo conciliar comprobantes registrados antes de la descarga de la propuesta).
 
 ### 5.3. Libros Electrónicos PLE 5.2
-- **Implementación:** `src/services/sireTxtGenerator.ts` y `server/routes/sunatSirePleRoutes.ts`.
-- **Nomenclatura Normativa Estricta:**
-  - Formato: `LE{RUC}{AAAA}{MM}00{COD_LIBRO}00{CONTENIDO}{ESTADO_ENVIO}{MONEDA}1.txt`
+- **Implementación:** `server/services/pleGeneratorService.ts` y `src/components/views/LibrosElectronicosView.tsx`.
+- **Nomenclatura Normativa Estricta (33 caracteres antes de `.txt`, Anexo 2 R.S. N° 286-2009/SUNAT):**
+  - Formato: `LE{RUC(11)}{AAAA(4)}{MM(2)}{DD(2)}{LLLLLL(6)}{CC(2)}{O(1)}{I(1)}{M(1)}{G(1)}.txt`
   - Ejemplo Libro Diario: `LE2060123456720260900050100001111.txt`
   - Ejemplo Libro Mayor: `LE2060123456720260900060100001111.txt`
 - **Formato:** Separador de campos por pleca (`|`), saltos de línea CRLF, sin cabeceras textuales, codificación UTF-8 sin BOM conforme a especificación SUNAT.
 
-### 5.4. Facturación Electrónica UBL 2.1
-- **Implementación:** `src/components/views/FacturacionElectronicaView.tsx` y `server/routes/operacionesRoutes.ts`.
-- **Realidad Técnica:** El sistema procesa y valida comprobantes UBL 2.1 XML con espacios de nombres `urn:oasis:names:specification:ubl:schema:xsd:Invoice-2` y `urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2`. La lectura y extracción de CDR (`ApplicationResponse` con código `0` de aceptación) es completamente funcional. En el entorno de prueba, la conexión directa SOAP está en modo emulador para no requerir un certificado digital real emitido por RENIEC/Camerfirma en cada clon del repositorio.
+### 5.4. Facturación Electrónica UBL 2.1 (Pospuesta para Facturador Atlob)
+- **Implementación:** Vistas `EmitirComprobanteView.tsx`, `NotasCreditoDebitoView.tsx`, `ConsultaComprobantesView.tsx` y `LectorXmlCdrView.tsx`.
+- **Realidad Técnica:** La lectura y validación de XML UBL 2.1 y CDR es funcional. La emisión real se trabajará en el Facturador Atlob independiente y se sincronizará posteriormente; por ello, el Registro de Ventas y las declaraciones tributarias leen exclusivamente la tabla `comprobantes_venta` (alimentada por ingreso manual, CSV o lectura XML).
 
-### 5.5. Fórmulas de Liquidación PDT 621 IGV-Renta
-Implementadas en `src/services/accountingEngine.ts → calcularLiquidacionPDT621`:
-$$\text{Débito Fiscal IGV} = \sum (\text{Ventas Gravadas Aceptadas}) \times 0.18$$
-$$\text{Crédito Fiscal IGV} = \sum (\text{Compras Gravadas con Derecho a Crédito Fiscal}) \times 0.18$$
-$$\text{IGV Neto del Mes} = \text{Débito Fiscal} - \text{Crédito Fiscal} - \text{Saldo a Favor del Período Anterior}$$
-$$\text{IGV a Pagar} = \max(0, \text{IGV Neto})$$
-$$\text{Pago a Cuenta Renta (Régimen MYPE)} = \text{Ventas Netas Gravadas} \times 0.01$$
-$$\text{Pago a Cuenta Renta (Régimen General)} = \text{Ventas Netas Gravadas} \times \max(0.015, \text{Coeficiente Anual})$$
+### 5.5. Tabla Completa de Fórmulas de la Declaración Mensual IGV-Renta (PDT 621) y Tributos conexos
 
-### 5.6. Cronograma de Vencimientos por Último Dígito de RUC
-- Almacenado en la tabla `cronograma_vencimientos` y en el objeto `CRONOGRAMA_SUNAT_2026`.
-- Resuelve la fecha límite mensual según el último dígito del RUC (0 al 9 y Buenos Contribuyentes).
+Implementadas en `server/services/liquidacionIGVService.ts` con aritmética exacta `decimal.js` (`Money`) y parámetros leídos de `parametros_tributarios` (`TASA_IGV = 0.18`, `VALOR_UIT_2026 = 5500.00`, `TASA_RENTA_MYPE_SUB300 = 0.01`, `TASA_RENTA_RG_MIN = 0.015`, `TASA_RENTA_RER = 0.015`):
+
+#### A. Tabla Oficial de Casillas PDT 621 (IGV y Pagos a Cuenta de Renta)
+
+| Casilla Oficial | Denominación en PDT 621 | Fórmula Exacta (`decimal.js`) | Origen del Dato (Almacenamiento Persistente) | Regla de Redondeo |
+|:---:|---|---|---|---|
+| **100** | Ventas netas gravadas (Base imponible) | $\sum \text{BaseGravada}(\text{Tipo } 01, 03, 08)$ | `comprobantes_venta` (`estado != 'ANULADO'`) del período | 2 decimales (informativo) y entero en casilla PDT |
+| **101** | Tributo IGV Ventas gravadas (18%) | $\text{Casilla } 100 \times \text{TASA\_IGV}$ | `comprobantes_venta.igv` (o recálculo sobre base gravada) | Redondeo comercial a 2 decimales / entero SUNAT |
+| **102** | Descuentos concedidos y devoluciones de ventas (Base NC) | $\sum |\text{BaseGravada}(\text{Tipo } 07)|$ | `comprobantes_venta` con `tipo_comprobante = '07'` | 2 decimales |
+| **103** | Tributo IGV Descuentos y devoluciones (NC) | $\sum |\text{IGV}(\text{Tipo } 07)|$ | `comprobantes_venta` con `tipo_comprobante = '07'` | 2 decimales |
+| **106** | Exportaciones facturadas en el período | $\sum \text{InafectoExportacion}$ | `comprobantes_venta.inafecto` (operaciones de exportación) | 2 decimales |
+| **109** | Ventas no gravadas (sin considerar exportaciones) | $\sum \text{Exonerado} + \sum \text{InafectoLocal}$ | `comprobantes_venta.exonerado + comprobantes_venta.inafecto` | 2 decimales |
+| **131** | **TOTAL DÉBITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 101 - \text{Casilla } 103)$ | Cálculo determinista en `liquidacionIGVService.ts` | 2 decimales |
+| **107** | Compras netas destinadas a ventas gravadas exclusivamente (Base) | $\sum \text{BaseGravada}(\text{Destino } = \text{'1'}) - \sum |\text{NC Destino } \text{'1'}|$ | `comprobantes_compra` (`codigo_destino_igv = '1'`, con derecho a CF) | 2 decimales |
+| **108** | Tributo IGV Compras destino gravado exclusivo | $\sum \text{IGV}(\text{Destino } = \text{'1'}) - \sum |\text{IGV NC Destino } \text{'1'}|$ | `comprobantes_compra.igv` (`codigo_destino_igv = '1'`) | 2 decimales |
+| **110** | Compras netas destinadas a ventas gravadas y no gravadas — Destino común (Base) | $\sum \text{BaseGravada}(\text{Destino } = \text{'2'})$ | `comprobantes_compra` (`codigo_destino_igv = '2'`) | 2 decimales |
+| **111** | Tributo IGV Compras destino común (aplicando Prorrata si corresponde) | Si Prorrata activa: $\text{IGV}_{\text{común}} \times \frac{\text{PorcentajeProrrata}}{100}$; sino $\text{IGV}_{\text{común}}$ | `comprobantes_compra` + `declaraciones_prorrata_igv` (Art. 23° LIGV) | 2 decimales (porción no admitida va a Cuenta `64111`) |
+| **120** | Adquisiciones no gravadas / sin derecho a crédito fiscal | $\sum \text{Base}(\text{Destino } \in \{\text{'3'}, \text{'4'}\}) + \sum \text{Exonerado/Inafecto}$ | `comprobantes_compra` (`codigo_destino_igv IN ('3','4')` o no gravadas) | 2 decimales |
+| **178** | **TOTAL CRÉDITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 108 + \text{Casilla } 111)$ | Cálculo determinista en `liquidacionIGVService.ts` | 2 decimales |
+| **140** | Impuesto resultante o Saldo a favor del período | $\text{Casilla } 131 - \text{Casilla } 178$ | Si $> 0$: Impuesto resultante; si $< 0$: Saldo a favor del mes | 2 decimales |
+| **145** | Saldo a favor del período anterior | $\text{SaldoAFavorArrastrable}_{t-1}$ | `declaraciones_pdt621` del período $t-1$ (o parámetro inicial) | 2 decimales |
+| **184** | Tributo a pagar o Saldo a favor | $\text{Casilla } 140 - \text{Casilla } 145$ | Si $> 0$: Tributo resultante; si $< 0$: Nuevo saldo a favor | 2 decimales |
+| **171** | Percepciones del IGV declaradas en el período | $\sum \text{MontoPercepcion}(\text{periodo}) + \text{ArrastrePercepciones}$ | Tabla `retenciones_percepciones_igv` (`tipo = 'PERCEPCION'`) | 2 decimales |
+| **179** | Retenciones del IGV declaradas en el período | $\sum \text{MontoRetencion}(\text{periodo}) + \text{ArrastreRetenciones}$ | Tabla `retenciones_percepciones_igv` (`tipo = 'RETENCION'`) | 2 decimales |
+| **188** | **TOTAL DEUDA TRIBUTARIA IGV (O SALDO A FAVOR PRÓXIMO MES)** | $\max(0,\; \text{Casilla } 184 - \text{Casilla } 171 - \text{Casilla } 179)$ | Si $\text{Casilla } 184 - 171 - 179 < 0$, se arrastra al período $t+1$ | Entero SUNAT (`ROUND_HALF_UP`) y detalle al céntimo |
+| **301** | Ingresos netos del mes (Base pago a cuenta Renta 3ra) | $\max(0,\; \text{Casilla } 100 - \text{Casilla } 102 + \text{Casilla } 106 + \text{Casilla } 109)$ | `comprobantes_venta` (ventas netas devengadas del período) | 2 decimales |
+| **315** | Coeficiente o porcentaje aplicable Renta | RMT $\le 300\text{ UIT}$: $1.00\%$; RMT $> 300\text{ UIT}$ o RG: $\max(1.50\%, \text{Coeficiente})$; RER: $1.50\%$ | `empresas.regimen_tributario`, `empresas.coeficiente_renta` y `parametros_tributarios` | 4 decimales para coeficiente |
+| **302** | **Pago a cuenta determinado de Renta** | $\text{Casilla } 301 \times \text{TasaAplicada}$ (o cuota fija NRUS) | Cálculo determinista según régimen tributario | 2 decimales |
+| **303** | Saldo a favor de Renta / compensaciones aplicadas | $\min(\text{Casilla } 302,\; \text{SaldoFavorRentaAnterior})$ | `declaraciones_pdt621` / `declaraciones_renta_anual` | 2 decimales |
+| **304** | **PAGO A CUENTA DE RENTA A PAGAR** | $\max(0,\; \text{Casilla } 302 - \text{Casilla } 303)$ | Deuda neta de Renta de 3ra Categoría del mes | Entero SUNAT (`ROUND_HALF_UP`) y detalle al céntimo |
+
+#### B. Fórmula de Prorrata del Crédito Fiscal IGV (Art. 23° TUO LIGV y Art. 6° num. 6 Reglamento)
+$$\text{Coeficiente de Prorrata (12 meses)} = \frac{\sum_{i=t-11}^{t} (\text{Ventas Gravadas}_i + \text{Exportaciones}_i)}{\sum_{i=t-11}^{t} (\text{Ventas Gravadas}_i + \text{Exportaciones}_i + \text{Ventas No Gravadas}_i)}$$
+$$\text{Porcentaje Aplicable} = \text{round}(\text{Coeficiente} \times 100,\; 2\text{ decimales})$$
+$$\text{Crédito Fiscal Destino Común Admitido} = \text{IGV Compras Destino Común} \times \left(\frac{\text{Porcentaje Aplicable}}{100}\right)$$
+$$\text{IGV No Admitido (Costo/Gasto Cuenta 64111)} = \text{IGV Compras Destino Común} - \text{Crédito Fiscal Destino Común Admitido}$$
+
+### 5.6. Cronograma de Vencimientos y SUPUESTOS A VALIDAR
+- **Implementación:** Tabla versionada `cronograma_vencimientos` gestionada por `server/services/cronogramaVencimientosService.ts` y vista `CronogramaVencimientosView.tsx`, completamente separada de Cuentas por Cobrar/Pagar (`CarteraSaldosView.tsx`).
+- **SUPUESTOS A VALIDAR (Transparencia Normativa):**
+  1. **Fechas exactas del Cronograma SUNAT 2026 (`es_supuesto_validar = true`):** Las fechas de vencimiento para los períodos tributarios 2026 por último dígito de RUC (`0` al `9` y `B` para Buenos Contribuyentes y UESP) siguen el patrón oficial de días hábiles del mes siguiente publicado por SUNAT para obligaciones mensuales (PDT 621 / PLAME) y anuales (DAOT / Renta Anual). Cada fila incluye la marca explícita `SUPUESTO A VALIDAR` y es editable en tiempo real por `ADMIN_ESTUDIO` / `ADMINISTRADOR` al publicarse o modificarse la Resolución de Superintendencia respectiva.
+  2. **Integración futura con Facturador Atlob:** El Registro de Ventas y todas las declaraciones tributarias leen exclusivamente la tabla `comprobantes_venta`; cuando se conecte el Facturador Atlob externo, este insertará comprobantes validados en `comprobantes_venta` sin alterar una sola línea de cálculo del PDT 621, Prorrata, DAOT ni Renta Anual.
 
 ---
 
@@ -689,9 +554,9 @@ $$\text{Pago a Cuenta Renta (Régimen General)} = \text{Ventas Netas Gravadas} \
 | ID | Módulo | Severidad | Archivo / Línea | Descripción del Problema | Causa Raíz Probable | Solución Sugerida |
 |---|---|:---:|---|---|---|---|
 | **BUG-01** | Test Suite | **Media** *(Resuelto)* | `server/routes/index.ts:24` | El endpoint `/api/health` devolvía 200 en pruebas sin Postgres, cuando el test esperaba 503 para certificar aislamiento. | Condición `process.env.NODE_ENV !== 'production'` no excluía expresamente el entorno `'test'`. | Ajustado a `isPostgres \|\| (NODE_ENV !== 'production' && NODE_ENV !== 'test')`. Prueba pasa al 100%. |
-| **BUG-02** | Facturación | **Media** | `FacturacionElectronicaView.tsx:88` | Emisión UBL 2.1 simula el CDR en lugar de comunicarse con el Web Service SOAP de SUNAT. | Ausencia de certificado digital `.pfx` en el repositorio (por obvias razones de seguridad de claves privadas). | Implementar un sub-módulo de subida de certificado tributario cifrado con clave en la configuración de la empresa. |
-| **BUG-03** | Planilla PLAME | **Baja** | `PlanillaPlameView.tsx:45` | No genera los archivos masivos de exportación `.rem` (remuneraciones) y `.jor` (jornadas laborales) para el PDT 601. | El cálculo contable y de aportes existe, pero falta el exportador de archivos con delimitador pipe para el PDT PLAME. | Agregar función `exportarPlameTxt()` homologada con la estructura del validador de SUNAT. |
-| **BUG-04** | Formato Específico | **Baja** | `TopBar.tsx:48` | Al cambiar de resolución a pantallas muy angostas (&lt; 768px), los botones de la barra de herramientas hacen wrap en dos líneas. | Contenedor con `flex-wrap` sin barra de scroll horizontal compacta. | Agregar clase `overflow-x-auto` con scrollbar oculta para mantener densidad de una sola fila en pantallas reducidas. |
+| **BUG-02** | Facturación | **Media** *(Pospuesto)* | `EmitirComprobanteView.tsx` | Emisión UBL 2.1 opera en adaptador sandbox `SIMULADO`. | La facturación electrónica real se desarrollará en el Facturador Atlob independiente. | Sincronizar comprobantes emitidos hacia `comprobantes_venta` en la fase de integración del Facturador Atlob. |
+| **BUG-03** | Planilla PLAME | **Baja** *(Resuelto)* | `ExportarPlameView.tsx` | Generación de archivos `.rem` y `.jor` separada en vista propia de exportación PLAME. | Separación 1:1 de vistas completada. | Mantener sincronizado con estructura de conceptos PLAME vigente. |
+| **BUG-04** | Formato Específico | **Baja** *(Resuelto)* | `TopBar.tsx` | Al cambiar de resolución a pantallas angostas (&lt; 768px), los botones de la barra de herramientas hacían wrap en dos líneas. | Contenedor con `flex-wrap` sin barra de scroll horizontal compacta. | Corregido con `overflow-x-auto no-scrollbar whitespace-nowrap` manteniendo una sola fila compacta. |
 
 ---
 
@@ -701,10 +566,9 @@ $$\text{Pago a Cuenta Renta (Régimen General)} = \text{Ventas Netas Gravadas} \
 
 | Prioridad | Tarea / Característica | Área | Esfuerzo | Justificación |
 |:---:|---|---|:---:|---|
-| **P0** | **Bóveda de Certificados Digitales:** Subida segura de certificado `.pfx` para firma real XAdES-BES en Facturación Electrónica. | Backend / Seguridad | **M** | Permite a cualquier cliente emitir facturas legales reales a SUNAT sin intermediarios OSE. |
-| **P1** | **Exportador PLAME `.rem` / `.jor`:** Generador masivo de estructuras para el PDT 601 de Planilla Electrónica. | Tributario | **S** | Automatiza la carga mensual de planillas de trabajadores en SUNAT sin digitación manual. |
+| **P0** | **Sincronización con Facturador Atlob:** Conector de recepción de CPE emitidos en el facturador externo hacia `comprobantes_venta`. | Integración | **M** | Permite alimentar automáticamente el Registro de Ventas sin acoplar la emisión SOAP al núcleo contable. |
 | **P1** | **Descarga Automatizada SIRE vía API R.S. 112:** Conexión directa mediante Client ID y Secret a los endpoints REST de SUNAT (`https://api-seguridad.sunat.gob.pe`). | Integración | **M** | Evita que el usuario tenga que entrar a la web de Clave SOL a descargar manualmente los archivos ZIP del SIRE. |
-| **P2** | **Empaquetado de Escritorio Tauri / Electron:** Creación del ejecutable nativo `.exe` (Windows) y `.dmg` (macOS). | Desktop | **M** | Proporciona la experiencia definitiva de aplicación clásica de escritorio para contadores. |
+| **P2** | **Empaquetado de Escritorio Tauri / Electron:** Creación del ejecutable nativo multiplataforma de escritorio. | Desktop | **M** | Proporciona la experiencia definitiva de aplicación de escritorio para contadores. |
 
 ---
 
@@ -724,12 +588,13 @@ $$\text{Pago a Cuenta Renta (Régimen General)} = \text{Ventas Netas Gravadas} \
 ## 9. PRUEBAS Y VERIFICACIÓN
 
 ### 9.1. Suite de Pruebas Automatizadas
-El sistema cuenta con un ejecutor integral (`server/tests/run_all_tests.ts`) que corre 19 suites de prueba en Node.js puro sin dependencias externas pesadas:
-- **Resultado de la Suite:** `19/19 suites aprobadas (0 fallidas)` en un tiempo promedio de `30.88s`.
+El sistema cuenta con un ejecutor integral (`server/tests/run_all_tests.ts`) que corre las suites de prueba en Node.js puro:
 - **Cobertura Comprobada:**
+  - Taxonomía de menú de 13 grupos y regla 1 opción activa = 1 vista exclusiva.
   - Sesión concurrente y renovación tardía.
   - Aislamiento HTTP por empresa y rol (401, 403, 404).
   - Partida doble forzada y reversión de asientos.
+  - Módulo Tributos (PDT 621 con arrastre de saldo a favor, retenciones/percepciones, MYPE vs Régimen General, rectificatorias con historial, bloqueo a rol AUDITOR, Prorrata del IGV al 60%, DAOT en borde de 2 UIT S/ 10,999 vs S/ 11,001, Renta Anual y Cronograma por dígito RUC y Buen Contribuyente).
   - Generación de libros PLE 5.2 con sumatorias exactas.
   - Cifrado y descifrado de respaldos ZIP con detección de manipulación de bits (rechazo por integridad GCM).
   - Importación masiva de CSV con neutralización de inyección de fórmulas (`=`, `+`, `@`).
@@ -754,16 +619,16 @@ npm run dev
 
 ---
 
-## 10. UI/UX DE ESCRITORIO (INSPIRACIÓN SISCONT / WINDOWS CLÁSICO)
+## 10. UI/UX DE ESCRITORIO PROPIA DE ATLOB CONSULTORES
 
-- **Estructura Vertical Fija:**
-  - **Barra de Título (12.5px):** Logotipo cuadrado "A" en azul corporativo `#1D4ED8`, nombre `Atlob Consultores ERP - Gestión Contable`, empresa y período activos, y crédito de autoría: `Desarrollado por Jimmy Mayta`.
-  - **Barra de Menús (13px):** Data-driven (`MENU_DATA`). Desplegables finos con bordes rectos de 1px, sombra suave de ventana, y cascada hacia la derecha (`top: -3px`, `left: 100%`) con flecha `›`.
-  - **Barra de Herramientas:** Botones rápidos de 34x30px con íconos vectoriales sobrios: Registro de asientos (F2), Calculadora contable, Imprimir, Buscar empresa (Ctrl+K), Importar CSV, Respaldos, Configurar empresa y Conciliador SIRE.
-  - **Pastilla de Rol:** Indicador `ADMIN_ESTUDIO` con selector de perfiles de prueba (Jimmy Mayta, Contador, Auditor).
-  - **Área de Trabajo:** Lienzo libre sin barras laterales invasivas (`#0F172A`).
-  - **Barra de Estado:** Muestra en tiempo real la última ruta accionada y el sello del estudio contable.
-- **Viabilidad para Electron / Tauri:** La interfaz no utiliza APIs propietarias del navegador; los datos del menú residen en una estructura desacoplada en `src/types/menu.ts`, lo que permite un empaquetado directo como aplicación de escritorio nativa en menos de una jornada de trabajo mediante Tauri 2.0.
+- **Estructura Vertical Fija (Sin Barra Lateral):**
+  - **Barra de Título (13px):** Logotipo cuadrado "A" en azul institucional `#1D4ED8`, nombre `Atlob Consultores ERP`, chips de Empresa, RUC, Período y Ambiente SUNAT (`BETA` / `PRODUCCIÓN`), selector de Rol y crédito de autoría: `Desarrollado por Jimmy Mayta`.
+  - **Barra de Menús (13px):** Data-driven (`MENU_DATA`) con taxonomía propia de 13 grupos y navegación por teclado (`Alt`, flechas, `Enter`, `Esc`).
+  - **Barra de Herramientas:** Una sola fila compacta (`overflow-x-auto no-scrollbar`) con acciones rápidas y Paleta de Comandos `[Ctrl+Shift+P]`.
+  - **Tipografía Condensada Empaquetada Localmente:** Pila `"Arial Narrow", "Liberation Sans Narrow", "Roboto Condensed", Arial, sans-serif` con `@font-face` local y cifras `tabular-nums`.
+  - **Área de Trabajo:** Vistas independientes sin mezclar módulos distintos; formularios en ventanas modales con barra de título.
+  - **Barra de Estado:** RUC, alerta de próximo vencimiento SUNAT según último dígito de RUC, Tipo de Cambio SBS del día, Usuario/Rol, estado de conexión y última acción ejecutada.
+- **Viabilidad para Electron / Tauri:** La interfaz no utiliza APIs propietarias del navegador; los datos del menú residen en una estructura desacoplada en `src/types/menu.ts`, permitiendo empaquetado nativo directo mediante Tauri 2.0.
 
 ---
 
@@ -830,7 +695,7 @@ async contabilizar(empresaId: string, asientoId: string, usuarioId: string, clie
 }
 ```
 
-### 11.4. Generación de Nombre y Estructura PLE 5.2 (`src/services/sireTxtGenerator.ts`)
+### 11.4. Generación de Nombre y Estructura PLE 5.2 (`server/services/pleGeneratorService.ts`)
 ```typescript
 export function generarNombreArchivoPle(
   ruc: string,
@@ -839,10 +704,13 @@ export function generarNombreArchivoPle(
   tieneInformacion: boolean = true
 ): string {
   const [anio, mes] = periodo.split('-');
-  const indicadorContenido = tieneInformacion ? '1' : '0';
-  const moneda = '1'; // 1 = Soles
-  const operacion = '1'; // 1 = Generado por contribuyente
-  return `LE${ruc}${anio}${mes}00${codigoLibro}00${indicadorContenido}${operacion}${moneda}1.txt`;
+  const dd = '00';
+  const cc = '00';
+  const o = '1'; // 1 = Empresa o entidad operativa
+  const i = tieneInformacion ? '1' : '0'; // Indicador de contenido
+  const m = '1'; // 1 = Soles (PEN)
+  const g = '1'; // 1 = Generado por PLE (Fijo)
+  return `LE${ruc}${anio}${mes}${dd}${codigoLibro}${cc}${o}${i}${m}${g}.txt`;
 }
 ```
 
@@ -894,7 +762,7 @@ export function conciliarSireCompras(
 1. **Bóveda de Certificado Digital Tributario (.pfx):** Incorporar en la base de control la carga del certificado firmado de cada empresa para que la emisión UBL 2.1 viaje directamente a SUNAT con validez fiscal plena.
 2. **Cliente API REST SIRE SUNAT:** Implementar el intercambio automático de tokens OAuth2 con el Web Service de SUNAT para descarga desatendida de propuestas sin tener que subir archivos ZIP manualmente.
 3. **Generador Masivo de Archivos PLAME (.rem / .jor):** Completar el módulo de planillas con la exportación directa de los archivos de texto requeridos por el aplicativo de SUNAT.
-4. **Empaquetado Nativo con Tauri 2.0:** Crear la versión instalable `.exe` de Windows para el estudio contable, manteniendo el backend Express embebido o compilado con Rust.
+4. **Empaquetado Nativo con Tauri 2.0:** Crear la versión instalable nativa de escritorio para el estudio contable, manteniendo el backend Express embebido o compilado con Rust.
 5. **Caché Inteligente de Consultas RUC / DNI:** Integrar consulta automática al padrón reducido de SUNAT con almacenamiento local en PostgreSQL para autocompletar razón social y condición de habido sin demoras.
 6. **Módulo de Prorrata de Crédito Fiscal IGV:** Automatizar el cálculo de la prorrata para empresas que realizan simultáneamente operaciones gravadas y no gravadas conforme al artículo 23° de la Ley del IGV.
 7. **Kardex Físico y Valorado (Libro 13.1):** Consolidar la valorización de inventarios por el método Promedio Ponderado y PEPS ligada a los comprobantes de compras y ventas.
@@ -906,9 +774,9 @@ export function conciliarSireCompras(
 - **Conservar Íntegramente:**
   - El motor contable de partida doble, triggers SQL y `asientoService.ts`.
   - La arquitectura B de aislamiento multiempresa y la lista declarativa única `registroDatosEmpresa.ts`.
-  - El motor de reportes formato estándar SISCONT (`formatoEstandarEngine.ts`).
-  - La suite de 19 pruebas de integración y su velocidad de ejecución (30s).
-  - La nueva interfaz superior de escritorio clásico Windows (TopBar + Menús en cascada data-driven).
+  - El motor de reportes Formato estándar Atlob (`formatoEstandarEngine.ts`).
+  - La suite de pruebas de integración y su velocidad de ejecución.
+  - La barra superior de escritorio propia de Atlob Consultores (`TopBar.tsx` + `MENU_DATA` con separación estricta 1 a 1 de módulos).
 - **Mejorar / Extender:**
   - La emisión UBL 2.1: conectar la firma criptográfica XAdES con certificado físico.
   - El conciliador SIRE: añadir conexión directa a los endpoints REST de SUNAT.

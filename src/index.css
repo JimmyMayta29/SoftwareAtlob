@@ -1,16 +1,113 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Roboto Condensed";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("@fontsource/roboto-condensed/files/roboto-condensed-latin-300-normal.woff2") format("woff2"),
+       url("@fontsource/roboto-condensed/files/roboto-condensed-latin-ext-300-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Roboto Condensed";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("@fontsource/roboto-condensed/files/roboto-condensed-latin-400-normal.woff2") format("woff2"),
+       url("@fontsource/roboto-condensed/files/roboto-condensed-latin-ext-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Roboto Condensed";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("@fontsource/roboto-condensed/files/roboto-condensed-latin-700-normal.woff2") format("woff2"),
+       url("@fontsource/roboto-condensed/files/roboto-condensed-latin-ext-700-normal.woff2") format("woff2");
+}
+
+:root {
+  --font-desktop-condensed: "Arial Narrow", "Liberation Sans Narrow", "Roboto Condensed", Arial, sans-serif;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-workspace: #0F172A;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-border: #CBD5E1;
+  --color-primary: #1D4ED8;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+}
+
 @layer base {
-  body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  html, body {
+    font-family: "Arial Narrow", "Liberation Sans Narrow", "Roboto Condensed", Arial, sans-serif;
+    font-stretch: condensed;
+    font-weight: 400;
+    font-size: 12px;
+    color: #0F172A;
+    background-color: #FFFFFF;
+    -webkit-font-smoothing: antialiased;
   }
-  
-  .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+
+  .font-mono,
+  .tabular-nums,
+  td[class*="text-right"],
+  th[class*="text-right"] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-/* Custom Scrollbars for Clean Light Cloud ERP Experience */
+.text-secondary-condensed {
+  font-weight: 300;
+}
+
+/* Dense desktop table standard (22-24px rows, 1px borders, straight corners) */
+.tabla-densa {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tabla-densa th {
+  height: 24px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  color: #0F172A;
+  white-space: nowrap;
+}
+
+.tabla-densa td {
+  height: 23px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 400;
+  border: 1px solid #E2E8F0;
+  color: #0F172A;
+}
+
+.tabla-densa tfoot td {
+  height: 24px;
+  padding: 2px 8px;
+  font-weight: 700;
+  background-color: #F8FAFC;
+  border: 1px solid #CBD5E1;
+}
+
+/* Hide scrollbar for single-row desktop toolbar (BUG-04 fix) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Compact Scrollbars for Desktop ERP */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -20,19 +117,14 @@
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 4px;
+  border-radius: 0px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 
-/* Card and container shadows */
 .card-shadow {
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
-}
-
-.card-shadow-hover {
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
 @media print {

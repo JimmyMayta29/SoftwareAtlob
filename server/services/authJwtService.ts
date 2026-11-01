@@ -72,13 +72,13 @@ export const USUARIOS_EMPRESA_MEMORIA: UsuarioEmpresaModel[] = [];
  */
 export function sembrarUsuariosPrueba() {
   if (USUARIOS_ESTUDIO_MEMORIA.length > 0) return;
-  const HASH_DEFAULT = bcrypt.hashSync('Sunaconta2026!', 8);
+  const HASH_DEFAULT = bcrypt.hashSync('Atlob2026!', 8);
   const MFA_SECRET_ADMIN_DEMO = 'JBSWY3DPEHPK3PXP'; // Base32 predeterminado para pruebas
 
   USUARIOS_ESTUDIO_MEMORIA.push(
     {
       id: 'usr-admin-01',
-      email: 'admin@sunaconta.pe',
+      email: 'admin@atlob.pe',
       passwordHash: HASH_DEFAULT,
       nombre: 'Administrador General',
       rolGlobal: 'ADMINISTRADOR',
@@ -89,7 +89,7 @@ export function sembrarUsuariosPrueba() {
     },
     {
       id: 'usr-contador-01',
-      email: 'contador@sunaconta.pe',
+      email: 'contador@atlob.pe',
       passwordHash: HASH_DEFAULT,
       nombre: 'Contador Senior',
       rolGlobal: 'CONTADOR_SENIOR',
@@ -99,7 +99,7 @@ export function sembrarUsuariosPrueba() {
     },
     {
       id: 'usr-asistente-01',
-      email: 'asistente@sunaconta.pe',
+      email: 'asistente@atlob.pe',
       passwordHash: HASH_DEFAULT,
       nombre: 'Asistente Contable',
       rolGlobal: 'ASISTENTE_CONTABLE',
@@ -109,7 +109,7 @@ export function sembrarUsuariosPrueba() {
     },
     {
       id: 'usr-auditor-01',
-      email: 'auditor@sunaconta.pe',
+      email: 'auditor@atlob.pe',
       passwordHash: HASH_DEFAULT,
       nombre: 'Auditor Tributario Revisor',
       rolGlobal: 'AUDITOR_REVISOR',

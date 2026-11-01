@@ -26,8 +26,15 @@ export async function runSeeds(client: Pick<DatabaseService, 'query'> = db) {
       { codigo: 'TASA_RETENCION_4TA', desc: 'Tasa de Retención del Impuesto a la Renta de 4ta Categoría (8%)', valor: 0.08, cat: 'RENTA', desde: '2020-01-01' },
       { codigo: 'TOPE_RETENCION_4TA', desc: 'Monto a partir del cual aplica retención de 4ta categoría (S/ 1,500)', valor: 1500.00, cat: 'RENTA', desde: '2020-01-01' },
       { codigo: 'TASA_RENTA_MYPE_SUB300', desc: 'Pago a cuenta mensual Régimen MYPE Tributario hasta 300 UIT (1%)', valor: 0.01, cat: 'RENTA', desde: '2020-01-01' },
+      { codigo: 'TASA_RENTA_RG_MIN', desc: 'Pago a cuenta mensual mínimo Régimen General / RMT > 300 UIT (1.5%)', valor: 0.015, cat: 'RENTA', desde: '2020-01-01' },
       { codigo: 'TASA_RENTA_RER', desc: 'Pago definitivo Régimen Especial de Renta (1.5%)', valor: 0.015, cat: 'RENTA', desde: '2020-01-01' },
-      { codigo: 'VALOR_UIT_2026', desc: 'Valor oficial de la Unidad Impositiva Tributaria 2026', valor: 5350.00, cat: 'UIT', desde: '2026-01-01' },
+      { codigo: 'TASA_RENTA_ANUAL_MYPE_T1', desc: 'Tasa Anual Renta MYPE Tributario Tramo 1 hasta 15 UIT (10%)', valor: 0.10, cat: 'RENTA', desde: '2020-01-01' },
+      { codigo: 'TRAMO_RENTA_ANUAL_MYPE_UIT', desc: 'Tope primer tramo Renta Anual MYPE Tributario en UIT (15 UIT)', valor: 15, cat: 'RENTA', desde: '2020-01-01' },
+      { codigo: 'TASA_RENTA_ANUAL_GENERAL', desc: 'Tasa Anual Impuesto a la Renta 3ra Categoría Régimen General / Exceso RMT (29.5%)', valor: 0.295, cat: 'RENTA', desde: '2020-01-01' },
+      { codigo: 'UMBRAL_DAOT_UIT', desc: 'Umbral anual en UIT para Declaración DAOT (2 UIT)', valor: 2, cat: 'UIT', desde: '2020-01-01' },
+      { codigo: 'VALOR_UIT_2024', desc: 'Valor oficial de la Unidad Impositiva Tributaria 2024 (D.S. N° 309-2023-EF)', valor: 5150.00, cat: 'UIT', desde: '2024-01-01' },
+      { codigo: 'VALOR_UIT_2025', desc: 'Valor oficial de la Unidad Impositiva Tributaria 2025 (D.S. N° 260-2024-EF)', valor: 5350.00, cat: 'UIT', desde: '2025-01-01' },
+      { codigo: 'VALOR_UIT_2026', desc: 'Valor oficial de la Unidad Impositiva Tributaria 2026 (D.S. N° 301-2025-EF)', valor: 5500.00, cat: 'UIT', desde: '2026-01-01' },
     ];
 
     for (const p of parametros) {

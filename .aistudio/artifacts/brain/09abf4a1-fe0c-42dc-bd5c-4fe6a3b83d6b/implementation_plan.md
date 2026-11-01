@@ -45,7 +45,7 @@ El documento se generará en la raíz del repositorio (`/SISTEMA_ATLOB_ERP.md`) 
 7. **Pendientes y Deuda Técnica:** Matriz de backlog priorizado P0 / P1 / P2 con estimación de esfuerzo en tallas S / M / L.
 8. **Seguridad y Datos Sensibles:** Almacenamiento de Clave SOL, tokens JWT, hashing bcrypt, secretos MFA TOTP (RFC 6238), exclusión de contraseñas en respaldos.
 9. **Pruebas y Verificación:** Estado de la suite de pruebas (`server/tests/`), cobertura real `c8`, casos de prueba indispensables y guía de ejecución desde cero.
-10. **UI/UX de Escritorio:** Análisis de la barra superior clásica inspirada en SISCONT/Windows, eventos de teclado (`Ctrl+K`, `F2`, `F3`, `Esc`), modales y viabilidad de empaquetado para Electron o Tauri.
+10. **UI/UX de Escritorio:** Análisis de la barra superior clásica propia de Atlob Consultores, eventos de teclado (`Ctrl+K`, `F2`, `F3`, `Esc`), modales y viabilidad de empaquetado para Electron o Tauri.
 11. **Fragmentos de Código Clave:** Extracción literal de fragmentos fundamentales del repositorio (datos de menú, tipos de asiento contable, validación de partida doble, generador de PLE TXT y motor de conciliación SIRE).
 12. **Recomendaciones Finales:** Los 10 cambios arquitectónicos de mayor impacto ordenados por prioridad y dictamen de qué módulos conservar vs cuáles reescribir.
 

@@ -1,5 +1,5 @@
 -- ============================================================================
--- SUNAConta PRO — Triggers y Funciones de Integridad Contable en BD (Fase 2)
+-- Atlob Consultores ERP — Triggers y Funciones de Integridad Contable en BD (Fase 2)
 -- ============================================================================
 
 -- 1. Función para validar período cerrado

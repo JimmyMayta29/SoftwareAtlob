@@ -1,31 +1,63 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MENU_DATA, MenuGroup, MenuItem } from '../../types/menu';
+import {
+  BookOpen,
+  FilePlus2,
+  GitCompare,
+  Search,
+  Archive,
+  Calculator,
+  Printer,
+  Terminal,
+  ChevronRight,
+} from 'lucide-react';
+import { MENU_DATA, MenuGroup, MenuItem, tienePermisoMenu } from '../../types/menu';
 
 interface TopBarProps {
   onAction: (ruta: string, itemId?: string) => void;
   empresaNombre?: string;
+  empresaRuc?: string;
   periodoNombre?: string;
+  ambienteSunat?: 'BETA' | 'BETA_TEST' | 'PRODUCCION';
   perfilSeleccionado: string;
   onCambiarPerfil: (nuevoPerfil: string) => void;
+  onAbrirPaletaComandos?: () => void;
+}
+
+export function obtenerCodigoRolDesdePerfil(perfil: string): string {
+  const upper = (perfil || '').toUpperCase();
+  if (upper.includes('ADMIN')) return 'ADMIN';
+  if (upper.includes('CONTADOR')) return 'CONTADOR';
+  if (upper.includes('AUDITOR')) return 'AUDITOR';
+  if (upper.includes('ASISTENTE') || upper.includes('OPERADOR')) return 'ASISTENTE';
+  return 'ADMIN';
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   onAction,
-  empresaNombre = 'CA 2020',
-  periodoNombre = 'ENERO 2026',
+  empresaNombre = 'COMERCIALIZADORA ANDINA S.A.C.',
+  empresaRuc = '20601234567',
+  periodoNombre = '2026-03',
+  ambienteSunat = 'BETA',
   perfilSeleccionado,
-  onCambiarPerfil
+  onCambiarPerfil,
+  onAbrirPaletaComandos,
 }) => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
+  const [focusedItemIndex, setFocusedItemIndex] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const rolActual = obtenerCodigoRolDesdePerfil(perfilSeleccionado);
+  const esAuditor = rolActual === 'AUDITOR';
+  const esAdmin = rolActual === 'ADMIN' || rolActual === 'ADMINISTRADOR' || rolActual === 'ADMIN_ESTUDIO';
 
   const closeAllMenus = useCallback(() => {
     setActiveMenuId(null);
     setActiveSubmenuId(null);
+    setFocusedItemIndex(-1);
   }, []);
 
-  // Cerrar al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -34,12 +66,127 @@ export const TopBar: React.FC<TopBarProps> = ({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditingInput =
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') &&
+        !containerRef.current?.contains(target);
+
       if (e.key === 'Escape') {
         closeAllMenus();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        return;
+      }
+
+      // Atajo Alt solo para enfocar la barra de menú
+      if (e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault();
+        const primerGrupo = MENU_DATA[0];
+        if (primerGrupo) {
+          setActiveMenuId((prev) => (prev ? null : primerGrupo.id));
+          setActiveSubmenuId(null);
+          setFocusedItemIndex(0);
+          menuButtonsRef.current[primerGrupo.id]?.focus();
+        }
+        return;
+      }
+
+      // Atajos globales de función y combinaciones
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
         e.preventDefault();
         closeAllMenus();
-        onAction('Empresa › Buscar empresa (Ctrl+K)', 'buscar-empresa');
+        if (onAbrirPaletaComandos) {
+          onAbrirPaletaComandos();
+        } else {
+          onAction('Paleta de comandos [Ctrl+Shift+P]', 'paleta-comandos');
+        }
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+        e.preventDefault();
+        closeAllMenus();
+        onAction('Herramientas › Calculadora tributaria', 'calculadora-tributaria');
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        closeAllMenus();
+        onAction('Archivo › Abrir empresa…', 'abrir-empresa');
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        closeAllMenus();
+        if (esAdmin) {
+          onAction('Herramientas › Respaldo y restauración', 'respaldo-restauracion');
+        }
+        return;
+      }
+
+      if (!isEditingInput && e.key === 'F2') {
+        e.preventDefault();
+        closeAllMenus();
+        if (!esAuditor) {
+          onAction('Contabilidad › Asientos', 'asientos');
+        }
+        return;
+      }
+
+      if (!isEditingInput && e.key === 'F3') {
+        e.preventDefault();
+        closeAllMenus();
+        if (!esAuditor) {
+          onAction('Facturación › Emitir factura o boleta', 'emitir-cp');
+        }
+        return;
+      }
+
+      if (!isEditingInput && e.key === 'F4') {
+        e.preventDefault();
+        closeAllMenus();
+        onAction('Registros Electrónicos › SIRE › Conciliador de compras y ventas', 'sire-conciliador');
+        return;
+      }
+
+      // Navegación por flechas cuando el menú está abierto
+      if (activeMenuId) {
+        const currentGroupIndex = MENU_DATA.findIndex((g) => g.id === activeMenuId);
+        if (currentGroupIndex === -1) return;
+        const currentGroup = MENU_DATA[currentGroupIndex];
+        const navigableItems = currentGroup.items.filter((i) => !i.separator);
+
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const nextGroup = MENU_DATA[(currentGroupIndex + 1) % MENU_DATA.length];
+          setActiveMenuId(nextGroup.id);
+          setActiveSubmenuId(null);
+          setFocusedItemIndex(0);
+          menuButtonsRef.current[nextGroup.id]?.focus();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prevGroup = MENU_DATA[(currentGroupIndex - 1 + MENU_DATA.length) % MENU_DATA.length];
+          setActiveMenuId(prevGroup.id);
+          setActiveSubmenuId(null);
+          setFocusedItemIndex(0);
+          menuButtonsRef.current[prevGroup.id]?.focus();
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setFocusedItemIndex((prev) => (prev + 1) % navigableItems.length);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setFocusedItemIndex((prev) => (prev - 1 + navigableItems.length) % navigableItems.length);
+        } else if (e.key === 'Enter' && focusedItemIndex >= 0 && focusedItemIndex < navigableItems.length) {
+          e.preventDefault();
+          const item = navigableItems[focusedItemIndex];
+          if (item.children && item.children.length > 0) {
+            setActiveSubmenuId(item.id);
+          } else if (item.estado === 'activo' && tienePermisoMenu(item, rolActual)) {
+            onAction(`${currentGroup.label} › ${item.label}`, item.id);
+            closeAllMenus();
+          }
+        }
       }
     };
 
@@ -49,7 +196,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [closeAllMenus, onAction]);
+  }, [activeMenuId, focusedItemIndex, closeAllMenus, onAction, onAbrirPaletaComandos, rolActual, esAdmin, esAuditor]);
 
   const handleMenuClick = (menuId: string) => {
     if (activeMenuId === menuId) {
@@ -57,6 +204,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     } else {
       setActiveMenuId(menuId);
       setActiveSubmenuId(null);
+      setFocusedItemIndex(0);
     }
   };
 
@@ -64,102 +212,138 @@ export const TopBar: React.FC<TopBarProps> = ({
     if (activeMenuId !== null && activeMenuId !== menuId) {
       setActiveMenuId(menuId);
       setActiveSubmenuId(null);
+      setFocusedItemIndex(0);
     }
   };
 
-  const handleLeafClick = (path: string, itemId?: string) => {
-    onAction(path, itemId);
+  const handleItemActivate = (item: MenuItem, rutaCompleta: string) => {
+    if (item.estado === 'proximamente') return;
+    if (!tienePermisoMenu(item, rolActual)) return;
+    onAction(rutaCompleta, item.id);
     closeAllMenus();
-  };
-
-  const handleToolbarClick = (nombre: string, itemId?: string) => {
-    closeAllMenus();
-    onAction(`Barra › ${nombre}`, itemId);
   };
 
   return (
     <header
       ref={containerRef}
-      className="w-full flex-shrink-0 font-['Segoe_UI',system-ui,Arial,sans-serif] select-none z-40 bg-white dark:bg-[#1E293B] border-b border-[#CBD5E1] dark:border-[#334155]"
+      className="w-full flex-shrink-0 select-none z-40 bg-[#F5F7FA] border-b border-[#D1D5DB] text-[#111827]"
     >
       {/* 1. BARRA DE TÍTULO */}
-      <div className="flex items-center justify-between px-[12px] py-[5px] text-[12.5px] border-b border-[#CBD5E1] dark:border-[#334155] leading-none">
-        <div className="flex items-center space-x-2">
-          {/* Logo cuadrado 'A' (20x20, radio 4, fondo azul #1D4ED8, texto blanco negrita) */}
-          <div className="w-[20px] h-[20px] rounded-[4px] bg-[#1D4ED8] flex items-center justify-center text-white font-bold text-[12px] shadow-sm flex-shrink-0">
+      <div className="flex items-center justify-between px-2.5 py-1 text-[13px] bg-[#E8ECF1] border-b border-[#D1D5DB] leading-none">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <div className="w-[18px] h-[18px] bg-[#1D4ED8] flex items-center justify-center text-[#FFFFFF] font-bold text-[11px] flex-shrink-0">
             A
           </div>
-          <span className="font-semibold text-[#0F172A] dark:text-[#E2E8F0]">
+          <span className="font-bold text-[#111827] whitespace-nowrap">
             Atlob Consultores ERP
           </span>
-          <span className="text-[#64748B] dark:text-[#94A3B8]">
-            - Gestión Contable
-          </span>
 
-          <span className="text-[#CBD5E1] dark:text-[#475569] mx-1">|</span>
+          <span className="text-[#9CA3AF]">|</span>
 
-          <span className="text-[#64748B] dark:text-[#94A3B8]">Empresa:</span>
-          <span className="font-semibold text-[#0F172A] dark:text-[#E2E8F0]">
-            {empresaNombre}
-          </span>
-
-          <span className="text-[#CBD5E1] dark:text-[#475569] mx-1">|</span>
-
-          <span className="text-[#64748B] dark:text-[#94A3B8]">Período:</span>
-          <span className="font-semibold text-[#0F172A] dark:text-[#E2E8F0]">
-            {periodoNombre}
-          </span>
+          {/* Chips de contexto multiempresa */}
+          <div className="flex items-center gap-1.5 text-[11px] overflow-hidden">
+            <span className="px-1.5 py-0.5 bg-[#FFFFFF] border border-[#D1D5DB] text-[#111827] truncate max-w-[230px]">
+              <strong>Empresa:</strong> {empresaNombre}
+            </span>
+            <span className="px-1.5 py-0.5 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[#111827]">
+              <strong>RUC:</strong> {empresaRuc}
+            </span>
+            <span className="px-1.5 py-0.5 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[#1E3A5F] font-bold">
+              <strong>Período:</strong> {periodoNombre}
+            </span>
+            <span
+              className={`px-1.5 py-0.5 border font-bold font-mono ${
+                ambienteSunat === 'PRODUCCION'
+                  ? 'bg-[#ECFDF5] border-[#1E6F42] text-[#1E6F42]'
+                  : 'bg-[#FFFBEB] border-[#B45309] text-[#B45309]'
+              }`}
+              title="Ambiente de conexión SUNAT configurado para la empresa activa"
+            >
+              SUNAT: {ambienteSunat === 'PRODUCCION' ? 'PRODUCCIÓN' : 'BETA'}
+            </span>
+          </div>
         </div>
 
-        <div className="text-[#64748B] dark:text-[#94A3B8] text-[12px]">
-          Desarrollado por Jimmy Mayta
+        <div className="flex items-center gap-3 flex-shrink-0 text-[11px]">
+          <div className="flex items-center gap-1">
+            <label htmlFor="select-perfil" className="text-[#4B5563]">
+              Rol activo:
+            </label>
+            <select
+              id="select-perfil"
+              value={perfilSeleccionado}
+              onChange={(e) => onCambiarPerfil(e.target.value)}
+              className="h-5 bg-[#FFFFFF] border border-[#D1D5DB] text-[#111827] text-[11px] px-1.5 focus:outline-none focus:border-[#1E3A5F]"
+            >
+              <option value="Jimmy Mayta (Administrador principal)">
+                Jimmy Mayta (ADMINISTRADOR)
+              </option>
+              <option value="Contador">Contador (CONTADOR)</option>
+              <option value="Asistente Contable">Asistente (ASISTENTE)</option>
+              <option value="Auditor">Auditor (AUDITOR - Solo lectura)</option>
+            </select>
+          </div>
+          <span className="text-[#4B5563] hidden sm:inline">
+            Desarrollado por Jimmy Mayta
+          </span>
         </div>
       </div>
 
       {/* 2. BARRA DE MENÚ (MENUBAR) */}
       <nav
         role="menubar"
-        aria-label="Menú principal de opciones"
-        className="relative flex flex-wrap items-center border-b border-[#CBD5E1] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-1"
+        aria-label="Menú principal de Atlob Consultores ERP"
+        className="relative flex flex-wrap items-center border-b border-[#D1D5DB] bg-[#F5F7FA] px-1"
       >
         {MENU_DATA.map((group: MenuGroup) => {
           const isOpen = activeMenuId === group.id;
+          let navigableIdx = -1;
+
           return (
             <div key={group.id} className="relative">
               <button
+                ref={(el) => {
+                  menuButtonsRef.current[group.id] = el;
+                }}
                 type="button"
                 role="menuitem"
                 aria-haspopup="true"
                 aria-expanded={isOpen}
                 onClick={() => handleMenuClick(group.id)}
                 onMouseEnter={() => handleMenuMouseEnter(group.id)}
-                className={`text-[13px] px-[10px] py-[6px] transition-colors leading-none focus:outline-none ${
+                className={`text-[13px] px-2.5 py-1 transition-colors leading-none focus:outline-none ${
                   isOpen
-                    ? 'bg-[#DBEAFE] dark:bg-[#1E3A8A] text-[#1D4ED8] dark:text-[#93C5FD] font-medium'
-                    : 'text-[#0F172A] dark:text-[#E2E8F0] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A]'
+                    ? 'bg-[#1E3A5F] text-[#FFFFFF] font-bold'
+                    : 'text-[#111827] hover:bg-[#E8ECF1]'
                 }`}
               >
                 {group.label}
               </button>
 
-              {/* Panel Desplegable de 1er Nivel */}
               {isOpen && (
                 <div
                   role="menu"
-                  className="absolute top-full left-0 min-w-[230px] bg-white dark:bg-[#1E293B] border border-[#CBD5E1] dark:border-[#334155] shadow-[0_6px_16px_rgba(0,0,0,0.25)] py-[2px] z-50 rounded-none"
+                  aria-label={group.label}
+                  className="absolute top-full left-0 min-w-[260px] bg-[#FFFFFF] border border-[#D1D5DB] py-0.5 z-50"
                 >
                   {group.items.map((item: MenuItem) => {
                     if (item.separator) {
                       return (
                         <div
                           key={item.id}
-                          className="my-[3px] border-b border-[#CBD5E1] dark:border-[#334155]"
+                          role="separator"
+                          className="my-0.5 border-b border-[#E5E7EB]"
                         />
                       );
                     }
 
-                    const hasChildren = item.children && item.children.length > 0;
+                    navigableIdx += 1;
+                    const isKeyboardFocused = focusedItemIndex === navigableIdx;
+                    const hasChildren = Boolean(item.children && item.children.length > 0);
                     const isSubmenuOpen = activeSubmenuId === item.id;
+                    const isProximamente = item.estado === 'proximamente';
+                    const permitidoPorRol = tienePermisoMenu(item, rolActual);
+                    const deshabilitado = isProximamente || (!hasChildren && !permitidoPorRol);
 
                     return (
                       <div
@@ -175,69 +359,100 @@ export const TopBar: React.FC<TopBarProps> = ({
                       >
                         <div
                           role="menuitem"
+                          aria-disabled={deshabilitado}
                           aria-haspopup={hasChildren ? 'true' : undefined}
                           aria-expanded={hasChildren ? isSubmenuOpen : undefined}
                           onClick={() => {
-                            if (!hasChildren) {
-                              handleLeafClick(`${group.label} › ${item.label}`, item.id);
+                            if (!hasChildren && !deshabilitado) {
+                              handleItemActivate(item, `${group.label} › ${item.label}`);
                             }
                           }}
-                          className={`flex items-center justify-between text-[13px] px-[12px] pl-[22px] py-[5px] cursor-pointer select-none leading-normal transition-colors ${
-                            isSubmenuOpen
-                              ? 'bg-[#DBEAFE] dark:bg-[#1E3A8A] text-[#1D4ED8] dark:text-[#93C5FD]'
-                              : 'text-[#0F172A] dark:text-[#E2E8F0] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A]'
+                          className={`flex items-center justify-between text-[13px] px-3 py-1 select-none leading-tight ${
+                            deshabilitado
+                              ? 'text-[#9CA3AF] cursor-not-allowed bg-[#FFFFFF]'
+                              : isSubmenuOpen || isKeyboardFocused
+                              ? 'bg-[#E8ECF1] text-[#1E3A5F] cursor-pointer'
+                              : 'text-[#111827] hover:bg-[#E8ECF1] cursor-pointer'
                           }`}
                         >
-                          <span className="truncate pr-4">{item.label}</span>
+                          <span className="truncate pr-3">{item.label}</span>
 
-                          <div className="flex items-center space-x-2 flex-shrink-0">
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {isProximamente && (
+                              <span className="text-[10px] px-1 py-0.2 bg-[#F5F7FA] border border-[#D1D5DB] text-[#9CA3AF]">
+                                próximamente
+                              </span>
+                            )}
+                            {!isProximamente && !permitidoPorRol && (
+                              <span className="text-[10px] px-1 py-0.2 bg-[#FEF2F2] border border-[#B91C1C] text-[#B91C1C]">
+                                solo admin
+                              </span>
+                            )}
                             {item.shortcut && (
-                              <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                              <span className="text-[11px] font-mono text-[#4B5563]">
                                 {item.shortcut}
                               </span>
                             )}
                             {hasChildren && (
-                              <span className="text-[#64748B] dark:text-[#94A3B8] font-bold text-[13px]">
-                                ›
-                              </span>
+                              <ChevronRight className="w-3.5 h-3.5 text-[#4B5563]" strokeWidth={1.5} />
                             )}
                           </div>
                         </div>
 
-                        {/* Submenú en Cascada hacia la DERECHA (top -3px, left 100%) */}
                         {hasChildren && isSubmenuOpen && (
                           <div
                             role="menu"
-                            className="absolute top-[-3px] left-full min-w-[230px] bg-white dark:bg-[#1E293B] border border-[#CBD5E1] dark:border-[#334155] shadow-[0_6px_16px_rgba(0,0,0,0.25)] py-[2px] z-50 rounded-none"
+                            aria-label={item.label}
+                            className="absolute top-[-1px] left-full min-w-[255px] bg-[#FFFFFF] border border-[#D1D5DB] py-0.5 z-50"
                           >
                             {item.children!.map((subItem: MenuItem) => {
                               if (subItem.separator) {
                                 return (
                                   <div
                                     key={subItem.id}
-                                    className="my-[3px] border-b border-[#CBD5E1] dark:border-[#334155]"
+                                    role="separator"
+                                    className="my-0.5 border-b border-[#E5E7EB]"
                                   />
                                 );
                               }
+
+                              const subProximamente = subItem.estado === 'proximamente';
+                              const subPermitido = tienePermisoMenu(subItem, rolActual);
+                              const subDeshabilitado = subProximamente || !subPermitido;
+
                               return (
                                 <div
                                   key={subItem.id}
                                   role="menuitem"
+                                  aria-disabled={subDeshabilitado}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleLeafClick(
-                                      `${group.label} › ${item.label} › ${subItem.label}`,
-                                      subItem.id
-                                    );
+                                    if (!subDeshabilitado) {
+                                      handleItemActivate(
+                                        subItem,
+                                        `${group.label} › ${item.label} › ${subItem.label}`
+                                      );
+                                    }
                                   }}
-                                  className="flex items-center justify-between text-[13px] px-[12px] pl-[22px] py-[5px] text-[#0F172A] dark:text-[#E2E8F0] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] cursor-pointer select-none leading-normal transition-colors"
+                                  className={`flex items-center justify-between text-[13px] px-3 py-1 select-none leading-tight ${
+                                    subDeshabilitado
+                                      ? 'text-[#9CA3AF] cursor-not-allowed bg-[#FFFFFF]'
+                                      : 'text-[#111827] hover:bg-[#E8ECF1] hover:text-[#1E3A5F] cursor-pointer'
+                                  }`}
                                 >
-                                  <span className="truncate pr-4">{subItem.label}</span>
-                                  {subItem.shortcut && (
-                                    <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] flex-shrink-0">
-                                      {subItem.shortcut}
-                                    </span>
-                                  )}
+                                  <span className="truncate pr-3">{subItem.label}</span>
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    {subProximamente && (
+                                      <span className="text-[10px] px-1 py-0.2 bg-[#F5F7FA] border border-[#D1D5DB] text-[#9CA3AF]">
+                                        próximamente
+                                      </span>
+                                    )}
+                                    {subItem.shortcut && (
+                                      <span className="text-[11px] font-mono text-[#4B5563]">
+                                        {subItem.shortcut}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
@@ -253,247 +468,148 @@ export const TopBar: React.FC<TopBarProps> = ({
         })}
       </nav>
 
-      {/* 3. BARRA DE HERRAMIENTAS (TOOLBAR) */}
-      <div className="flex flex-wrap items-center justify-between px-2 py-1 bg-white dark:bg-[#1E293B]">
-        {/* Botones de acción rápida con íconos SVG inline 20x20 stroke 1.7 */}
-        <div className="flex items-center">
-          {/* 1. Registro de asientos (libro con renglones) */}
+      {/* 3. BARRA DE HERRAMIENTAS EN UNA SOLA FILA (BUG-04 CORREGIDO: overflow-x-auto no-scrollbar sin flex-wrap) */}
+      <div
+        role="toolbar"
+        aria-label="Barra de herramientas de acceso rápido"
+        className="flex items-center justify-between px-2 py-1 bg-[#F5F7FA] overflow-x-auto no-scrollbar whitespace-nowrap gap-2"
+      >
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             type="button"
-            aria-label="Registro de asientos"
-            title="Registro de asientos (F2)"
-            onClick={() => handleToolbarClick('Registro de asientos', 'asientos')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            disabled={esAuditor}
+            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Asiento contable nuevo [F2]'}
+            onClick={() => {
+              closeAllMenus();
+              onAction('Contabilidad › Asientos', 'asientos');
+            }}
+            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
+              esAuditor
+                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
+                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
+            }`}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-              <line x1="8" y1="7" x2="16" y2="7" />
-              <line x1="8" y1="11" x2="14" y2="11" />
-            </svg>
+            <BookOpen className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Asiento nuevo</span>
+            <span className="text-[10px] font-mono text-[#4B5563]">[F2]</span>
           </button>
 
-          {/* 2. Calculadora */}
           <button
             type="button"
-            aria-label="Calculadora"
-            title="Calculadora"
-            onClick={() => handleToolbarClick('Calculadora', 'calculadora')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            disabled={esAuditor}
+            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Emitir factura o boleta electrónica [F3]'}
+            onClick={() => {
+              closeAllMenus();
+              onAction('Facturación › Emitir factura o boleta', 'emitir-cp');
+            }}
+            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
+              esAuditor
+                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
+                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
+            }`}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="4" y="2" width="16" height="20" rx="2" />
-              <line x1="8" y1="6" x2="16" y2="6" />
-              <line x1="8" y1="10" x2="9" y2="10" />
-              <line x1="12" y1="10" x2="13" y2="10" />
-              <line x1="16" y1="10" x2="16.01" y2="10" />
-              <line x1="8" y1="14" x2="9" y2="14" />
-              <line x1="12" y1="14" x2="13" y2="14" />
-              <line x1="16" y1="14" x2="16.01" y2="14" />
-              <line x1="8" y1="18" x2="9" y2="18" />
-              <line x1="12" y1="18" x2="16" y2="18" />
-            </svg>
+            <FilePlus2 className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Emitir comprobante</span>
+            <span className="text-[10px] font-mono text-[#4B5563]">[F3]</span>
           </button>
 
-          {/* 3. Imprimir */}
           <button
             type="button"
-            aria-label="Imprimir"
-            title="Imprimir"
-            onClick={() => handleToolbarClick('Imprimir', 'imprimir')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            title="Conciliador SIRE RCE / RVIE [F4]"
+            onClick={() => {
+              closeAllMenus();
+              onAction('Registros Electrónicos › SIRE › Conciliador de compras y ventas', 'sire-conciliador');
+            }}
+            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="6 9 6 2 18 2 18 9" />
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-              <rect x="6" y="14" width="12" height="8" />
-            </svg>
+            <GitCompare className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Conciliar SIRE</span>
+            <span className="text-[10px] font-mono text-[#4B5563]">[F4]</span>
           </button>
 
-          {/* Separador vertical 1px (22px de alto, margen 0 6px) */}
-          <div className="w-[1px] h-[22px] mx-[6px] bg-[#CBD5E1] dark:bg-[#334155]" />
+          <div className="w-[1px] h-4 bg-[#D1D5DB] mx-0.5" />
 
-          {/* 4. Buscar empresa (Ctrl+K) (lupa) */}
           <button
             type="button"
-            aria-label="Buscar empresa (Ctrl+K)"
-            title="Buscar empresa (Ctrl+K)"
-            onClick={() => handleToolbarClick('Buscar empresa (Ctrl+K)', 'buscar-empresa')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            title="Abrir o cambiar empresa activa [Ctrl+K]"
+            onClick={() => {
+              closeAllMenus();
+              onAction('Archivo › Abrir empresa…', 'abrir-empresa');
+            }}
+            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+            <Search className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Buscar empresa</span>
+            <span className="text-[10px] font-mono text-[#4B5563]">[Ctrl+K]</span>
           </button>
 
-          {/* 5. Importar CSV (flecha hacia abajo sobre línea) */}
           <button
             type="button"
-            aria-label="Importar CSV"
-            title="Importar CSV"
-            onClick={() => handleToolbarClick('Importar CSV', 'importar-csv')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            disabled={!esAdmin}
+            title={!esAdmin ? 'Exclusivo para rol ADMINISTRADOR' : 'Respaldo y restauración de empresa [Ctrl+B]'}
+            onClick={() => {
+              closeAllMenus();
+              onAction('Herramientas › Respaldo y restauración', 'respaldo-restauracion');
+            }}
+            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
+              !esAdmin
+                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
+                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
+            }`}
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 3v13m0 0l-4-4m4 4l4-4" />
-              <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-            </svg>
+            <Archive className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Respaldar</span>
+            <span className="text-[10px] font-mono text-[#4B5563]">[Ctrl+B]</span>
           </button>
 
-          {/* 6. Respaldos (nube con flecha) */}
+          <div className="w-[1px] h-4 bg-[#D1D5DB] mx-0.5" />
+
           <button
             type="button"
-            aria-label="Respaldos"
-            title="Respaldos"
-            onClick={() => handleToolbarClick('Respaldos', 'respaldos')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            title="Calculadora contable y tributaria [Ctrl+Shift+C]"
+            onClick={() => {
+              closeAllMenus();
+              onAction('Herramientas › Calculadora tributaria', 'calculadora-tributaria');
+            }}
+            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />
-              <path d="M12 11v6m0-6l-2.5 2.5M12 11l2.5 2.5" />
-            </svg>
+            <Calculator className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Calculadora</span>
           </button>
 
-          {/* Separador vertical 1px (22px de alto, margen 0 6px) */}
-          <div className="w-[1px] h-[22px] mx-[6px] bg-[#CBD5E1] dark:bg-[#334155]" />
-
-          {/* 7. Configurar empresa (edificio) */}
           <button
             type="button"
-            aria-label="Configurar empresa"
-            title="Configurar empresa"
-            onClick={() => handleToolbarClick('Configurar empresa', 'configurar-empresa')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
+            title="Exportar e imprimir reportes oficiales [Ctrl+P]"
+            onClick={() => {
+              closeAllMenus();
+              onAction('Barra › Imprimir', 'imprimir');
+            }}
+            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="4" y="2" width="16" height="20" rx="1" />
-              <line x1="8" y1="6" x2="10" y2="6" />
-              <line x1="14" y1="6" x2="16" y2="6" />
-              <line x1="8" y1="10" x2="10" y2="10" />
-              <line x1="14" y1="10" x2="16" y2="10" />
-              <line x1="8" y1="14" x2="10" y2="14" />
-              <line x1="14" y1="14" x2="16" y2="14" />
-              <path d="M10 22v-4h4v4" />
-            </svg>
-          </button>
-
-          {/* 8. Conciliador SIRE (líneas con flecha a la derecha) */}
-          <button
-            type="button"
-            aria-label="Conciliador SIRE"
-            title="Conciliador SIRE"
-            onClick={() => handleToolbarClick('Conciliador SIRE', 'sire-conciliador')}
-            className="w-[34px] h-[30px] rounded-[3px] border border-transparent hover:border-[#CBD5E1] dark:hover:border-[#334155] hover:bg-[#DBEAFE] dark:hover:bg-[#1E3A8A] text-[#0F172A] dark:text-[#E2E8F0] flex items-center justify-center transition-colors focus:outline-none"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="3" y1="6" x2="15" y2="6" />
-              <line x1="3" y1="12" x2="12" y2="12" />
-              <line x1="3" y1="18" x2="15" y2="18" />
-              <polyline points="16 9 20 12 16 15" />
-            </svg>
+            <Printer className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Imprimir</span>
           </button>
         </div>
 
-        {/* Lado derecho: pastilla azul "ADMIN_ESTUDIO" y select "Perfil de prueba" */}
-        <div className="flex items-center space-x-3 text-[12px]">
-          {/* Pastilla redondeada azul con "ADMIN_ESTUDIO" (11px, texto blanco) */}
-          <span className="px-2 py-[2px] rounded-full bg-[#1D4ED8] text-white text-[11px] font-semibold tracking-wide">
-            ADMIN_ESTUDIO
-          </span>
-
-          <div className="flex items-center space-x-1">
-            <label
-              htmlFor="select-perfil"
-              className="text-[#64748B] dark:text-[#94A3B8] text-[11.5px]"
-            >
-              Perfil de prueba:
-            </label>
-            <select
-              id="select-perfil"
-              value={perfilSeleccionado}
-              onChange={(e) => onCambiarPerfil(e.target.value)}
-              className="bg-white dark:bg-[#1E293B] border border-[#CBD5E1] dark:border-[#334155] rounded-[3px] text-[#0F172A] dark:text-[#E2E8F0] text-[11.5px] px-2 py-[3px] focus:outline-none focus:border-[#1D4ED8] cursor-pointer"
-            >
-              <option value="Jimmy Mayta (Administrador principal)">
-                Jimmy Mayta (Administrador principal)
-              </option>
-              <option value="Contador">Contador</option>
-              <option value="Auditor">Auditor</option>
-            </select>
-          </div>
+        {/* Botón de Paleta de Comandos [Ctrl+Shift+P] */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              closeAllMenus();
+              if (onAbrirPaletaComandos) {
+                onAbrirPaletaComandos();
+              } else {
+                onAction('Paleta de comandos [Ctrl+Shift+P]', 'paleta-comandos');
+              }
+            }}
+            className="h-6 px-2.5 text-[11px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#1E3A5F] border border-[#D1D5DB] hover:border-[#1E3A5F]"
+            title="Buscar cualquier comando o módulo del sistema [Ctrl+Shift+P]"
+          >
+            <Terminal className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <span>Ir a comando o vista…</span>
+            <kbd className="font-mono text-[10px] text-[#4B5563]">Ctrl+Shift+P</kbd>
+          </button>
         </div>
       </div>
     </header>

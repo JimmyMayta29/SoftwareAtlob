@@ -13,8 +13,8 @@ interface ReportStyleContextType {
 
 const ReportStyleContext = createContext<ReportStyleContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'sunaconta_report_style';
-const FECHA_HORA_STORAGE_KEY = 'sunaconta_report_show_datetime';
+const STORAGE_KEY = 'atlob_report_style';
+const FECHA_HORA_STORAGE_KEY = 'atlob_report_show_datetime';
 
 export const ReportStyleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [reportStyle, setReportStyleState] = useState<ReportStyle>(() => {

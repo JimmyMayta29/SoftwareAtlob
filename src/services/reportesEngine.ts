@@ -988,7 +988,7 @@ export function exportarHojaTrabajoPdf(
         doc.setTextColor(148, 163, 184);
         doc.text(`Página ${data.pageNumber} de ${totalPages}`, pageWidth - 10, pageHeight - 8, { align: 'right' });
       }
-      doc.text('SunaConta Cloud - Hoja de Trabajo 10 Columnas Oficial (Reglamento PCGE / SUNAT)', 10, pageHeight - 8);
+      doc.text('Atlob Consultores ERP - Hoja de Trabajo 10 Columnas Oficial (Reglamento PCGE / SUNAT)', 10, pageHeight - 8);
     }
   });
 
@@ -1165,7 +1165,7 @@ export function exportarLibroDiarioESTANDARPdf(
         doc.setTextColor(148, 163, 184);
         doc.text(`Página ${data.pageNumber} de ${totalPages}`, pageWidth - 12, pageHeight - 8, { align: 'right' });
       }
-      doc.text('SunaConta Cloud - Libro Diario (Consistente con PLE 5.1)', 12, pageHeight - 8);
+      doc.text('Atlob Consultores ERP - Libro Diario (Consistente con PLE 5.1)', 12, pageHeight - 8);
     }
   });
 

@@ -20,7 +20,7 @@ export const UsuariosPermisosView: React.FC = () => {
     {
       id: 'usr-admin-01',
       nombre: 'CPC. Carlos Mendoza R.',
-      email: 'admin@sunaconta.pe',
+      email: 'admin@atlob.pe',
       rol: 'ADMINISTRADOR',
       estado: 'ACTIVO',
       asignadoEn: '2026-01-01'
@@ -28,7 +28,7 @@ export const UsuariosPermisosView: React.FC = () => {
     {
       id: 'usr-contador-01',
       nombre: 'CPC. Ana María Morales',
-      email: 'contador@sunaconta.pe',
+      email: 'contador@atlob.pe',
       rol: 'CONTADOR',
       estado: 'ACTIVO',
       asignadoEn: '2026-02-15'
@@ -36,7 +36,7 @@ export const UsuariosPermisosView: React.FC = () => {
     {
       id: 'usr-asistente-01',
       nombre: 'Bach. Jorge Valdivia P.',
-      email: 'asistente@sunaconta.pe',
+      email: 'asistente@atlob.pe',
       rol: 'ASISTENTE',
       estado: 'ACTIVO',
       asignadoEn: '2026-03-01'
@@ -161,7 +161,7 @@ export const UsuariosPermisosView: React.FC = () => {
                   required
                   value={nuevoEmail}
                   onChange={(e) => setNuevoEmail(e.target.value)}
-                  placeholder="marianarios@sunaconta.pe"
+                  placeholder="marianarios@atlob.pe"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono"
                 />
               </div>

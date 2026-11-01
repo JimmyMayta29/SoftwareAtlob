@@ -29,7 +29,7 @@ async function verificarSesion() {
   guardarSesion({ accessToken: 'anterior', refreshToken: 'renovar', empresaActivaId: 'empresa-1' });
   assert.equal(obtenerAccessToken(), 'anterior');
   assert.equal(obtenerRefreshToken(), 'renovar');
-  assert.equal(localStorage.getItem('sunaconta_empresa_activa_id'), 'empresa-1');
+  assert.equal(localStorage.getItem('atlob_empresa_activa_id'), 'empresa-1');
 
   let renovaciones = 0;
   axios.defaults.adapter = async config => {
@@ -68,7 +68,7 @@ async function verificarSesion() {
   liberarRenovacion();
   await assert.rejects(solicitudAntigua, /sesión cambió/);
   assert.equal(obtenerAccessToken(), 'nueva-sesion', 'Una renovación tardía no debe borrar ni reemplazar otra sesión.');
-  assert.equal(localStorage.getItem('sunaconta_empresa_activa_id'), null);
+  assert.equal(localStorage.getItem('atlob_empresa_activa_id'), null);
   limpiarSesion();
   assert.equal(obtenerRefreshToken(), null);
   console.log('Sesión: almacenamiento, renovación única y respuesta tardía verificados.');

@@ -90,11 +90,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-2 pr-3 border-r border-slate-200">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center font-black text-white text-sm shadow-sm">
-            S
+            A
           </div>
           <div>
             <div className="font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5 text-sm">
-              SUNAConta <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-blue-200">ERP CLOUD</span>
+              Atlob Consultores <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-blue-200">ERP</span>
             </div>
             <div className="text-[10px] text-slate-400 font-medium -mt-0.5 truncate max-w-[180px]">
               {usuario.estudioNombre}

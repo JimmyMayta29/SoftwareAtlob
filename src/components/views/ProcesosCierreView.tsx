@@ -594,7 +594,7 @@ export const ProcesosCierreView: React.FC<ProcesosCierreViewProps> = ({
               </div>
               <h3 className="text-lg font-bold text-slate-900">Declaración Anual de Operaciones con Terceros (DAOT)</h3>
               <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
-                Consolidación obligatoria anual de operaciones comerciales. Se declaran aquellos terceros con los cuales se hayan efectuado transacciones que superen las 2 UIT (S/ 10,700 en 2026), discriminando compras y ventas.
+                Consolidación obligatoria anual de operaciones comerciales. Se declaran aquellos terceros con los cuales se hayan efectuado transacciones que superen las 2 UIT (S/ 11,000 en 2026, UIT = S/ 5,500 según D.S. N° 301-2025-EF), discriminando compras y ventas.
               </p>
             </div>
 

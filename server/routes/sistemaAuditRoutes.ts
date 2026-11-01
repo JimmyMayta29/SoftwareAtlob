@@ -15,7 +15,7 @@ router.get('/auditoria/sistema/mapa', requireAuth, (req: Request, res: Response)
 
   const mapaSistema = {
     sistema: {
-      nombre: 'SUNAConta PRO',
+      nombre: 'Atlob Consultores ERP',
       version: '1.7.0-fase7-enterprise',
       descripcion: 'Sistema Contable, Financiero y Tributario Integral para MYPEs en el Perú con Cumplimiento SUNAT (SIRE, PLE, PDT 621)',
       estadoMotorDatos: isPostgres ? 'POSTGRESQL_ONLINE' : 'IN_MEMORY_RESILIENT',

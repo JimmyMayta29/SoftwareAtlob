@@ -183,7 +183,7 @@ export const AsistenteSetupInicial: React.FC<AsistenteSetupInicialProps> = ({
           <div className="w-12 h-12 bg-indigo-500/20 border border-indigo-400/30 rounded-xl flex items-center justify-center mx-auto mb-3 shadow-inner">
             <Sparkles className="w-6 h-6 text-indigo-400" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">SUNAConta PRO — Configuración Inicial</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Atlob Consultores ERP — Configuración Inicial</h1>
           <p className="text-xs text-indigo-200/80 mt-1">
             Asistente de Primer Arranque para el Estudio Contable
           </p>

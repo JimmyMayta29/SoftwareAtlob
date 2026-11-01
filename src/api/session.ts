@@ -1,5 +1,5 @@
-const ACCESS_TOKEN_KEY = 'sunaconta_auth_token';
-const REFRESH_TOKEN_KEY = 'sunaconta_refresh_token';
+const ACCESS_TOKEN_KEY = 'atlob_auth_token';
+const REFRESH_TOKEN_KEY = 'atlob_refresh_token';
 
 export interface SessionTokens {
   accessToken: string;
@@ -25,16 +25,16 @@ export function guardarSesion(sesion: SessionTokens) {
   localStorage.setItem(ACCESS_TOKEN_KEY, sesion.accessToken);
   if (sesion.refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, sesion.refreshToken);
   if (sesion.empresaActivaId !== undefined) {
-    if (sesion.empresaActivaId) localStorage.setItem('sunaconta_empresa_activa_id', sesion.empresaActivaId);
-    else localStorage.removeItem('sunaconta_empresa_activa_id');
+    if (sesion.empresaActivaId) localStorage.setItem('atlob_empresa_activa_id', sesion.empresaActivaId);
+    else localStorage.removeItem('atlob_empresa_activa_id');
   }
-  localStorage.removeItem('sunaconta_jwt_token');
+  localStorage.removeItem('atlob_jwt_token');
 }
 
 export function limpiarSesion() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem('sunaconta_jwt_token');
-  localStorage.removeItem('sunaconta_empresa_activa_id');
-  window.dispatchEvent(new Event('sunaconta_session_expired'));
+  localStorage.removeItem('atlob_jwt_token');
+  localStorage.removeItem('atlob_empresa_activa_id');
+  window.dispatchEvent(new Event('atlob_session_expired'));
 }

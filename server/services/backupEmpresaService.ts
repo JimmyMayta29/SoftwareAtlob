@@ -10,6 +10,10 @@ import { CUENTAS_FINANCIERAS_MEMORIA, MOVIMIENTOS_TESORERIA_MEMORIA, CuentaFinan
 import { TRABAJADORES_MEMORIA, PLANILLAS_MEMORIA, TrabajadorModel, PlanillaResumenModel } from './planillaService';
 import { PERIODOS_MEMORIA, PeriodoModel } from './periodoService';
 import { ARTICULOS_MEMORIA, ArticuloKardexModel } from './kardexService';
+import { DECLARACIONES_PDT621_MEMORIA, LiquidacionIGVResultado } from './liquidacionIGVService';
+import { DECLARACIONES_PRORRATA_MEMORIA, LiquidacionProrrataIgv } from './prorrataIgvService';
+import { DECLARACIONES_RENTA_ANUAL_MEMORIA, CalculoDjAnualRenta } from './djRentaAnualService';
+import { DAOT_EXCLUSIONES_MEMORIA, ExclusionDaotItem } from './daotService';
 import { AUDITORIA_LOG_CHAIN_MEMORIA, AuditoriaChainLog } from './auditoriaChainService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 
@@ -49,7 +53,7 @@ export interface EstadoMarcaAguaEmpresa {
 const BACKUPS_MEMORIA: MetadatosBackupItem[] = [];
 const MARCAS_AGUA_EMPRESA = new Map<string, EstadoMarcaAguaEmpresa>();
 const RETENCION_MAXIMA_BACKUPS = 10;
-const CLAVE_DERIVACION_DEFAULT = 'SUNAConta_Pro_Master_Backup_Key_2026!';
+const CLAVE_DERIVACION_DEFAULT = 'Atlob_ERP_Master_Backup_Key_2026!';
 
 export const backupEmpresaService = {
   /**
@@ -86,7 +90,7 @@ export const backupEmpresaService = {
   /**
    * Genera clave criptográfica simétrica AES-256 de 32 bytes derivada con PBKDF2
    */
-  derivarClave(passphrase = CLAVE_DERIVACION_DEFAULT, salt = 'sunaconta_estudio_salt_2026'): Buffer {
+  derivarClave(passphrase = CLAVE_DERIVACION_DEFAULT, salt = 'atlob_estudio_salt_2026'): Buffer {
     return crypto.pbkdf2Sync(passphrase, salt, 10000, 32, 'sha256');
   },
 
@@ -163,6 +167,10 @@ export const backupEmpresaService = {
       'trabajadores.ndjson': TRABAJADORES_MEMORIA.filter(t => t.empresaId === empresaId),
       'planillas.ndjson': PLANILLAS_MEMORIA.filter(p => p.empresaId === empresaId),
       'articulos_kardex.ndjson': ARTICULOS_MEMORIA.filter(a => a.empresaId === empresaId),
+      'declaraciones_pdt621.ndjson': DECLARACIONES_PDT621_MEMORIA.filter(d => d.empresaId === empresaId),
+      'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
+      'declaraciones_renta_anual.ndjson': DECLARACIONES_RENTA_ANUAL_MEMORIA.filter(d => d.empresaId === empresaId),
+      'daot_exclusiones.ndjson': DAOT_EXCLUSIONES_MEMORIA.filter(d => d.empresaId === empresaId),
       'auditoria.ndjson': AUDITORIA_LOG_CHAIN_MEMORIA.filter(a => a.empresaId === empresaId)
     };
 
@@ -353,6 +361,10 @@ export const backupEmpresaService = {
     const nuevasPlanillas = leerNdjson<PlanillaResumenModel>('planillas.ndjson');
     const nuevosArticulos = leerNdjson<ArticuloKardexModel>('articulos_kardex.ndjson');
     const nuevosPeriodos = leerNdjson<PeriodoModel>('periodos.ndjson');
+    const nuevasDeclPdt621 = leerNdjson<LiquidacionIGVResultado>('declaraciones_pdt621.ndjson');
+    const nuevasDeclProrrata = leerNdjson<LiquidacionProrrataIgv>('declaraciones_prorrata_igv.ndjson');
+    const nuevasDeclRentaAnual = leerNdjson<CalculoDjAnualRenta>('declaraciones_renta_anual.ndjson');
+    const nuevasDaotExclusiones = leerNdjson<ExclusionDaotItem>('daot_exclusiones.ndjson');
 
     // 3. Sustituir en memoria SOLO los datos que pertenecen a empresaIdDestino
     const reemplazarPorEmpresa = <T extends { empresaId?: string }>(arr: T[], nuevos: T[]) => {
@@ -376,6 +388,10 @@ export const backupEmpresaService = {
     reemplazarPorEmpresa(PLANILLAS_MEMORIA, nuevasPlanillas);
     reemplazarPorEmpresa(ARTICULOS_MEMORIA, nuevosArticulos);
     reemplazarPorEmpresa(PERIODOS_MEMORIA, nuevosPeriodos);
+    reemplazarPorEmpresa(DECLARACIONES_PDT621_MEMORIA, nuevasDeclPdt621);
+    reemplazarPorEmpresa(DECLARACIONES_PRORRATA_MEMORIA, nuevasDeclProrrata);
+    reemplazarPorEmpresa(DECLARACIONES_RENTA_ANUAL_MEMORIA, nuevasDeclRentaAnual);
+    reemplazarPorEmpresa(DAOT_EXCLUSIONES_MEMORIA, nuevasDaotExclusiones);
 
     // 4. Registrar en auditoría
     await auditoriaRepository.registrar({

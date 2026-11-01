@@ -44,7 +44,7 @@ export const SqlDatabaseView: React.FC<SqlDatabaseViewProps> = ({
 
   const [sqlHost, setSqlHost] = useState('localhost');
   const [sqlPort, setSqlPort] = useState(5432);
-  const [sqlDatabase, setSqlDatabase] = useState('sunaconta_db');
+  const [sqlDatabase, setSqlDatabase] = useState('atlob_erp_db');
   const [sqlUser, setSqlUser] = useState('postgres');
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
 
@@ -73,7 +73,7 @@ export const SqlDatabaseView: React.FC<SqlDatabaseViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sunaconta_db_dump_${empresa.ruc}_${new Date().toISOString().split('T')[0]}.sql`;
+    a.download = `atlob_erp_db_dump_${empresa.ruc}_${new Date().toISOString().split('T')[0]}.sql`;
     a.click();
     URL.revokeObjectURL(url);
   };

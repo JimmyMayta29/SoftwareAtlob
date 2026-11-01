@@ -128,7 +128,7 @@ export const setupService = {
    * Genera un nuevo secreto MFA TOTP (RFC 6238) en Base32 para el asistente de primer arranque
    */
   generarMfaSecret(email: string) {
-    return totpService.generarSecreto(z.string().trim().email().parse(email), 'SUNAConta PRO');
+    return totpService.generarSecreto(z.string().trim().email().parse(email), 'Atlob Consultores ERP');
   },
 
   /**

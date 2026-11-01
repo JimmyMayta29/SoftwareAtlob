@@ -9,7 +9,7 @@ export interface SqlQueryResult {
 }
 
 export const SQL_SCHEMA_DDL = `-- ====================================================================
--- SUNAConta PRO - Base de Datos SQL Tributaria y Contable (SUNAT Perú)
+-- Atlob Consultores ERP - Base de Datos SQL Tributaria y Contable (SUNAT Perú)
 -- Compatible con: PostgreSQL 14+, SQLite 3, MySQL 8+, MS SQL Server
 -- ====================================================================
 

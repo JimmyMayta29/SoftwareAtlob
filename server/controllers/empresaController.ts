@@ -119,7 +119,7 @@ export const empresaController = {
         tenantId,
         empresaId: nueva.id,
         usuarioId: userId,
-        usuarioEmail: req.user?.email || 'admin@sunaconta.pe',
+        usuarioEmail: req.user?.email || 'admin@atlob.pe',
         tablaAfectada: 'empresas',
         registroId: nueva.id,
         accion: 'INSERT',

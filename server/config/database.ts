@@ -29,7 +29,12 @@ export async function initializeDatabase(): Promise<void> {
     isConnected = true;
   } catch (error) {
     await candidate.end();
-    throw error;
+    if (env.NODE_ENV === 'production') {
+      throw error;
+    }
+    console.warn(`⚠️ [Database] No se pudo conectar a PostgreSQL (${(error as Error).message}). Operando en modo DESARROLLO/TEST con almacén en memoria.`);
+    pool = null;
+    isConnected = false;
   }
 }
 
@@ -48,7 +53,7 @@ export function setPostgresPool(customPool: Pool | any, connected = true) {
 
 async function transaction<T>(empresaId: string, userId: string | undefined, action: (client: PoolClient) => Promise<T>): Promise<T> {
   if (!pool || !isConnected) {
-    if (env.NODE_ENV !== 'production' && !env.DATABASE_URL) return action({} as PoolClient);
+    if (env.NODE_ENV !== 'production') return action({} as PoolClient);
     throw new Error('DATABASE_NO_DISPONIBLE');
   }
   const client = await pool.connect();
@@ -70,11 +75,24 @@ async function transaction<T>(empresaId: string, userId: string | undefined, act
 export const db: DatabaseService = {
   isPostgresConnected: () => isConnected && pool !== null,
   async query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<T>> {
-    if (!pool || !isConnected) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (!pool || !isConnected) {
+      if (env.NODE_ENV !== 'production') {
+        return { rows: [] as T[], rowCount: 0, command: '', oid: 0, fields: [] };
+      }
+      throw new Error('DATABASE_NO_DISPONIBLE');
+    }
     return pool.query<T>(text, params);
   },
   async getClient(): Promise<PoolClient> {
-    if (!pool || !isConnected) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (!pool || !isConnected) {
+      if (env.NODE_ENV !== 'production') {
+        return {
+          query: async () => ({ rows: [], rowCount: 0, command: '', oid: 0, fields: [] }),
+          release: () => {}
+        } as unknown as PoolClient;
+      }
+      throw new Error('DATABASE_NO_DISPONIBLE');
+    }
     return pool.connect();
   },
   withTenantAndEmpresa: (userId, empresaId, action) => transaction(empresaId, userId, action),

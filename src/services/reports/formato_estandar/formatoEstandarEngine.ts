@@ -615,3 +615,145 @@ export function exportarReporteEstandarHojaCalculo(def: EstandarReportDefinition
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Genera el Resumen Imprimible de la Declaración Mensual IGV-Renta (PDT 621)
+ * en PDF Formato estándar Atlob (monocromo de alta densidad con casillas oficiales).
+ */
+export function exportarResumenPdt621EstandarPdf(params: {
+  empresa: {
+    razonSocial: string;
+    ruc: string;
+    direccion?: string;
+    regimenTributario?: string;
+  };
+  periodo: string;
+  estado: string;
+  version: number;
+  esRectificatoria?: boolean;
+  numeroOrden?: string | null;
+  fechaPresentacion?: string | null;
+  asientoNumero?: string | null;
+  filasCasillas: Array<{
+    seccion: string;
+    casillaBase?: string;
+    montoBase?: number | null;
+    casillaTributo: string;
+    concepto: string;
+    montoTributo: number;
+    enteroSunat: number;
+  }>;
+  totalDeudaIgv: number;
+  nuevoSaldoFavorIgv: number;
+  pagoCuentaRenta: number;
+  totalPagarSunat: number;
+}): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 12;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text(params.empresa.razonSocial.toUpperCase(), marginX, 11);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(`R.U.C.: ${params.empresa.ruc}`, marginX, 15);
+  doc.text(`RÉGIMEN: ${params.empresa.regimenTributario || 'MYPE_TRIBUTARIO'}`, marginX, 19);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('HOJA DE TRABAJO — DECLARACIÓN MENSUAL IGV-RENTA (PDT 621)', pageWidth / 2, 12, { align: 'center' });
+  doc.setFontSize(8);
+  doc.text(
+    `PERÍODO TRIBUTARIO: ${params.periodo}   |   ESTADO: ${params.estado} (V.${params.version}${params.esRectificatoria ? ' - RECTIFICATORIA' : ''})`,
+    pageWidth / 2,
+    17,
+    { align: 'center' }
+  );
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text('Formato estándar Atlob (SOLES)', pageWidth - marginX, 11, { align: 'right' });
+  if (params.numeroOrden) {
+    doc.text(`N° ORDEN: ${params.numeroOrden} (${params.fechaPresentacion || ''})`, pageWidth - marginX, 15, { align: 'right' });
+  }
+  if (params.asientoNumero) {
+    doc.text(`VOUCHER DETERMINACIÓN: ${params.asientoNumero}`, pageWidth - marginX, 19, { align: 'right' });
+  }
+
+  doc.setLineWidth(0.3);
+  doc.line(marginX, 22, pageWidth - marginX, 22);
+
+  const bodyRows = params.filasCasillas.map((f) => [
+    f.seccion,
+    f.concepto,
+    f.casillaBase || '—',
+    f.montoBase !== undefined && f.montoBase !== null ? formatearImporteEstandar(f.montoBase) : '—',
+    `Cas. ${f.casillaTributo}`,
+    formatearImporteEstandar(f.montoTributo),
+    String(Math.round(f.enteroSunat))
+  ]);
+
+  autoTable(doc, {
+    startY: 25,
+    margin: { left: marginX, right: marginX },
+    head: [[
+      'SECCIÓN',
+      'CONCEPTO / DESCRIPCIÓN DE CASILLA',
+      'CAS. BASE',
+      'BASE IMPONIBLE (S/)',
+      'CAS. TRIB.',
+      'TRIBUTO CALC. (S/)',
+      'ENTERO PDT'
+    ]],
+    body: bodyRows,
+    theme: 'plain',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.5,
+      cellPadding: 1.5,
+      textColor: [0, 0, 0],
+      lineColor: [180, 180, 180],
+      lineWidth: 0.1
+    },
+    headStyles: {
+      fontStyle: 'bold',
+      fillColor: [235, 238, 242],
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.25
+    },
+    columnStyles: {
+      0: { cellWidth: 24, fontStyle: 'bold' },
+      1: { cellWidth: 64 },
+      2: { cellWidth: 16, halign: 'center' },
+      3: { cellWidth: 25, halign: 'right' },
+      4: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+      5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 16, halign: 'right', fontStyle: 'bold' }
+    }
+  });
+
+  const finalY = ((doc as any).lastAutoTable?.finalY || 140) + 6;
+  doc.setLineWidth(0.3);
+  doc.line(marginX, finalY, pageWidth - marginX, finalY);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text(`IGV A PAGAR (CASILLA 188): S/ ${formatearImporteEstandar(params.totalDeudaIgv)}`, marginX, finalY + 6);
+  doc.text(`SALDO A FAVOR PRÓXIMO MES: S/ ${formatearImporteEstandar(params.nuevoSaldoFavorIgv)}`, marginX, finalY + 11);
+  doc.text(`PAGO A CUENTA RENTA (CASILLA 304): S/ ${formatearImporteEstandar(params.pagoCuentaRenta)}`, pageWidth / 2, finalY + 6);
+  doc.text(`TOTAL TRIBUTOS POR PAGAR: S/ ${formatearImporteEstandar(params.totalPagarSunat)}`, pageWidth / 2, finalY + 11);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text(
+    'Nota: Hoja de trabajo generada por Atlob Consultores ERP para llenado de casillas del PDT 621 / Declara Fácil. No constituye envío telemático a SUNAT.',
+    marginX,
+    finalY + 19
+  );
+
+  const nombreArchivo = `RESUMEN_PDT621_${params.empresa.ruc}_${params.periodo.replace('-', '')}_V${params.version}.pdf`;
+  doc.save(nombreArchivo);
+}
+

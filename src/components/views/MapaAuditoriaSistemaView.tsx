@@ -78,7 +78,7 @@ export const MapaAuditoriaSistemaView: React.FC<MapaAuditoriaSistemaViewProps> =
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `SUNAConta_Dossier_Auditoria_${empresa.ruc}_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `Atlob_Dossier_Auditoria_${empresa.ruc}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     success('Dossier de auditoría descargado exitosamente.', 'Exportación Completa');

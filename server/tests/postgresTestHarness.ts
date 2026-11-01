@@ -67,7 +67,8 @@ export async function setupPostgresTestHarness() {
     'schema_fase3.sql',
     'schema_fase4.sql',
     'schema_fase5.sql',
-    'schema_fase6.sql'
+    'schema_fase6.sql',
+    'schema_fase8_tributos.sql'
   ];
 
   for (const file of schemaFiles) {

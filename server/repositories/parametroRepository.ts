@@ -1,4 +1,6 @@
 import { db } from '../config/database';
+import { auditoriaRepository } from './auditoriaRepository';
+import { auditoriaChainService } from '../services/auditoriaChainService';
 
 export interface ParametroTributario {
   id?: string;
@@ -8,6 +10,21 @@ export interface ParametroTributario {
   vigenteDesde: string;
   vigenteHasta?: string | null;
   categoria: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface HistorialCambioParametro {
+  id: string;
+  codigoParametro: string;
+  valorAnterior: number | null;
+  valorNuevo: number;
+  vigenteDesde: string;
+  vigenteHasta?: string | null;
+  usuarioId: string;
+  rolUsuario: string;
+  motivo: string;
+  fechaCambio: string;
 }
 
 export interface CronogramaVencimiento {
@@ -19,35 +36,60 @@ export interface CronogramaVencimiento {
   fechaVencimientoPlame: string;
 }
 
-// Semilla en memoria como fallback resiliente
-const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
-  { codigoParametro: 'TASA_IGV', descripcion: 'Tasa General del IGV (18%)', valorNumerico: 0.18, vigenteDesde: '2020-01-01', categoria: 'IGV' },
-  { codigoParametro: 'TASA_ESSALUD', descripcion: 'Aporte Patronal EsSalud (9%)', valorNumerico: 0.09, vigenteDesde: '2020-01-01', categoria: 'LABORAL' },
-  { codigoParametro: 'TASA_ONP', descripcion: 'Aporte Obligatorio Sistema Nacional de Pensiones ONP (13%)', valorNumerico: 0.13, vigenteDesde: '2020-01-01', categoria: 'LABORAL' },
-  { codigoParametro: 'RMV_2026', descripcion: 'Remuneración Mínima Vital 2026 (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', categoria: 'LABORAL' },
-  { codigoParametro: 'TASA_ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', categoria: 'LABORAL' },
-  { codigoParametro: 'TASA_RETENCION_4TA', descripcion: 'Tasa Retención 4ta Categoría (8%)', valorNumerico: 0.08, vigenteDesde: '2020-01-01', categoria: 'RENTA' },
-  { codigoParametro: 'TOPE_RETENCION_4TA', descripcion: 'Monto a partir del cual aplica retención 4ta (S/ 1,500)', valorNumerico: 1500.00, vigenteDesde: '2020-01-01', categoria: 'RENTA' },
-  { codigoParametro: 'TASA_RENTA_MYPE_SUB300', descripcion: 'Pago a cuenta mensual MYPE Tributario hasta 300 UIT (1%)', valorNumerico: 0.01, vigenteDesde: '2020-01-01', categoria: 'RENTA' },
-  { codigoParametro: 'TASA_RENTA_RER', descripcion: 'Pago definitivo Régimen Especial de Renta (1.5%)', valorNumerico: 0.015, vigenteDesde: '2020-01-01', categoria: 'RENTA' },
-  { codigoParametro: 'VALOR_UIT_2026', descripcion: 'Valor oficial UIT 2026', valorNumerico: 5350.00, vigenteDesde: '2026-01-01', categoria: 'UIT' },
-  
+// Semilla en memoria autoritativa (Cero hardcoding en servicios)
+export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
+  { id: 'prm-igv-18', codigoParametro: 'TASA_IGV', descripcion: 'Tasa General del IGV + IPM (18%)', valorNumerico: 0.18, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV' },
+  { id: 'prm-uit-2026', codigoParametro: 'VALOR_UIT_2026', descripcion: 'Valor oficial UIT 2026 (D.S. N° 301-2025-EF)', valorNumerico: 5500.00, vigenteDesde: '2026-01-01', vigenteHasta: '2026-12-31', categoria: 'UIT' },
+  { id: 'prm-uit-2025', codigoParametro: 'VALOR_UIT_2025', descripcion: 'Valor oficial UIT 2025 (D.S. N° 260-2024-EF)', valorNumerico: 5350.00, vigenteDesde: '2025-01-01', vigenteHasta: '2025-12-31', categoria: 'UIT' },
+  { id: 'prm-uit-2024', codigoParametro: 'VALOR_UIT_2024', descripcion: 'Valor oficial UIT 2024 (D.S. N° 309-2023-EF)', valorNumerico: 5150.00, vigenteDesde: '2024-01-01', vigenteHasta: '2024-12-31', categoria: 'UIT' },
+  { id: 'prm-daot-uit', codigoParametro: 'UMBRAL_DAOT_UIT', descripcion: 'Umbral anual en UIT para Operaciones con Terceros DAOT (2 UIT)', valorNumerico: 2, vigenteDesde: '2002-01-01', vigenteHasta: null, categoria: 'UIT' },
+  { id: 'prm-rta-mype-sub300', codigoParametro: 'TASA_RENTA_MYPE_SUB300', descripcion: 'Pago a cuenta mensual MYPE Tributario hasta 300 UIT (1.0%)', valorNumerico: 0.01, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-mype-tope300', codigoParametro: 'TOPE_RENTA_MYPE_MENSUAL_UIT', descripcion: 'Tope de ingresos netos anuales para tasa 1.0% MYPE Tributario (300 UIT)', valorNumerico: 300, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-rg-min', codigoParametro: 'TASA_RENTA_RG_MIN', descripcion: 'Pago a cuenta mínimo mensual Régimen General / RMT > 300 UIT (1.5%)', valorNumerico: 0.015, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-rer', codigoParametro: 'TASA_RENTA_RER', descripcion: 'Cuota mensual definitiva Régimen Especial de Renta RER (1.5%)', valorNumerico: 0.015, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-nrus-c1', codigoParametro: 'CUOTA_NRUS_CAT1', descripcion: 'Cuota mensual Nuevo RUS Categoría 1 (hasta S/ 5,000)', valorNumerico: 20.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-nrus-c2', codigoParametro: 'CUOTA_NRUS_CAT2', descripcion: 'Cuota mensual Nuevo RUS Categoría 2 (hasta S/ 8,000)', valorNumerico: 50.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-anual-mype-t1', codigoParametro: 'TASA_RENTA_ANUAL_MYPE_T1', descripcion: 'Tasa Anual Renta MYPE Tributario Tramo 1 hasta 15 UIT (10%)', valorNumerico: 0.10, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-anual-mype-uit', codigoParametro: 'TRAMO_RENTA_ANUAL_MYPE_UIT', descripcion: 'Tope del primer tramo Renta Anual MYPE Tributario en UIT (15 UIT)', valorNumerico: 15, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-anual-rg', codigoParametro: 'TASA_RENTA_ANUAL_GENERAL', descripcion: 'Tasa Anual Impuesto a la Renta Régimen General y exceso RMT (29.5%)', valorNumerico: 0.295, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-rta-4ta', codigoParametro: 'TASA_RETENCION_4TA', descripcion: 'Tasa Retención 4ta Categoría Recibos por Honorarios (8%)', valorNumerico: 0.08, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-tope-4ta', codigoParametro: 'TOPE_RETENCION_4TA', descripcion: 'Monto a partir del cual aplica retención 4ta (S/ 1,500)', valorNumerico: 1500.00, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA' },
+  { id: 'prm-essalud', codigoParametro: 'TASA_ESSALUD', descripcion: 'Aporte Patronal EsSalud (9%)', valorNumerico: 0.09, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
+  { id: 'prm-onp', codigoParametro: 'TASA_ONP', descripcion: 'Aporte Obligatorio Sistema Nacional de Pensiones ONP (13%)', valorNumerico: 0.13, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
+  { id: 'prm-rmv-2026', codigoParametro: 'RMV_2026', descripcion: 'Remuneración Mínima Vital vigente (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', vigenteHasta: null, categoria: 'LABORAL' },
+  { id: 'prm-asig-fam', codigoParametro: 'TASA_ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
+
   // Parámetros AFP Comisión Flujo y Seguros (Vigentes)
-  { codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', categoria: 'AFP' },
+  { id: 'prm-afp-int-ap', codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-int-ps', codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
 
-  { codigoParametro: 'AFP_PRIMA_APORTE', descripcion: 'AFP Prima - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo', valorNumerico: 0.0160, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', categoria: 'AFP' },
+  { id: 'prm-afp-pri-ap', codigoParametro: 'AFP_PRIMA_APORTE', descripcion: 'AFP Prima - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pri-cf', codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo', valorNumerico: 0.0160, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pri-ps', codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
 
-  { codigoParametro: 'AFP_PROFUTURO_APORTE', descripcion: 'AFP Profuturo - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo', valorNumerico: 0.0169, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', categoria: 'AFP' },
+  { id: 'prm-afp-pro-ap', codigoParametro: 'AFP_PROFUTURO_APORTE', descripcion: 'AFP Profuturo - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pro-cf', codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo', valorNumerico: 0.0169, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pro-ps', codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
 
-  { codigoParametro: 'AFP_HABITAT_APORTE', descripcion: 'AFP Habitat - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo', valorNumerico: 0.0147, vigenteDesde: '2020-01-01', categoria: 'AFP' },
-  { codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', categoria: 'AFP' },
+  { id: 'prm-afp-hab-ap', codigoParametro: 'AFP_HABITAT_APORTE', descripcion: 'AFP Habitat - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-hab-cf', codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo', valorNumerico: 0.0147, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-hab-ps', codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+];
+
+export const HISTORIAL_PARAMETROS_MEMORIA: HistorialCambioParametro[] = [
+  {
+    id: 'hist-prm-001',
+    codigoParametro: 'VALOR_UIT_2026',
+    valorAnterior: 5350.00,
+    valorNuevo: 5500.00,
+    vigenteDesde: '2026-01-01',
+    vigenteHasta: '2026-12-31',
+    usuarioId: 'usr-admin-01',
+    rolUsuario: 'ADMIN_ESTUDIO',
+    motivo: 'Actualización oficial UIT 2026 según D.S. N° 301-2025-EF',
+    fechaCambio: '2026-01-01T00:00:00.000Z'
+  }
 ];
 
 const CRONOGRAMA_IN_MEMORY: CronogramaVencimiento[] = [
@@ -64,33 +106,177 @@ const CRONOGRAMA_IN_MEMORY: CronogramaVencimiento[] = [
   { periodo: '2026-09', ultimoDigitoRuc: 'B', fechaVencimientoPdt621: '2026-10-29', fechaVencimientoSire: '2026-10-28', fechaVencimientoPlame: '2026-10-29' },
 ];
 
+function esRolAdministradorEstudio(rol?: string): boolean {
+  const r = (rol || '').toUpperCase();
+  return r === 'ADMIN_ESTUDIO' || r === 'ADMINISTRADOR' || r === 'ADMIN';
+}
+
 export const parametroRepository = {
   async obtenerParametros(): Promise<ParametroTributario[]> {
     if (db.isPostgresConnected()) {
       const res = await db.query(`
-        SELECT codigo_parametro as "codigoParametro", descripcion, valor_numerico as "valorNumerico",
+        SELECT id, codigo_parametro as "codigoParametro", descripcion, valor_numerico as "valorNumerico",
                vigente_desde as "vigenteDesde", vigente_hasta as "vigenteHasta", categoria
         FROM parametros_tributarios
         ORDER BY categoria, codigo_parametro
       `);
-      if (res.rows.length > 0) return res.rows;
+      if (res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          ...r,
+          valorNumerico: Number(r.valorNumerico)
+        }));
+      }
     }
-    return PARAMETROS_IN_MEMORY;
+    return [...PARAMETROS_IN_MEMORY];
   },
 
   async obtenerParametroPorCodigo(codigo: string, fechaReferencia = new Date().toISOString().split('T')[0]): Promise<ParametroTributario | null> {
     if (db.isPostgresConnected()) {
       const res = await db.query(`
-        SELECT codigo_parametro as "codigoParametro", descripcion, valor_numerico as "valorNumerico",
+        SELECT id, codigo_parametro as "codigoParametro", descripcion, valor_numerico as "valorNumerico",
                vigente_desde as "vigenteDesde", vigente_hasta as "vigenteHasta", categoria
         FROM parametros_tributarios
         WHERE codigo_parametro = $1 AND vigente_desde <= $2 AND (vigente_hasta IS NULL OR vigente_hasta >= $2)
         ORDER BY vigente_desde DESC
         LIMIT 1
       `, [codigo, fechaReferencia]);
-      if (res.rows.length > 0) return res.rows[0];
+      if (res.rows.length > 0) {
+        return {
+          ...res.rows[0],
+          valorNumerico: Number(res.rows[0].valorNumerico)
+        };
+      }
     }
-    return PARAMETROS_IN_MEMORY.find(p => p.codigoParametro === codigo) || null;
+    const candidatos = PARAMETROS_IN_MEMORY.filter(p => p.codigoParametro === codigo);
+    if (candidatos.length === 0) return null;
+    const vigente = candidatos.find(
+      p => p.vigenteDesde <= fechaReferencia && (!p.vigenteHasta || p.vigenteHasta >= fechaReferencia)
+    );
+    return vigente || candidatos[0];
+  },
+
+  async obtenerValorNumerico(codigo: string, fallback: number, fechaReferencia?: string): Promise<number> {
+    const param = await this.obtenerParametroPorCodigo(codigo, fechaReferencia);
+    return param ? Number(param.valorNumerico) : fallback;
+  },
+
+  async obtenerUitPorAnio(anio: number): Promise<number> {
+    const codigoAnio = `VALOR_UIT_${anio}`;
+    const especifico = await this.obtenerParametroPorCodigo(codigoAnio, `${anio}-06-01`);
+    if (especifico) return Number(especifico.valorNumerico);
+    const actual = await this.obtenerParametroPorCodigo('VALOR_UIT_2026', `${anio}-06-01`);
+    return actual ? Number(actual.valorNumerico) : 5500.00;
+  },
+
+  async guardarOActualizarParametro(
+    input: {
+      codigoParametro: string;
+      descripcion: string;
+      valorNumerico: number;
+      vigenteDesde: string;
+      vigenteHasta?: string | null;
+      categoria: string;
+      motivo?: string;
+    },
+    usuarioId: string,
+    rolUsuario: string,
+    empresaContextoId: string = '00000000-0000-0000-0000-000000000001'
+  ): Promise<ParametroTributario> {
+    if (!esRolAdministradorEstudio(rolUsuario)) {
+      throw new Error('PERMISO_DENEGADO: Solo ADMIN_ESTUDIO o ADMINISTRADOR puede modificar la tabla parametros_tributarios.');
+    }
+
+    const codigo = input.codigoParametro.trim().toUpperCase();
+    const existenteIdx = PARAMETROS_IN_MEMORY.findIndex(p => p.codigoParametro === codigo);
+    const valorAnterior = existenteIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteIdx].valorNumerico : null;
+    const ahora = new Date().toISOString();
+
+    const nuevoParametro: ParametroTributario = {
+      id: existenteIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteIdx].id : `prm-${Date.now()}`,
+      codigoParametro: codigo,
+      descripcion: input.descripcion.trim(),
+      valorNumerico: Number(input.valorNumerico),
+      vigenteDesde: input.vigenteDesde,
+      vigenteHasta: input.vigenteHasta || null,
+      categoria: input.categoria || 'RENTA',
+      updatedAt: ahora,
+      updatedBy: usuarioId
+    };
+
+    if (existenteIdx >= 0) {
+      PARAMETROS_IN_MEMORY[existenteIdx] = nuevoParametro;
+    } else {
+      PARAMETROS_IN_MEMORY.push(nuevoParametro);
+    }
+
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          INSERT INTO parametros_tributarios (codigo_parametro, descripcion, valor_numerico, vigente_desde, vigente_hasta, categoria)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (codigo_parametro, vigente_desde)
+          DO UPDATE SET descripcion = EXCLUDED.descripcion,
+                        valor_numerico = EXCLUDED.valor_numerico,
+                        vigente_hasta = EXCLUDED.vigente_hasta,
+                        categoria = EXCLUDED.categoria
+        `, [
+          nuevoParametro.codigoParametro,
+          nuevoParametro.descripcion,
+          nuevoParametro.valorNumerico,
+          nuevoParametro.vigenteDesde,
+          nuevoParametro.vigenteHasta,
+          nuevoParametro.categoria
+        ]);
+      } catch {
+        // Fallback silencioso en modo memoria
+      }
+    }
+
+    const cambio: HistorialCambioParametro = {
+      id: `hist-prm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      codigoParametro: codigo,
+      valorAnterior,
+      valorNuevo: nuevoParametro.valorNumerico,
+      vigenteDesde: nuevoParametro.vigenteDesde,
+      vigenteHasta: nuevoParametro.vigenteHasta,
+      usuarioId,
+      rolUsuario,
+      motivo: input.motivo || 'Actualización administrativa de parámetro tributario',
+      fechaCambio: ahora
+    };
+    HISTORIAL_PARAMETROS_MEMORIA.unshift(cambio);
+
+    await auditoriaChainService.registrar({
+      empresaId: empresaContextoId,
+      usuarioId,
+      accion: valorAnterior === null ? 'CREAR_PARAMETRO_TRIBUTARIO' : 'ACTUALIZAR_PARAMETRO_TRIBUTARIO',
+      tablaAfectada: 'parametros_tributarios',
+      registroId: codigo,
+      datosAnteriores: valorAnterior !== null ? { valorNumerico: valorAnterior } : undefined,
+      datosNuevos: {
+        codigoParametro: codigo,
+        valorNumerico: nuevoParametro.valorNumerico,
+        vigenteDesde: nuevoParametro.vigenteDesde,
+        vigenteHasta: nuevoParametro.vigenteHasta,
+        motivo: cambio.motivo
+      }
+    });
+
+    await auditoriaRepository.registrar({
+      empresaId: empresaContextoId,
+      usuarioId,
+      tablaAfectada: 'parametros_tributarios',
+      registroId: codigo,
+      accion: valorAnterior === null ? 'INSERT' : 'UPDATE',
+      datosAnteriores: valorAnterior !== null ? { valorNumerico: valorAnterior } : undefined,
+      datosNuevos: { ...nuevoParametro, motivo: cambio.motivo }
+    });
+
+    return nuevoParametro;
+  },
+
+  obtenerHistorialCambios(): HistorialCambioParametro[] {
+    return [...HISTORIAL_PARAMETROS_MEMORIA];
   },
 
   async obtenerCronograma(periodo: string, ultimoDigitoRuc: string): Promise<CronogramaVencimiento | null> {

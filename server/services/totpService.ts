@@ -63,7 +63,7 @@ export const totpService = {
   /**
    * Genera un nuevo secreto TOTP de 160 bits (20 bytes) en Base32
    */
-  generarSecreto(usuarioEmail: string, emisor = 'SunaConta ERP'): { secret: string; otpauthUrl: string } {
+  generarSecreto(usuarioEmail: string, emisor = 'Atlob Consultores ERP'): { secret: string; otpauthUrl: string } {
     const randomBytes = crypto.randomBytes(20);
     const secret = this.encodeBase32(randomBytes);
     const label = encodeURIComponent(`${emisor}:${usuarioEmail}`);

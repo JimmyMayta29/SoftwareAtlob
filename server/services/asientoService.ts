@@ -82,7 +82,7 @@ export const asientoService = {
    * Crea un nuevo asiento en estado BORRADOR. Los borradores NO consumen correlativo.
    */
   async crearBorrador(empresaId: string, input: AsientoInput, userId: string) {
-    const id = `asiento-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const id = `asiento-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     const version = 1;
     const moneda = input.moneda || 'PEN';

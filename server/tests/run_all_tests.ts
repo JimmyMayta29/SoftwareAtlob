@@ -23,7 +23,9 @@ const suites = [
   { name: 'Fase 13: Comportamiento & Cobertura de Servicios Críticos', path: 'server/tests/run_tests_fase13_cobertura.ts' },
   { name: 'Fase 13: Empresa Demo S.A.C. & Idempotencia', path: 'server/tests/run_tests_fase13_demo.ts' },
   { name: 'Fase 13: Backup y Restauración por Empresa ESTANDAR', path: 'server/tests/run_tests_fase13_backup.ts' },
-  { name: 'Fase 13: Motor de Importación CSV/hoja de cálculo & Rollback', path: 'server/tests/run_tests_fase13_importacion.ts' }
+  { name: 'Fase 13: Motor de Importación CSV/hoja de cálculo & Rollback', path: 'server/tests/run_tests_fase13_importacion.ts' },
+  { name: 'Fase 1: Taxonomía de Menú Propio y Separación 1:1 de Vistas', path: 'server/tests/run_tests_menu_fase1.ts' },
+  { name: 'Fase 4 (Tributos): PDT 621, Prorrata IGV, Renta Anual, DAOT, Cronograma y Parámetros', path: 'server/tests/run_tests_fase4_tributos.ts' }
 ];
 
 console.log('========================================================================');

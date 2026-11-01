@@ -47,7 +47,7 @@ async function ejecutarSuiteFase7B() {
   console.log('🔹 Test 1: Usuario sin acceso a Empresa B recibe 403 por API y Guard');
   {
     // usr-contador-01 tiene acceso a EMPRESA_A y emp-01, pero NO a EMPRESA_B
-    const loginContador = await authJwtService.login('contador@sunaconta.pe', 'Sunaconta2026!');
+    const loginContador = await authJwtService.login('contador@atlob.pe', 'Atlob2026!');
     const tokenContador = loginContador.accessToken;
     testAssert(loginContador.empresasPermitidas.includes(EMPRESA_A), 'Contador tiene acceso a Empresa A');
     testAssert(!loginContador.empresasPermitidas.includes(EMPRESA_B), 'Contador NO tiene acceso a Empresa B en membresías');
@@ -75,7 +75,7 @@ async function ejecutarSuiteFase7B() {
       },
       user: {
         id: 'usr-contador-01',
-        email: 'contador@sunaconta.pe',
+        email: 'contador@atlob.pe',
         rolGlobal: 'CONTADOR_SENIOR',
         empresasPermitidas: loginContador.empresasPermitidas
       }
@@ -112,7 +112,7 @@ async function ejecutarSuiteFase7B() {
       },
       user: {
         id: 'usr-contador-01',
-        email: 'contador@sunaconta.pe',
+        email: 'contador@atlob.pe',
         rolGlobal: 'CONTADOR_SENIOR',
         empresasPermitidas: loginContador.empresasPermitidas
       }

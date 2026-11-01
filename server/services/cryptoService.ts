@@ -10,7 +10,7 @@ export interface KeyProvider {
   descifrarDek(encryptedDek: string, keyVersion: number): Promise<Buffer>;
 }
 
-const DEFAULT_KEY_V1 = 'SUNACONTA_AES256_PRO_KEY_V1_SECRET_2026_MASTER!';
+const DEFAULT_KEY_V1 = 'ATLOB_AES256_ERP_KEY_V1_SECRET_2026_MASTER!';
 const MASTER_KEY_V1 = crypto.createHash('sha256').update(process.env.SUNAT_ENCRYPTION_KEY || DEFAULT_KEY_V1).digest();
 
 const KEY_REGISTRY: Record<number, Buffer> = {

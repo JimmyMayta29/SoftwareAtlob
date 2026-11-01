@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Calculator, X, RefreshCw, Copy, Check } from 'lucide-react';
+import Decimal from 'decimal.js';
+import { Calculator, X, Copy } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 interface CalculadoraContableModalProps {
@@ -14,27 +15,38 @@ export const CalculadoraContableModal: React.FC<CalculadoraContableModalProps> =
   const { success } = useToast();
   const [tab, setTab] = useState<'IGV' | 'DETRACCION' | 'CUARTA' | 'TIM'>('IGV');
 
-  // IGV
+  // IGV (Decimal.js exacto al céntimo)
   const [montoTotal, setMontoTotal] = useState<number>(1180);
-  const baseImponible = Number((montoTotal / 1.18).toFixed(2));
-  const igvCalculado = Number((montoTotal - baseImponible).toFixed(2));
+  const dTotal = new Decimal(montoTotal || 0);
+  const dBase = dTotal.dividedBy(1.18).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const dIgv = dTotal.minus(dBase).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const baseImponible = dBase.toNumber();
+  const igvCalculado = dIgv.toNumber();
 
-  // Detracción
+  // Detracción SPOT (R.S. N° 183-2004/SUNAT: redondeo a entero sin decimales)
   const [importeFactura, setImporteFactura] = useState<number>(5000);
   const [tasaDetraccion, setTasaDetraccion] = useState<number>(12); // 4, 10, 12, 15
-  const montoDetraccion = Math.round(importeFactura * (tasaDetraccion / 100));
-  const netoAPagar = importeFactura - montoDetraccion;
+  const dFactura = new Decimal(importeFactura || 0);
+  const dDetraccion = dFactura.times(tasaDetraccion).dividedBy(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
+  const montoDetraccion = dDetraccion.toNumber();
+  const netoAPagar = dFactura.minus(dDetraccion).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
 
-  // Cuarta Categoría (8%)
+  // Cuarta Categoría (8% si supera S/ 1,500)
   const [honorarioBruto, setHonorarioBruto] = useState<number>(3500);
-  const retencionCuarta = honorarioBruto > 1500 ? Number((honorarioBruto * 0.08).toFixed(2)) : 0;
-  const netoCobrar = honorarioBruto - retencionCuarta;
+  const dBruto = new Decimal(honorarioBruto || 0);
+  const dRetencion4ta = dBruto.greaterThan(1500)
+    ? dBruto.times('0.08').toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+    : new Decimal(0);
+  const retencionCuarta = dRetencion4ta.toNumber();
+  const netoCobrar = dBruto.minus(dRetencion4ta).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
 
-  // TIM (Tasa de Interés Moratorio SUNAT: 0.03% diario)
+  // TIM (Tasa de Interés Moratorio SUNAT: 0.9% mensual = 0.03% diario)
   const [deudaTributaria, setDeudaTributaria] = useState<number>(2500);
   const [diasMora, setDiasMora] = useState<number>(45);
-  const interesMoratorio = Number((deudaTributaria * (0.0003 * diasMora)).toFixed(2));
-  const totalConInteres = deudaTributaria + interesMoratorio;
+  const dDeuda = new Decimal(deudaTributaria || 0);
+  const dInteres = dDeuda.times('0.0003').times(diasMora || 0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const interesMoratorio = dInteres.toNumber();
+  const totalConInteres = dDeuda.plus(dInteres).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
 
   const copiarPortapapeles = (valor: number, texto: string) => {
     navigator.clipboard.writeText(valor.toFixed(2));

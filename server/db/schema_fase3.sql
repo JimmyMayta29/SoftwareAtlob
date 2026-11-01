@@ -1,5 +1,5 @@
 -- ============================================================================
--- SUNAConta PRO — Migración Fase 3: Compras, Ventas, Cartera CxC/CxP y Tributos
+-- Atlob Consultores ERP — Migración Fase 3: Compras, Ventas, Cartera CxC/CxP y Tributos
 -- ============================================================================
 
 -- 1. Catálogos SUNAT Parametrizables con Vigencia

@@ -14,8 +14,8 @@ async function main() {
   for (const id of ['emp-01', 'empresa-ajena']) {
     EMPRESAS_STORE.push({ ...DATOS_EMPRESA_DEMO, id, esDemo: false, razonSocial: id });
   }
-  const contador = await authJwtService.login('contador@sunaconta.pe', 'Sunaconta2026!');
-  const auditor = await authJwtService.login('auditor@sunaconta.pe', 'Sunaconta2026!');
+  const contador = await authJwtService.login('contador@atlob.pe', 'Atlob2026!');
+  const auditor = await authJwtService.login('auditor@atlob.pe', 'Atlob2026!');
   const app = express();
   app.use(express.json());
   app.use('/api', apiRoutes);

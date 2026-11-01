@@ -276,14 +276,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="text-xs text-blue-900 font-semibold mb-1">
-              Fecha límite oficial declaración mensual:
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-blue-900 font-semibold">
+                Fecha límite oficial declaración mensual:
+              </span>
+              <span className="text-[11px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5">
+                Alerta: Faltan 7 días
+              </span>
             </div>
             <div className="text-lg font-extrabold text-blue-900 font-mono">
               {empresa.vencimientoPdt621}
             </div>
             <p className="text-[11px] text-blue-700 mt-1">
-              Aplica para PDT 621 IGV-Renta, SIRE RCE y RVIE, y PLAME.
+              Aplica para PDT 621 IGV-Renta, SIRE RCE y RVIE, y PLAME (Dígito RUC {empresa.ultimoDigitoRuc}).
             </p>
           </div>
 

@@ -1,5 +1,5 @@
 -- ============================================================================
--- SUNAConta PRO — Migración Fase 2: Motor Contable Relacional
+-- Atlob Consultores ERP — Migración Fase 2: Motor Contable Relacional
 -- ============================================================================
 
 -- 1. Centros de Costo

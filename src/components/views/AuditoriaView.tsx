@@ -105,7 +105,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ empresaId }) => {
                     {r.createdAt ? r.createdAt.replace('T', ' ').substring(0, 19) : '—'}
                   </td>
                   <td className="py-3 px-4 font-semibold text-slate-800">
-                    {r.usuarioEmail || 'admin@sunaconta.pe'}
+                    {r.usuarioEmail || 'admin@atlob.pe'}
                   </td>
                   <td className="py-3 px-4 font-mono text-blue-900 font-bold">
                     {r.tablaAfectada}

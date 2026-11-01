@@ -117,7 +117,7 @@ export const EmpresaPeriodoProvider: React.FC<{
   // Empresas recientes en localStorage
   const [empresasRecientes, setEmpresasRecientes] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem('sunaconta_empresas_recientes');
+      const stored = localStorage.getItem('atlob_empresas_recientes');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -129,7 +129,7 @@ export const EmpresaPeriodoProvider: React.FC<{
       const filtered = prev.filter(item => item !== id);
       const updated = [id, ...filtered].slice(0, 6);
       try {
-        localStorage.setItem('sunaconta_empresas_recientes', JSON.stringify(updated));
+        localStorage.setItem('atlob_empresas_recientes', JSON.stringify(updated));
       } catch {}
       return updated;
     });
@@ -214,7 +214,7 @@ export const EmpresaPeriodoProvider: React.FC<{
       if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
     } catch {}
 
-    localStorage.removeItem('sunaconta_empresa_activa_id');
+    localStorage.removeItem('atlob_empresa_activa_id');
     info('Ha vuelto a la vista general de cartera de empresas.', 'Mis Empresas');
     return true;
   }, [isFormDirty, queryClient, warning, info]);

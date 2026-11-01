@@ -1,5 +1,5 @@
 -- ============================================================================
--- SUNAConta PRO — Esquema de Base de Datos Relacional (PostgreSQL)
+-- Atlob Consultores ERP — Esquema de Base de Datos Relacional (PostgreSQL)
 -- Fase 1: Fundaciones, Tenancy, Seguridad, Maestros y Parámetros
 -- ============================================================================
 

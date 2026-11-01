@@ -141,7 +141,7 @@ function dibujarPieDePaginaLegal(doc: jsPDF, empresa: EmpresaCliente) {
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(6);
   doc.setTextColor(148, 163, 184);
-  doc.text('Documento contable oficial emitido por SUNAConta PRO ERP Cloud bajo normativa tributaria SUNAT vigente.', pageWidth / 2, pageHeight - 3, { align: 'center' });
+  doc.text('Documento contable oficial emitido por Atlob Consultores ERP bajo normativa tributaria SUNAT vigente.', pageWidth / 2, pageHeight - 3, { align: 'center' });
 }
 
 /**

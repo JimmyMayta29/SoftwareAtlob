@@ -38,7 +38,7 @@ async function startServer() {
 
   const port = env.PORT || 3000;
   app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 [Server] SUNAConta PRO corriendo en http://0.0.0.0:${port}`);
+    console.log(`🚀 [Server] Atlob Consultores ERP corriendo en http://0.0.0.0:${port}`);
   });
 }
 

@@ -1,4 +1,4 @@
-# ESTRATEGIA DE RESPALDO Y RESTAURACIÓN INTEGRAL — SUNACONTA PRO
+# ESTRATEGIA DE RESPALDO Y RESTAURACIÓN INTEGRAL — ATLOB CONSULTORES ERP
 
 Este documento especifica la política operativa de copias de seguridad de nivel de infraestructura (sysadmin/DevOps) para la base de datos PostgreSQL, complementando los respaldos aislados por empresa implementados en la plataforma.
 
@@ -19,21 +19,21 @@ Este documento especifica la política operativa de copias de seguridad de nivel
 ```bash
 #!/usr/bin/env bash
 # ==============================================================================
-# Script de Backup Diario PostgreSQL — SUNAConta PRO
+# Script de Backup Diario PostgreSQL — Atlob Consultores ERP
 # Modo de uso: ./scripts/backup_postgres.sh
 # ==============================================================================
 set -euo pipefail
 
 # Configuración
 TIMESTAMP=$(date -u +"%Y%m%d_%H%M%SZ")
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/sunaconta}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/atlob_erp}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-sunaconta_db}"
-DB_USER="${DB_USER:-sunaconta_admin}"
+DB_NAME="${DB_NAME:-atlob_erp_db}"
+DB_USER="${DB_USER:-atlob_admin}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
-FILENAME="sunaconta_db_${TIMESTAMP}.dump"
+FILENAME="atlob_erp_db_${TIMESTAMP}.dump"
 FILEPATH="${BACKUP_DIR}/${FILENAME}"
 
 mkdir -p "${BACKUP_DIR}"
@@ -57,7 +57,7 @@ sha256sum "${FILEPATH}" > "${FILEPATH}.sha256"
 echo "[$(date -u)] Backup generado exitosamente: ${FILEPATH} ($(du -h "${FILEPATH}" | cut -f1))"
 
 # Rotación de copias locales (retención de 30 días)
-find "${BACKUP_DIR}" -name "sunaconta_db_*.dump*" -mtime "+${RETENTION_DAYS}" -exec rm -f {} \;
+find "${BACKUP_DIR}" -name "atlob_erp_db_*.dump*" -mtime "+${RETENTION_DAYS}" -exec rm -f {} \;
 
 echo "[$(date -u)] Rotación completada. Backups anteriores a ${RETENTION_DAYS} días eliminados."
 ```
@@ -73,8 +73,8 @@ crontab -e
 
 Agregar la siguiente entrada para ejecución diaria a las 02:00 AM UTC:
 ```cron
-# Respaldo completo de la base de datos PostgreSQL de SUNAConta PRO
-0 2 * * * /opt/sunaconta/scripts/backup_postgres.sh >> /var/log/sunaconta_backup.log 2>&1
+# Respaldo completo de la base de datos PostgreSQL de Atlob Consultores ERP
+0 2 * * * /opt/atlob_erp/scripts/backup_postgres.sh >> /var/log/atlob_erp_backup.log 2>&1
 ```
 
 ---
@@ -83,25 +83,25 @@ Agregar la siguiente entrada para ejecución diaria a las 02:00 AM UTC:
 
 ### 4.1 Verificación de Integridad Previa
 ```bash
-sha256sum -c sunaconta_db_20261004_020000Z.dump.sha256
+sha256sum -c atlob_erp_db_20261004_020000Z.dump.sha256
 ```
 
 ### 4.2 Restauración en Entorno de Pruebas o Recuperación ante Desastres
 ```bash
 # 1. Crear base de datos limpia de destino
-createdb -h localhost -U sunaconta_admin -p 5432 sunaconta_db_recovery
+createdb -h localhost -U atlob_admin -p 5432 atlob_erp_db_recovery
 
 # 2. Ejecutar restauración en paralelo (-j 4)
 pg_restore \
   -h localhost \
   -p 5432 \
-  -U sunaconta_admin \
-  -d sunaconta_db_recovery \
+  -U atlob_admin \
+  -d atlob_erp_db_recovery \
   -v \
   --clean \
   --if-exists \
   -j 4 \
-  sunaconta_db_20261004_020000Z.dump
+  atlob_erp_db_20261004_020000Z.dump
 ```
 
 ---

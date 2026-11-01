@@ -7,7 +7,7 @@ export const migrationController = {
     try {
       const payload = req.body;
       const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
-      const userEmail = req.user?.email || 'admin@sunaconta.pe';
+      const userEmail = req.user?.email || 'admin@atlob.pe';
 
       const reporte = await migrationService.migrarDesdeLocalStorage(
         payload,

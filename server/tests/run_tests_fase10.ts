@@ -268,11 +268,11 @@ async function runFase10Tests() {
   const daot = await daotService.procesarDaot(empresaAId, anio);
 
   assert.ok(daot, 'Debe generar el consolidado DAOT');
-  assert.strictEqual(daot.uitAnual, 5350, 'UIT 2026 debe ser 5,350');
-  assert.strictEqual(daot.umbral2Uit, 10700, 'Umbral 2 UIT debe ser S/ 10,700');
+  assert.strictEqual(daot.uitAnual, 5500, 'UIT 2026 debe ser 5,500 (D.S. N° 301-2025-EF)');
+  assert.strictEqual(daot.umbral2Uit, 11000, 'Umbral 2 UIT debe ser S/ 11,000');
   assert.ok(daot.totalTercerosEvaluados >= 3, 'Debe evaluar a todos los terceros transaccionados');
 
-  // El cliente 20999888777 tuvo ventas por 11800 + 17700 = 29500 (> 10700), debe ser DECLARABLE
+  // El cliente 20999888777 tuvo ventas por 11800 + 17700 = 29500 (> 11000), debe ser DECLARABLE
   const clienteDeclarable = daot.registros.find(r => r.numeroDocIdentidad === '20999888777');
   assert.ok(clienteDeclarable, 'El cliente principal debe figurar en el reporte DAOT');
   assert.strictEqual(clienteDeclarable?.condicion, 'DECLARABLE', 'Debe estar en condición DECLARABLE por superar 2 UIT');
@@ -286,7 +286,7 @@ async function runFase10Tests() {
   assert.ok(daot.txtGenerado.includes('29500.00'), 'Importe de ventas debe figurar con formato 2 decimales');
   assert.ok(daot.txtGenerado.includes('|'), 'Debe utilizar delimitador pleca (|)');
 
-  console.log('  ✅ PASÓ: Umbral normativo de 2 UIT (S/ 10,700) aplicado correctamente');
+  console.log('  ✅ PASÓ: Umbral normativo de 2 UIT (S/ 11,000) aplicado correctamente');
   console.log('  ✅ PASÓ: Clasificación precisa de terceros DECLARABLES vs EXCEPTUADOS');
   console.log('  ✅ PASÓ: Generación de archivo plano TXT compatible con el validador SUNAT');
   console.log(`  ✅ PASÓ: Archivo ${daot.nombreArchivoTxt} validado`);

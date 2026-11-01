@@ -43,7 +43,7 @@ async function ejecutarSuiteFase7() {
     // 1.1 Intentar login de ADMINISTRADOR sin TOTP debe fallar
     let falloSinMfa = false;
     try {
-      await authJwtService.login('admin@sunaconta.pe', 'Sunaconta2026!');
+      await authJwtService.login('admin@atlob.pe', 'Atlob2026!');
     } catch (err: any) {
       falloSinMfa = err.message.includes('MFA_REQUERIDO');
     }
@@ -52,7 +52,7 @@ async function ejecutarSuiteFase7() {
     // 1.2 TOTP inválido debe ser rechazado
     let falloTotpInvalido = false;
     try {
-      await authJwtService.login('admin@sunaconta.pe', 'Sunaconta2026!', '000000');
+      await authJwtService.login('admin@atlob.pe', 'Atlob2026!', '000000');
     } catch (err: any) {
       falloTotpInvalido = err.message.includes('MFA_CODIGO_INVALIDO');
     }
@@ -63,7 +63,7 @@ async function ejecutarSuiteFase7() {
     assert(codigoValido.length === 6, 'Código TOTP generado tiene 6 dígitos numéricos');
 
     // 1.4 Login exitoso con TOTP
-    const loginRes = await authJwtService.login('admin@sunaconta.pe', 'Sunaconta2026!', codigoValido);
+    const loginRes = await authJwtService.login('admin@atlob.pe', 'Atlob2026!', codigoValido);
     assert(Boolean(loginRes.accessToken), 'Access Token JWT generado');
     assert(Boolean(loginRes.refreshToken), 'Refresh Token generado');
     assert(loginRes.usuario.rolGlobal === 'ADMINISTRADOR', 'Rol verificado como ADMINISTRADOR');
