@@ -58,7 +58,6 @@ export const SimuladorFiscalizacionView: React.FC = () => {
     try {
       await fetch(`/api/tributario/auditoria-preventiva?periodo=${periodo}`, {
         headers: {
-          'x-empresa-id': state.activeEmpresa,
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
       });

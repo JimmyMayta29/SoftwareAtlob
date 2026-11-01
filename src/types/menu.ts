@@ -319,13 +319,13 @@ export const MENU_DATA: MenuGroup[] = [
       {
         id: 'boletas-pago',
         label: 'Boletas de pago',
-        estado: 'proximamente',
+        estado: 'activo',
         vista: 'BoletasPagoView'
       },
       {
         id: 'gratificaciones-cts',
         label: 'Gratificaciones y CTS',
-        estado: 'proximamente',
+        estado: 'activo',
         vista: 'GratificacionesCtsView'
       },
       { id: 'sep-plan-2', label: '—', separator: true },
@@ -338,7 +338,7 @@ export const MENU_DATA: MenuGroup[] = [
       {
         id: 't-registro',
         label: 'T-Registro',
-        estado: 'proximamente',
+        estado: 'activo',
         vista: 'TRegistroView'
       }
     ]

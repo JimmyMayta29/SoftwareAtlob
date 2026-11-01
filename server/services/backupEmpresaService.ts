@@ -7,7 +7,20 @@ import { COMPRAS_MEMORIA, CXP_MEMORIA, CompraModel, CuentaPorPagarModel } from '
 import { VENTAS_MEMORIA, CXC_MEMORIA, VentaModel, CuentaPorCobrarModel } from './ventaService';
 import { ANEXOS_MEMORIA, AnexoModel } from './anexoService';
 import { CUENTAS_FINANCIERAS_MEMORIA, MOVIMIENTOS_TESORERIA_MEMORIA, CuentaFinancieraModel, MovimientoTesoreriaModel } from './tesoreriaService';
-import { TRABAJADORES_MEMORIA, PLANILLAS_MEMORIA, TrabajadorModel, PlanillaResumenModel } from './planillaService';
+import {
+  TRABAJADORES_MEMORIA,
+  PLANILLAS_MEMORIA,
+  GRATIFICACIONES_MEMORIA,
+  CTS_MEMORIA,
+  LIQUIDACIONES_BENEFICIOS_MEMORIA,
+  TREGISTRO_MOVIMIENTOS_MEMORIA,
+  TrabajadorModel,
+  PlanillaResumenModel,
+  GratificacionLineaModel,
+  CtsLineaModel,
+  LiquidacionBeneficiosModel,
+  TRegistroMovimientoModel
+} from './planillaService';
 import { PERIODOS_MEMORIA, PeriodoModel } from './periodoService';
 import { ARTICULOS_MEMORIA, ArticuloKardexModel } from './kardexService';
 import { DECLARACIONES_PDT621_MEMORIA, LiquidacionIGVResultado } from './liquidacionIGVService';
@@ -166,6 +179,10 @@ export const backupEmpresaService = {
       'movimientos_tesoreria.ndjson': MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId),
       'trabajadores.ndjson': TRABAJADORES_MEMORIA.filter(t => t.empresaId === empresaId),
       'planillas.ndjson': PLANILLAS_MEMORIA.filter(p => p.empresaId === empresaId),
+      'planilla_gratificaciones.ndjson': GRATIFICACIONES_MEMORIA.filter(g => g.empresaId === empresaId),
+      'planilla_cts.ndjson': CTS_MEMORIA.filter(c => c.empresaId === empresaId),
+      'liquidaciones_beneficios.ndjson': LIQUIDACIONES_BENEFICIOS_MEMORIA.filter(l => l.empresaId === empresaId),
+      'tregistro_movimientos.ndjson': TREGISTRO_MOVIMIENTOS_MEMORIA.filter(m => m.empresaId === empresaId),
       'articulos_kardex.ndjson': ARTICULOS_MEMORIA.filter(a => a.empresaId === empresaId),
       'declaraciones_pdt621.ndjson': DECLARACIONES_PDT621_MEMORIA.filter(d => d.empresaId === empresaId),
       'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
@@ -359,6 +376,10 @@ export const backupEmpresaService = {
     const nuevosMovimientos = leerNdjson<MovimientoTesoreriaModel>('movimientos_tesoreria.ndjson');
     const nuevosTrabajadores = leerNdjson<TrabajadorModel>('trabajadores.ndjson');
     const nuevasPlanillas = leerNdjson<PlanillaResumenModel>('planillas.ndjson');
+    const nuevasGratificaciones = leerNdjson<GratificacionLineaModel>('planilla_gratificaciones.ndjson');
+    const nuevasCts = leerNdjson<CtsLineaModel>('planilla_cts.ndjson');
+    const nuevasLiquidaciones = leerNdjson<LiquidacionBeneficiosModel>('liquidaciones_beneficios.ndjson');
+    const nuevosTRegistro = leerNdjson<TRegistroMovimientoModel>('tregistro_movimientos.ndjson');
     const nuevosArticulos = leerNdjson<ArticuloKardexModel>('articulos_kardex.ndjson');
     const nuevosPeriodos = leerNdjson<PeriodoModel>('periodos.ndjson');
     const nuevasDeclPdt621 = leerNdjson<LiquidacionIGVResultado>('declaraciones_pdt621.ndjson');
@@ -386,6 +407,10 @@ export const backupEmpresaService = {
     reemplazarPorEmpresa(MOVIMIENTOS_TESORERIA_MEMORIA, nuevosMovimientos);
     reemplazarPorEmpresa(TRABAJADORES_MEMORIA, nuevosTrabajadores);
     reemplazarPorEmpresa(PLANILLAS_MEMORIA, nuevasPlanillas);
+    reemplazarPorEmpresa(GRATIFICACIONES_MEMORIA, nuevasGratificaciones);
+    reemplazarPorEmpresa(CTS_MEMORIA, nuevasCts);
+    reemplazarPorEmpresa(LIQUIDACIONES_BENEFICIOS_MEMORIA, nuevasLiquidaciones);
+    reemplazarPorEmpresa(TREGISTRO_MEMORIA_ALIAS(TREGISTRO_MOVIMIENTOS_MEMORIA), nuevosTRegistro);
     reemplazarPorEmpresa(ARTICULOS_MEMORIA, nuevosArticulos);
     reemplazarPorEmpresa(PERIODOS_MEMORIA, nuevosPeriodos);
     reemplazarPorEmpresa(DECLARACIONES_PDT621_MEMORIA, nuevasDeclPdt621);

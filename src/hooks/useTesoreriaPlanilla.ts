@@ -197,15 +197,39 @@ export function useCrearTrabajador(empresaId: string) {
     mutationFn: (datos: any) => tesoreriaPlanillaApi.crearTrabajador(empresaId, datos),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trabajadores', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['tregistro', empresaId] });
     }
+  });
+}
+
+export function useActualizarTrabajador(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ trabajadorId, datos }: { trabajadorId: string; datos: any }) =>
+      tesoreriaPlanillaApi.actualizarTrabajador(empresaId, trabajadorId, datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trabajadores', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['tregistro', empresaId] });
+    }
+  });
+}
+
+export function usePlanillas(empresaId: string, mes?: string) {
+  return useQuery({
+    queryKey: ['planillas', empresaId, mes],
+    queryFn: async () => {
+      const data = await tesoreriaPlanillaApi.listarPlanillas(empresaId, mes);
+      return data || [];
+    },
+    enabled: Boolean(empresaId)
   });
 }
 
 export function useCalcularPlanilla(empresaId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ periodoId, mes }: { periodoId: string; mes: string }) =>
-      tesoreriaPlanillaApi.calcularPlanilla(empresaId, periodoId, mes),
+    mutationFn: ({ periodoId, mes, novedades }: { periodoId: string; mes: string; novedades?: any[] }) =>
+      tesoreriaPlanillaApi.calcularPlanilla(empresaId, periodoId, mes, novedades),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['planillas', empresaId] });
     }
@@ -234,9 +258,135 @@ export function useAnularPlanilla(empresaId: string) {
   });
 }
 
+export function useValidarPlame(empresaId: string) {
+  return useMutation({
+    mutationFn: (planillaId: string) => tesoreriaPlanillaApi.validarPlame(empresaId, planillaId)
+  });
+}
+
 export function useExportarPlame(empresaId: string) {
   return useMutation({
     mutationFn: (planillaId: string) => tesoreriaPlanillaApi.exportarPlame(empresaId, planillaId)
+  });
+}
+
+export function useExportarTRegistro(empresaId: string) {
+  return useMutation({
+    mutationFn: () => tesoreriaPlanillaApi.exportarTRegistro(empresaId)
+  });
+}
+
+export function useGratificaciones(empresaId: string, periodo?: string) {
+  return useQuery({
+    queryKey: ['gratificaciones', empresaId, periodo],
+    queryFn: async () => {
+      const data = await tesoreriaPlanillaApi.listarGratificaciones(empresaId, periodo);
+      return data || [];
+    },
+    enabled: Boolean(empresaId)
+  });
+}
+
+export function useCalcularGratificaciones(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (periodo: string) => tesoreriaPlanillaApi.calcularGratificaciones(empresaId, periodo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gratificaciones', empresaId] });
+    }
+  });
+}
+
+export function useContabilizarGratificaciones(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (periodo: string) => tesoreriaPlanillaApi.contabilizarGratificaciones(empresaId, periodo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gratificaciones', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+    }
+  });
+}
+
+export function useCts(empresaId: string, periodo?: string) {
+  return useQuery({
+    queryKey: ['cts', empresaId, periodo],
+    queryFn: async () => {
+      const data = await tesoreriaPlanillaApi.listarCts(empresaId, periodo);
+      return data || [];
+    },
+    enabled: Boolean(empresaId)
+  });
+}
+
+export function useCalcularCts(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (periodo: string) => tesoreriaPlanillaApi.calcularCts(empresaId, periodo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cts', empresaId] });
+    }
+  });
+}
+
+export function useContabilizarCts(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (periodo: string) => tesoreriaPlanillaApi.contabilizarCts(empresaId, periodo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cts', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+    }
+  });
+}
+
+export function useLiquidacionesBeneficios(empresaId: string) {
+  return useQuery({
+    queryKey: ['liquidacionesBeneficios', empresaId],
+    queryFn: async () => {
+      const data = await tesoreriaPlanillaApi.listarLiquidacionesBeneficios(empresaId);
+      return data || [];
+    },
+    enabled: Boolean(empresaId)
+  });
+}
+
+export function useCalcularLiquidacionBeneficios(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: any) => tesoreriaPlanillaApi.calcularLiquidacionBeneficios(empresaId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['liquidacionesBeneficios', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['trabajadores', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['tregistro', empresaId] });
+    }
+  });
+}
+
+export function useParametrosLaborales() {
+  return useQuery({
+    queryKey: ['parametrosLaborales'],
+    queryFn: async () => {
+      const data = await tesoreriaPlanillaApi.listarParametrosLaborales();
+      return data || [];
+    }
+  });
+}
+
+export function useGuardarParametroLaboral() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (datos: {
+      codigoParametro: string;
+      descripcion: string;
+      valorNumerico: number;
+      tipoDato: string;
+      vigenteDesde: string;
+      vigenteHasta?: string | null;
+    }) => tesoreriaPlanillaApi.guardarParametroLaboral(datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['parametrosLaborales'] });
+    }
   });
 }
 
@@ -251,3 +401,5 @@ export function useFlujoCaja(empresaId: string, desde?: string, hasta?: string) 
     enabled: Boolean(empresaId)
   });
 }
+
+

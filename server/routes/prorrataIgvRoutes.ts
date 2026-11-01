@@ -22,7 +22,7 @@ const calcularProrrataSchema = z.object({
 
 router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCerrado: false }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const periodo = (req.query.periodo as string) || '2026-09';
     const usarVentana12Meses = req.query.usar12m === 'true';
     const resultado = await prorrataIgvService.calcularProrrata(empresaId, periodo, { usarVentana12Meses });
@@ -34,7 +34,7 @@ router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCe
 
 router.post('/calcular', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const parsed = calcularProrrataSchema.safeParse(req.body);
     if (!parsed.success) {
       return errorResponse(res, 'Parámetros de prorrata inválidos', 400, parsed.error.issues);
@@ -49,7 +49,7 @@ router.post('/calcular', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), asy
 
 router.patch('/integracion-pdt621', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const { periodo = '2026-09', integrarEnPdt621 = true } = req.body || {};
     const resultado = await prorrataIgvService.configurarIntegracionPdt621(empresaId, String(periodo), Boolean(integrarEnPdt621));
     return successResponse(res, resultado);

@@ -30,7 +30,7 @@ const presentarSchema = z.object({
 
 router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCerrado: false }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const periodo = (req.query.periodo as string) || '2026-09';
     const saldoAnterior = req.query.saldoAnterior !== undefined ? Number(req.query.saldoAnterior) : undefined;
     const retenciones = req.query.retenciones !== undefined ? Number(req.query.retenciones) : undefined;
@@ -52,7 +52,7 @@ router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCe
 
 router.get('/historial', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCerrado: false }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const periodo = (req.query.periodo as string) || '2026-09';
     const historial = liquidacionIGVService.obtenerHistorial(empresaId, periodo);
     return successResponse(res, historial);
@@ -63,7 +63,7 @@ router.get('/historial', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquear
 
 router.post('/preliquidar', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const parsed = opcionesPdt621Schema.safeParse(req.body || {});
     if (!parsed.success) {
       return errorResponse(res, 'Parámetros de preliquidación inválidos', 400, parsed.error.issues);
@@ -85,7 +85,7 @@ router.post('/preliquidar', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), 
 
 router.post('/presentar', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const parsed = presentarSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return errorResponse(res, 'Datos de presentación inválidos', 400, parsed.error.issues);
@@ -115,7 +115,7 @@ router.post('/presentar', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), as
 
 router.post('/rectificar', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const user = (req as any).user;
     const rol = String(req.userRolEnEmpresa || user?.rolGlobal || 'CONTADOR_SENIOR');
     const userId = user?.id || 'usr-contador-01';

@@ -10,7 +10,7 @@ router.use(requireAuth);
 
 router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCerrado: false }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const anio = Number(req.query.anio) || 2026;
     const regimen = req.query.regimen as 'REGIMEN_GENERAL' | 'MYPE_TRIBUTARIO' | undefined;
     const resultado = await djRentaAnualService.calcularDjAnual(empresaId, anio, { regimen });
@@ -22,7 +22,7 @@ router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCe
 
 router.post('/calcular', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const {
       anio = 2026,
       regimen,

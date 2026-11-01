@@ -20,7 +20,7 @@ const exclusionSchema = z.object({
 
 router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCerrado: false }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const anio = Number(req.query.anio) || 2026;
     const resultado = await daotService.procesarDaot(empresaId, anio);
     return successResponse(res, resultado);
@@ -31,7 +31,7 @@ router.get('/', empresaGuard({ rolesPermitidos: ROLES_LECTURA, bloquearPeriodoCe
 
 router.post('/excluir', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const parsed = exclusionSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return errorResponse(res, 'Datos de exclusión DAOT inválidos', 400, parsed.error.issues);
@@ -48,7 +48,7 @@ router.post('/excluir', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), asyn
 
 router.delete('/excluir/:exclusionId', empresaGuard({ rolesPermitidos: ROLES_ESCRITURA }), async (req: Request, res: Response) => {
   try {
-    const empresaId = req.empresaId || (req.headers['x-empresa-id'] as string);
+    const empresaId = req.empresaId!;
     const anio = Number(req.query.anio) || 2026;
     const user = (req as any).user;
     const userId = user?.id || 'usr-contador-01';

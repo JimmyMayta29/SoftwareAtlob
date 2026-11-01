@@ -35,7 +35,6 @@ export const CierreMensualView: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-empresa-id': state.activeEmpresa,
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
         body: JSON.stringify({ periodo, motivo: `Cambio de estado mensual desde Cierre Mensual (${periodo})` }),

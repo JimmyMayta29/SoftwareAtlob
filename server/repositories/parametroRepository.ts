@@ -10,6 +10,7 @@ export interface ParametroTributario {
   vigenteDesde: string;
   vigenteHasta?: string | null;
   categoria: string;
+  normaRespaldo?: string;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -36,45 +37,66 @@ export interface CronogramaVencimiento {
   fechaVencimientoPlame: string;
 }
 
-// Semilla en memoria autoritativa (Cero hardcoding en servicios)
+// Semilla en memoria autoritativa (Cero hardcoding en servicios, con norma oficial de respaldo)
 export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
-  { id: 'prm-igv-18', codigoParametro: 'TASA_IGV', descripcion: 'Tasa General del IGV + IPM (18%)', valorNumerico: 0.18, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV' },
-  { id: 'prm-uit-2026', codigoParametro: 'VALOR_UIT_2026', descripcion: 'Valor oficial UIT 2026 (D.S. N° 301-2025-EF)', valorNumerico: 5500.00, vigenteDesde: '2026-01-01', vigenteHasta: '2026-12-31', categoria: 'UIT' },
-  { id: 'prm-uit-2025', codigoParametro: 'VALOR_UIT_2025', descripcion: 'Valor oficial UIT 2025 (D.S. N° 260-2024-EF)', valorNumerico: 5350.00, vigenteDesde: '2025-01-01', vigenteHasta: '2025-12-31', categoria: 'UIT' },
-  { id: 'prm-uit-2024', codigoParametro: 'VALOR_UIT_2024', descripcion: 'Valor oficial UIT 2024 (D.S. N° 309-2023-EF)', valorNumerico: 5150.00, vigenteDesde: '2024-01-01', vigenteHasta: '2024-12-31', categoria: 'UIT' },
-  { id: 'prm-daot-uit', codigoParametro: 'UMBRAL_DAOT_UIT', descripcion: 'Umbral anual en UIT para Operaciones con Terceros DAOT (2 UIT)', valorNumerico: 2, vigenteDesde: '2002-01-01', vigenteHasta: null, categoria: 'UIT' },
-  { id: 'prm-rta-mype-sub300', codigoParametro: 'TASA_RENTA_MYPE_SUB300', descripcion: 'Pago a cuenta mensual MYPE Tributario hasta 300 UIT (1.0%)', valorNumerico: 0.01, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-mype-tope300', codigoParametro: 'TOPE_RENTA_MYPE_MENSUAL_UIT', descripcion: 'Tope de ingresos netos anuales para tasa 1.0% MYPE Tributario (300 UIT)', valorNumerico: 300, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-rg-min', codigoParametro: 'TASA_RENTA_RG_MIN', descripcion: 'Pago a cuenta mínimo mensual Régimen General / RMT > 300 UIT (1.5%)', valorNumerico: 0.015, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-rer', codigoParametro: 'TASA_RENTA_RER', descripcion: 'Cuota mensual definitiva Régimen Especial de Renta RER (1.5%)', valorNumerico: 0.015, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-nrus-c1', codigoParametro: 'CUOTA_NRUS_CAT1', descripcion: 'Cuota mensual Nuevo RUS Categoría 1 (hasta S/ 5,000)', valorNumerico: 20.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-nrus-c2', codigoParametro: 'CUOTA_NRUS_CAT2', descripcion: 'Cuota mensual Nuevo RUS Categoría 2 (hasta S/ 8,000)', valorNumerico: 50.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-anual-mype-t1', codigoParametro: 'TASA_RENTA_ANUAL_MYPE_T1', descripcion: 'Tasa Anual Renta MYPE Tributario Tramo 1 hasta 15 UIT (10%)', valorNumerico: 0.10, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-anual-mype-uit', codigoParametro: 'TRAMO_RENTA_ANUAL_MYPE_UIT', descripcion: 'Tope del primer tramo Renta Anual MYPE Tributario en UIT (15 UIT)', valorNumerico: 15, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-anual-rg', codigoParametro: 'TASA_RENTA_ANUAL_GENERAL', descripcion: 'Tasa Anual Impuesto a la Renta Régimen General y exceso RMT (29.5%)', valorNumerico: 0.295, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-rta-4ta', codigoParametro: 'TASA_RETENCION_4TA', descripcion: 'Tasa Retención 4ta Categoría Recibos por Honorarios (8%)', valorNumerico: 0.08, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-tope-4ta', codigoParametro: 'TOPE_RETENCION_4TA', descripcion: 'Monto a partir del cual aplica retención 4ta (S/ 1,500)', valorNumerico: 1500.00, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA' },
-  { id: 'prm-essalud', codigoParametro: 'TASA_ESSALUD', descripcion: 'Aporte Patronal EsSalud (9%)', valorNumerico: 0.09, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
-  { id: 'prm-onp', codigoParametro: 'TASA_ONP', descripcion: 'Aporte Obligatorio Sistema Nacional de Pensiones ONP (13%)', valorNumerico: 0.13, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
-  { id: 'prm-rmv-2026', codigoParametro: 'RMV_2026', descripcion: 'Remuneración Mínima Vital vigente (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', vigenteHasta: null, categoria: 'LABORAL' },
-  { id: 'prm-asig-fam', codigoParametro: 'TASA_ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL' },
+  { id: 'prm-igv-18', codigoParametro: 'TASA_IGV', descripcion: 'Tasa General del IGV (16%) + IPM (2%) = 18%', valorNumerico: 0.18, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'TUO Ley del IGV D.S. N° 055-99-EF Art. 17° y Ley N° 29666' },
+  { id: 'prm-uit-2026', codigoParametro: 'VALOR_UIT_2026', descripcion: 'Valor oficial UIT 2026 (D.S. N° 301-2025-EF)', valorNumerico: 5500.00, vigenteDesde: '2026-01-01', vigenteHasta: '2026-12-31', categoria: 'UIT', normaRespaldo: 'Decreto Supremo N° 301-2025-EF (El Peruano, 17/12/2025)' },
+  { id: 'prm-uit-2025', codigoParametro: 'VALOR_UIT_2025', descripcion: 'Valor oficial UIT 2025 (D.S. N° 260-2024-EF)', valorNumerico: 5350.00, vigenteDesde: '2025-01-01', vigenteHasta: '2025-12-31', categoria: 'UIT', normaRespaldo: 'Decreto Supremo N° 260-2024-EF' },
+  { id: 'prm-uit-2024', codigoParametro: 'VALOR_UIT_2024', descripcion: 'Valor oficial UIT 2024 (D.S. N° 309-2023-EF)', valorNumerico: 5150.00, vigenteDesde: '2024-01-01', vigenteHasta: '2024-12-31', categoria: 'UIT', normaRespaldo: 'Decreto Supremo N° 309-2023-EF' },
+  { id: 'prm-daot-uit', codigoParametro: 'UMBRAL_DAOT_UIT', descripcion: 'Umbral anual en UIT para Operaciones con Terceros DAOT (2 UIT)', valorNumerico: 2, vigenteDesde: '2002-01-01', vigenteHasta: null, categoria: 'UIT', normaRespaldo: 'R.S. N° 024-2002/SUNAT Art. 3° inc. b)' },
+  { id: 'prm-rta-mype-sub300', codigoParametro: 'TASA_RENTA_MYPE_SUB300', descripcion: 'Pago a cuenta mensual MYPE Tributario hasta 300 UIT (1.0%)', valorNumerico: 0.01, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 1269 Art. 6° num. 6.1' },
+  { id: 'prm-rta-mype-tope300', codigoParametro: 'TOPE_RENTA_MYPE_MENSUAL_UIT', descripcion: 'Tope de ingresos netos anuales para tasa 1.0% MYPE Tributario (300 UIT)', valorNumerico: 300, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 1269 Art. 6°' },
+  { id: 'prm-rta-rg-min', codigoParametro: 'TASA_RENTA_RG_MIN', descripcion: 'Pago a cuenta mínimo mensual Régimen General / RMT > 300 UIT (1.5%)', valorNumerico: 0.015, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO Ley del Impuesto a la Renta D.S. N° 179-2004-EF Art. 85°' },
+  { id: 'prm-rta-rer', codigoParametro: 'TASA_RENTA_RER', descripcion: 'Cuota mensual definitiva Régimen Especial de Renta RER (1.5%)', valorNumerico: 0.015, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 120°' },
+  { id: 'prm-rta-nrus-c1', codigoParametro: 'CUOTA_NRUS_CAT1', descripcion: 'Cuota mensual Nuevo RUS Categoría 1 (hasta S/ 5,000)', valorNumerico: 20.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 937 y D.L. N° 1270 Art. 7°' },
+  { id: 'prm-rta-nrus-c2', codigoParametro: 'CUOTA_NRUS_CAT2', descripcion: 'Cuota mensual Nuevo RUS Categoría 2 (hasta S/ 8,000)', valorNumerico: 50.00, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 937 y D.L. N° 1270 Art. 7°' },
+  { id: 'prm-rta-anual-mype-t1', codigoParametro: 'TASA_RENTA_ANUAL_MYPE_T1', descripcion: 'Tasa Anual Renta MYPE Tributario Tramo 1 hasta 15 UIT (10%)', valorNumerico: 0.10, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 1269 Art. 5°' },
+  { id: 'prm-rta-anual-mype-uit', codigoParametro: 'TRAMO_RENTA_ANUAL_MYPE_UIT', descripcion: 'Tope del primer tramo Renta Anual MYPE Tributario en UIT (15 UIT)', valorNumerico: 15, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'Decreto Legislativo N° 1269 Art. 5°' },
+  { id: 'prm-rta-anual-rg', codigoParametro: 'TASA_RENTA_ANUAL_GENERAL', descripcion: 'Tasa Anual Impuesto a la Renta Régimen General y exceso RMT (29.5%)', valorNumerico: 0.295, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 55° y D.L. N° 1261' },
+  { id: 'prm-rta-4ta', codigoParametro: 'TASA_RETENCION_4TA', descripcion: 'Tasa Retención 4ta Categoría Recibos por Honorarios (8%)', valorNumerico: 0.08, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 74° y Ley N° 30296' },
+  { id: 'prm-tope-4ta', codigoParametro: 'TOPE_RETENCION_4TA', descripcion: 'Monto a partir del cual aplica retención 4ta por recibo (S/ 1,500)', valorNumerico: 1500.00, vigenteDesde: '2007-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'D.S. N° 215-2006-EF Art. 2°' },
+  { id: 'prm-essalud', codigoParametro: 'TASA_ESSALUD', descripcion: 'Aporte Patronal EsSalud (9%)', valorNumerico: 0.09, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 26790 Art. 6° inc. a)' },
+  { id: 'prm-bonif-ext-essalud', codigoParametro: 'TASA_BONIF_EXTRA_ESSALUD', descripcion: 'Bonificación Extraordinaria Gratificaciones Ley 30334 - EsSalud (9%)', valorNumerico: 0.09, vigenteDesde: '2015-05-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 29351 y Ley N° 30334 Art. 3°' },
+  { id: 'prm-bonif-ext-eps', codigoParametro: 'TASA_BONIF_EXTRA_EPS', descripcion: 'Bonificación Extraordinaria Gratificaciones Ley 30334 - Afiliado EPS (6.75%)', valorNumerico: 0.0675, vigenteDesde: '2015-05-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 30334 y D.S. N° 012-2016-TR Art. 6°' },
+  { id: 'prm-onp', codigoParametro: 'TASA_ONP', descripcion: 'Aporte Obligatorio Sistema Nacional de Pensiones ONP (13%)', valorNumerico: 0.13, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'D.L. N° 19990 y Ley N° 26504 Art. 2°' },
+  { id: 'prm-rmv', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital base (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'D.S. N° 003-2022-TR (editable según D.S. N° 006-2024-TR S/ 1,130.00)' },
+  { id: 'prm-rmv-2026', codigoParametro: 'RMV_2026', descripcion: 'Remuneración Mínima Vital base (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'D.S. N° 003-2022-TR (editable según D.S. N° 006-2024-TR S/ 1,130.00)' },
+  { id: 'prm-uit', codigoParametro: 'UIT', descripcion: 'Valor oficial UIT 2026 (S/ 5,500.00)', valorNumerico: 5500.00, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'UIT', normaRespaldo: 'Decreto Supremo N° 301-2025-EF (El Peruano, 17/12/2025)' },
+  { id: 'prm-asig-fam-alias', codigoParametro: 'ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar única por trabajador con derecho (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 25129 Art. 1° y D.S. N° 035-90-TR Art. 4°' },
+  { id: 'prm-asig-fam', codigoParametro: 'TASA_ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar única por trabajador con derecho (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 25129 Art. 1° y D.S. N° 035-90-TR Art. 4°' },
+  { id: 'prm-he-25', codigoParametro: 'TASA_HORA_EXTRA_25', descripcion: 'Sobretasa Horas Extras 2 primeras horas (25%)', valorNumerico: 0.25, vigenteDesde: '2002-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'TUO D.Leg. N° 854 (D.S. N° 007-2002-TR) Art. 10°' },
+  { id: 'prm-he-35', codigoParametro: 'TASA_HORA_EXTRA_35', descripcion: 'Sobretasa Horas Extras a partir de 3ra hora (35%)', valorNumerico: 0.35, vigenteDesde: '2002-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'TUO D.Leg. N° 854 (D.S. N° 007-2002-TR) Art. 10°' },
+  { id: 'prm-ded-5ta-uit', codigoParametro: 'DEDUCCION_5TA_UIT', descripcion: 'Deducción anual fija Renta de 5ta Categoría en UIT (7 UIT)', valorNumerico: 7, vigenteDesde: '2000-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 46° primer párrafo' },
+  { id: 'prm-ded-5ta-ad-uit', codigoParametro: 'TOPE_DEDUCCION_ADICIONAL_5TA_UIT', descripcion: 'Tope Deducción Adicional por Gastos 4ta/5ta Categoría (3 UIT)', valorNumerico: 3, vigenteDesde: '2017-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 46° segundo párrafo (D.L. N° 1258)' },
+  { id: 'prm-5ta-t1', codigoParametro: 'TASA_5TA_TRAMO_1', descripcion: 'Tasa Renta 5ta Categoría Tramo 1: Hasta 5 UIT (8%)', valorNumerico: 0.08, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 53° (Ley N° 30296)' },
+  { id: 'prm-5ta-t2', codigoParametro: 'TASA_5TA_TRAMO_2', descripcion: 'Tasa Renta 5ta Categoría Tramo 2: Más de 5 hasta 20 UIT (14%)', valorNumerico: 0.14, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 53° (Ley N° 30296)' },
+  { id: 'prm-5ta-t3', codigoParametro: 'TASA_5TA_TRAMO_3', descripcion: 'Tasa Renta 5ta Categoría Tramo 3: Más de 20 hasta 35 UIT (17%)', valorNumerico: 0.17, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 53° (Ley N° 30296)' },
+  { id: 'prm-5ta-t4', codigoParametro: 'TASA_5TA_TRAMO_4', descripcion: 'Tasa Renta 5ta Categoría Tramo 4: Más de 35 hasta 45 UIT (20%)', valorNumerico: 0.20, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 53° (Ley N° 30296)' },
+  { id: 'prm-5ta-t5', codigoParametro: 'TASA_5TA_TRAMO_5', descripcion: 'Tasa Renta 5ta Categoría Tramo 5: Más de 45 UIT (30%)', valorNumerico: 0.30, vigenteDesde: '2015-01-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO LIR D.S. N° 179-2004-EF Art. 53° (Ley N° 30296)' },
 
-  // Parámetros AFP Comisión Flujo y Seguros (Vigentes)
-  { id: 'prm-afp-int-ap', codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-int-ps', codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  // Parámetros AFP Comisión Flujo, Mixta y Seguros (Vigentes - SUPUESTO A VALIDAR trimestralmente en portal SBS)
+  { id: 'prm-afp-ap-gen', codigoParametro: 'AFP_APORTE_OBLIGATORIO', descripcion: 'AFP Aporte Obligatorio al Fondo (10%)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
+  { id: 'prm-afp-ps-gen', codigoParametro: 'AFP_PRIMA_SEGURO', descripcion: 'AFP Prima de Seguro Invalidez y Sobrevivencia (1.84% semilla editable)', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO SPP D.S. N° 054-97-EF Art. 30° / Licitación SISCO SBS (SUPUESTO A VALIDAR según SISCO vigente)' },
+  { id: 'prm-afp-tope-seg', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope Remuneración Máxima Asegurable Prima Seguro AFP SBS (semilla vigente desde 2024-01-01)', valorNumerico: 12135.22, vigenteDesde: '2024-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Art. 117° Título V Compendio Normas SPP (Res. N° 080-98-EF/SAFP) y Circular Trimestral SBS de RMA (SUPUESTO A VALIDAR por trimestre)' },
+  { id: 'prm-afp-int-ap', codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
+  { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-int-cm', codigoParametro: 'AFP_INTEGRA_COMISION_MIXTA', descripcion: 'AFP Integra - Comisión mixta sobre flujo', valorNumerico: 0.0015, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-int-ps', codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
 
-  { id: 'prm-afp-pri-ap', codigoParametro: 'AFP_PRIMA_APORTE', descripcion: 'AFP Prima - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-pri-cf', codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo', valorNumerico: 0.0160, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-pri-ps', codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pri-ap', codigoParametro: 'AFP_PRIMA_APORTE', descripcion: 'AFP Prima - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
+  { id: 'prm-afp-pri-cf', codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo', valorNumerico: 0.0160, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pri-cm', codigoParametro: 'AFP_PRIMA_COMISION_MIXTA', descripcion: 'AFP Prima - Comisión mixta sobre flujo', valorNumerico: 0.0018, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pri-ps', codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
 
-  { id: 'prm-afp-pro-ap', codigoParametro: 'AFP_PROFUTURO_APORTE', descripcion: 'AFP Profuturo - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-pro-cf', codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo', valorNumerico: 0.0169, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-pro-ps', codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-pro-ap', codigoParametro: 'AFP_PROFUTURO_APORTE', descripcion: 'AFP Profuturo - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
+  { id: 'prm-afp-pro-cf', codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo', valorNumerico: 0.0169, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pro-cm', codigoParametro: 'AFP_PROFUTURO_COMISION_MIXTA', descripcion: 'AFP Profuturo - Comisión mixta sobre flujo', valorNumerico: 0.0020, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pro-ps', codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
 
-  { id: 'prm-afp-hab-ap', codigoParametro: 'AFP_HABITAT_APORTE', descripcion: 'AFP Habitat - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-hab-cf', codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo', valorNumerico: 0.0147, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
-  { id: 'prm-afp-hab-ps', codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP' },
+  { id: 'prm-afp-hab-ap', codigoParametro: 'AFP_HABITAT_APORTE', descripcion: 'AFP Habitat - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
+  { id: 'prm-afp-hab-cf', codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo', valorNumerico: 0.0147, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-hab-cm', codigoParametro: 'AFP_HABITAT_COMISION_MIXTA', descripcion: 'AFP Habitat - Comisión mixta sobre flujo', valorNumerico: 0.0023, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-hab-ps', codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
 ];
 
 export const HISTORIAL_PARAMETROS_MEMORIA: HistorialCambioParametro[] = [
@@ -147,7 +169,9 @@ export const parametroRepository = {
         };
       }
     }
-    const candidatos = PARAMETROS_IN_MEMORY.filter(p => p.codigoParametro === codigo);
+    const candidatos = PARAMETROS_IN_MEMORY
+      .filter(p => p.codigoParametro === codigo)
+      .sort((a, b) => b.vigenteDesde.localeCompare(a.vigenteDesde));
     if (candidatos.length === 0) return null;
     const vigente = candidatos.find(
       p => p.vigenteDesde <= fechaReferencia && (!p.vigenteHasta || p.vigenteHasta >= fechaReferencia)
@@ -173,13 +197,14 @@ export const parametroRepository = {
       codigoParametro: string;
       descripcion: string;
       valorNumerico: number;
+      tipoDato?: string;
       vigenteDesde: string;
       vigenteHasta?: string | null;
-      categoria: string;
+      categoria?: string;
       motivo?: string;
     },
     usuarioId: string,
-    rolUsuario: string,
+    rolUsuario: string = 'ADMIN_ESTUDIO',
     empresaContextoId: string = '00000000-0000-0000-0000-000000000001'
   ): Promise<ParametroTributario> {
     if (!esRolAdministradorEstudio(rolUsuario)) {
@@ -187,12 +212,17 @@ export const parametroRepository = {
     }
 
     const codigo = input.codigoParametro.trim().toUpperCase();
-    const existenteIdx = PARAMETROS_IN_MEMORY.findIndex(p => p.codigoParametro === codigo);
-    const valorAnterior = existenteIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteIdx].valorNumerico : null;
+    const existenteExactoIdx = PARAMETROS_IN_MEMORY.findIndex(
+      p => p.codigoParametro === codigo && p.vigenteDesde === input.vigenteDesde
+    );
+    const existenteCodigoIdx = PARAMETROS_IN_MEMORY.findIndex(p => p.codigoParametro === codigo);
+    const valorAnterior = existenteExactoIdx >= 0
+      ? PARAMETROS_IN_MEMORY[existenteExactoIdx].valorNumerico
+      : (existenteCodigoIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteCodigoIdx].valorNumerico : null);
     const ahora = new Date().toISOString();
 
     const nuevoParametro: ParametroTributario = {
-      id: existenteIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteIdx].id : `prm-${Date.now()}`,
+      id: existenteExactoIdx >= 0 ? PARAMETROS_IN_MEMORY[existenteExactoIdx].id : `prm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       codigoParametro: codigo,
       descripcion: input.descripcion.trim(),
       valorNumerico: Number(input.valorNumerico),
@@ -203,8 +233,8 @@ export const parametroRepository = {
       updatedBy: usuarioId
     };
 
-    if (existenteIdx >= 0) {
-      PARAMETROS_IN_MEMORY[existenteIdx] = nuevoParametro;
+    if (existenteExactoIdx >= 0) {
+      PARAMETROS_IN_MEMORY[existenteExactoIdx] = nuevoParametro;
     } else {
       PARAMETROS_IN_MEMORY.push(nuevoParametro);
     }

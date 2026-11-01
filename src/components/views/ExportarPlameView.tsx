@@ -1,111 +1,328 @@
 import React, { useState } from 'react';
-import { Download } from 'lucide-react';
-import { useAppContext } from '../../context/AppContext';
+import { Download, CheckCircle2, AlertTriangle, ShieldCheck, FileArchive, Eye } from 'lucide-react';
+import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
+import { useToast } from '../../context/ToastContext';
+import {
+  useCalcularPlanilla,
+  useValidarPlame,
+  useExportarPlame
+} from '../../hooks/useTesoreriaPlanilla';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { TablaDensa, ColumnaTablaDensa } from '../ui/TablaDensa';
-import { SelectorPeriodo } from '../ui/SelectorPeriodo';
+import { VentanaModal } from '../ui/VentanaModal';
 
-interface ArchivoPlameExport {
+interface ArchivoPlameFila {
   extension: string;
   estructura: string;
   descripcionAnexo3: string;
   nomenclatura: string;
-  contenidoMuestra: string;
+  contenido: string;
+  lineas: number;
 }
 
 export const ExportarPlameView: React.FC = () => {
-  const { state, notify } = useAppContext();
-  const [periodo, setPeriodo] = useState(state.activePeriodo || '2026-03');
-  const ruc = state.activeEmpresaRuc || '20601234567';
-  const per = periodo.replace('-', '');
+  const { empresaActiva, periodo: ctxPeriodo } = useEmpresaPeriodo();
+  const empresaId = empresaActiva?.id || '00000000-0000-0000-0000-000000000001';
+  const ruc = empresaActiva?.ruc || '20601234567';
+  const [periodo, setPeriodo] = useState(ctxPeriodo || '2026-09');
+  const { success, error } = useToast();
 
-  const archivos: ArchivoPlameExport[] = [
-    {
-      extension: '.rem',
-      estructura: 'Estructura 18 — Remuneraciones e Ingresos, Descuentos y Aportes',
-      descripcionAnexo3: 'Conceptos remunerativos (0121 Básico, 0201 Asig. Fam., 0601/0606/0608 AFP, 0607 ONP, 0605 Renta 5ta, 0804 EsSalud)',
-      nomenclatura: `0601${per}${ruc}.rem`,
-      contenidoMuestra: `01|44556677|0121|4500.00|4500.00|\r\n01|44556677|0201|102.50|102.50|\r\n01|44556677|0804|414.23|414.23|\r\n`,
-    },
-    {
-      extension: '.jor',
-      estructura: 'Estructura 14 — Datos de la Jornada Laboral por Trabajador',
-      descripcionAnexo3: 'Horas ordinarias trabajadas, minutos ordinarios y horas de sobretiempo del período mensual',
-      nomenclatura: `0601${per}${ruc}.jor`,
-      contenidoMuestra: `01|44556677|240|0|0|0|\r\n01|71829304|240|0|0|0|\r\n`,
-    },
-    {
-      extension: '.snl',
-      estructura: 'Estructura 15 — Subsidios y Otros Días No Laborados y No Subsidiados',
-      descripcionAnexo3: 'Tipo de suspensión de relación laboral (Tabla 21: S.I. subsidios, S.P. licencias sin goce, faltas)',
-      nomenclatura: `0601${per}${ruc}.snl`,
-      contenidoMuestra: ``,
-    },
-    {
-      extension: '.ps4',
-      estructura: 'Estructura 07 — Prestadores de Servicios de Cuarta Categoría (Datos)',
-      descripcionAnexo3: 'Identificación de emisores de Recibos por Honorarios del período (Tipo Doc, N° Doc, Apellidos y Nombres, Domiciliado)',
-      nomenclatura: `0601${per}${ruc}.ps4`,
-      contenidoMuestra: `06|10415263741|GOMEZ|PEREZ|JUAN CARLOS|1|0|\r\n`,
-    },
-    {
-      extension: '.4ta',
-      estructura: 'Estructura 19 — Comprobantes de Prestadores de Cuarta Categoría',
-      descripcionAnexo3: 'Serie, número, fecha de emisión, fecha de pago, monto bruto y retención 8% de Recibos por Honorarios',
-      nomenclatura: `0601${per}${ruc}.4ta`,
-      contenidoMuestra: `06|10415263741|R|E001|0000125|2500.00|10/03/2026|12/03/2026|1||\r\n`,
-    },
-  ];
+  const calcularPlanillaMutation = useCalcularPlanilla(empresaId);
+  const validarPlameMutation = useValidarPlame(empresaId);
+  const exportarPlameMutation = useExportarPlame(empresaId);
 
-  const descargarPlame = (item: ArchivoPlameExport) => {
-    const blob = new Blob([item.contenidoMuestra], { type: 'text/plain;charset=utf-8' });
+  const [validacionResult, setValidacionResult] = useState<any | null>(null);
+  const [exportResult, setExportResult] = useState<any | null>(null);
+  const [archivoPreview, setArchivoPreview] = useState<ArchivoPlameFila | null>(null);
+
+  const handleValidarYGenerarPlame = async () => {
+    try {
+      const planilla: any = await calcularPlanillaMutation.mutateAsync({
+        periodoId: `per-${periodo}`,
+        mes: periodo
+      });
+      const val = await validarPlameMutation.mutateAsync(planilla.id);
+      setValidacionResult(val);
+      const exp = await exportarPlameMutation.mutateAsync(planilla.id);
+      setExportResult(exp);
+      success(
+        `Estructura PLAME (${periodo}) validada y generada (.rem, .jor, .snl, .toc, .des).`,
+        'Validador PLAME OK'
+      );
+    } catch (err: any) {
+      error(err?.response?.data?.error || err.message || 'Error al validar o exportar PLAME', 'Error PLAME');
+    }
+  };
+
+  const perCompacto = periodo.replace('-', '');
+  const baseName = exportResult?.nombreBase || `0601${perCompacto}${ruc}`;
+
+  const construirFilasArchivos = (): ArchivoPlameFila[] => {
+    const getTxt = (val: any): string => (typeof val === 'string' ? val : val?.contenido || '');
+    const remTxt = getTxt(exportResult?.archivos?.rem);
+    const jorTxt = getTxt(exportResult?.archivos?.jor);
+    const snlTxt = getTxt(exportResult?.archivos?.snl);
+    const tocTxt = getTxt(exportResult?.archivos?.toc);
+    const desTxt = getTxt(exportResult?.archivos?.des);
+
+    const contarLineas = (txt: string) =>
+      txt
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean).length;
+
+    return [
+      {
+        extension: '.jor',
+        estructura: 'Estructura 14 — Datos de la Jornada Laboral por Trabajador',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Horas ordinarias | Minutos ordinarios | Horas sobretiempo (25%+35%) | Minutos sobretiempo |',
+        nomenclatura: `${baseName}.jor`,
+        contenido: jorTxt,
+        lineas: contarLineas(jorTxt)
+      },
+      {
+        extension: '.rem',
+        estructura: 'Estructura 18 — Remuneraciones, Ingresos, Descuentos y Aportes',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Cód. Concepto PLAME (0121, 0201, 0105, 0106, 0601, 0605, 0606, 0607, 0608, 0804) | Monto Devengado | Monto Pagado/Descontado |',
+        nomenclatura: `${baseName}.rem`,
+        contenido: remTxt,
+        lineas: contarLineas(remTxt)
+      },
+      {
+        extension: '.snl',
+        estructura: 'Estructura 15 — Subsidios y Otros Días No Laborados y No Subsidiados',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Tipo Suspensión Relación Laboral (Tabla 21: 07 Falta no justificada / 05 Licencia SGH) | N° Días |',
+        nomenclatura: `${baseName}.snl`,
+        contenido: snlTxt,
+        lineas: contarLineas(snlTxt)
+      },
+      {
+        extension: '.toc',
+        estructura: 'Estructura 17 — Tasas y Otras Condiciones de Aportación del Trabajador',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Ind. Aporte SCTR Salud | Ind. SCTR Pensión | Ind. Domiciliado | Condición Especial |',
+        nomenclatura: `${baseName}.toc`,
+        contenido: tocTxt,
+        lineas: contarLineas(tocTxt)
+      },
+      {
+        extension: '.des',
+        estructura: 'Resumen de Descuentos Previsionales y Retenciones del Período',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Cód. Descuento (ONP 0607, AFP 0608/0601/0606, Renta 5ta 0605, Faltas 0705) | Importe Retenido |',
+        nomenclatura: `${baseName}.des`,
+        contenido: desTxt,
+        lineas: contarLineas(desTxt)
+      }
+    ];
+  };
+
+  const filas = construirFilasArchivos();
+
+  const descargarArchivoPlano = (item: ArchivoPlameFila) => {
+    const blob = new Blob([item.contenido], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = item.nomenclatura;
     a.click();
     URL.revokeObjectURL(url);
-    notify(`Archivo PDT PLAME ${item.nomenclatura} descargado`, 'success');
+    success(`Archivo ${item.nomenclatura} descargado.`, 'Exportación PLAME');
   };
 
-  const columnas: ColumnaTablaDensa<ArchivoPlameExport>[] = [
-    { key: 'extension', header: 'Extensión', width: '75px', align: 'center', render: (r) => <span className="font-mono font-bold text-[#1E3A5F]">{r.extension}</span> },
-    { key: 'estructura', header: 'Estructura Oficial Anexo 3 PLAME', width: '320px', render: (r) => <span className="font-bold text-[#111827]">{r.estructura}</span> },
-    { key: 'descripcionAnexo3', header: 'Detalle de Campos Pipe (|)', render: (r) => r.descripcionAnexo3 },
-    { key: 'nomenclatura', header: 'Archivo a Importar en PDT 601', width: '215px', render: (r) => <span className="font-mono text-[#1E6F42] font-bold">{r.nomenclatura}</span> },
+  const descargarZipCompleto = () => {
+    if (!exportResult?.zipBase64) return;
+    const byteChars = atob(exportResult.zipBase64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNums[i] = byteChars.charCodeAt(i);
+    }
+    const blob = new Blob([new Uint8Array(byteNums)], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = exportResult.nombreArchivoZip || `${baseName}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    success(`Paquete ${exportResult.nombreArchivoZip || `${baseName}.zip`} descargado.`, 'ZIP PLAME');
+  };
+
+  const columnas: ColumnaTablaDensa<ArchivoPlameFila>[] = [
+    {
+      key: 'extension',
+      header: 'Ext.',
+      width: '65px',
+      align: 'center',
+      render: (r) => <span className="font-mono font-bold text-[#1E3A5F]">{r.extension}</span>
+    },
+    {
+      key: 'estructura',
+      header: 'Estructura Oficial Anexo 3 PLAME (R.S. 183-2011/SUNAT)',
+      width: '310px',
+      render: (r) => <span className="font-bold text-[#111827]">{r.estructura}</span>
+    },
+    {
+      key: 'descripcionAnexo3',
+      header: 'Layout de Campos Separados por Pipe (|)',
+      render: (r) => <span className="text-[11px]">{r.descripcionAnexo3}</span>
+    },
+    {
+      key: 'lineas',
+      header: 'Registros',
+      width: '75px',
+      align: 'center',
+      render: (r) => <span className="font-mono font-bold">{r.lineas}</span>
+    },
+    {
+      key: 'nomenclatura',
+      header: 'Nomenclatura PDT 0601',
+      width: '205px',
+      render: (r) => <span className="font-mono text-[#1E6F42] font-bold">{r.nomenclatura}</span>
+    },
     {
       key: 'accion',
-      header: 'Exportar',
-      width: '115px',
+      header: 'Acciones',
+      width: '155px',
       align: 'center',
       render: (r) => (
-        <button
-          type="button"
-          onClick={() => descargarPlame(r)}
-          className="h-5 px-2 bg-[#1E3A5F] text-[#FFFFFF] text-[11px] inline-flex items-center gap-1 hover:bg-[#162C49]"
-        >
-          <Download className="w-3 h-3" strokeWidth={1.5} />
-          Descargar
-        </button>
-      ),
-    },
+        <div className="flex items-center justify-center gap-1">
+          <button
+            type="button"
+            disabled={!exportResult}
+            onClick={() => setArchivoPreview(r)}
+            className="h-5 px-1.5 text-[10px] border border-[#D1D5DB] bg-[#FFFFFF] hover:bg-[#F3F4F6] disabled:opacity-40 inline-flex items-center gap-0.5"
+          >
+            <Eye className="w-3 h-3 text-[#1D4ED8]" />
+            Ver
+          </button>
+          <button
+            type="button"
+            disabled={!exportResult}
+            onClick={() => descargarArchivoPlano(r)}
+            className="h-5 px-2 bg-[#1E3A5F] text-[#FFFFFF] text-[10px] inline-flex items-center gap-1 hover:bg-[#162C49] disabled:opacity-40 font-bold"
+          >
+            <Download className="w-3 h-3" />
+            TXT
+          </button>
+        </div>
+      )
+    }
   ];
 
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF]">
       <BarraHerramientasLocal
-        titulo="Exportación de Archivos Planos para PDT PLAME — Formulario Virtual 0601"
-        subtitulo="Generación de estructuras .rem, .jor, .snl, .ps4 y .4ta conforme al Anexo 3 de la R.S. N° 183-2011/SUNAT"
-        derecha={<SelectorPeriodo periodo={periodo} onChange={setPeriodo} />}
+        titulo="Exportador Oficial de Archivos PDT PLAME (Formulario Virtual 0601)"
+        subtitulo="Generación de archivos .jor, .rem, .snl, .toc y .des con Validador de Estructura Previo conforme al Anexo 3 R.S. N° 183-2011/SUNAT"
+        derecha={
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-bold">Período:</label>
+            <input
+              type="month"
+              value={periodo}
+              onChange={(e) => setPeriodo(e.target.value)}
+              className="h-6 px-2 font-mono text-[12px] border border-[#D1D5DB]"
+            />
+          </div>
+        }
+        acciones={[
+          {
+            id: 'validar-plame',
+            label: 'Validar Estructura y Generar Archivos PLAME',
+            icono: ShieldCheck,
+            primario: true,
+            onClick: handleValidarYGenerarPlame
+          },
+          ...(exportResult
+            ? [
+                {
+                  id: 'descargar-zip',
+                  label: `Descargar Paquete ${baseName}.zip`,
+                  icono: FileArchive,
+                  onClick: descargarZipCompleto
+                }
+              ]
+            : [])
+        ]}
       />
 
-      <div className="flex-1 p-3 overflow-hidden flex flex-col">
-        <TablaDensa
-          columnas={columnas}
-          datos={archivos}
-          rowKey={(r) => r.extension}
-        />
+      {/* Panel del Validador de Estructura Previo */}
+      {validacionResult && (
+        <div
+          className={`mx-3 mt-2 p-2.5 border text-[11px] ${
+            validacionResult.esValido
+              ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#166534]'
+              : 'bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]'
+          }`}
+        >
+          <div className="flex items-center justify-between font-bold">
+            <div className="flex items-center gap-1.5">
+              {validacionResult.esValido ? (
+                <CheckCircle2 className="w-4 h-4 text-[#166534]" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-[#991B1B]" />
+              )}
+              <span>
+                VALIDADOR DE ESTRUCTURA PREVIO PLAME:{' '}
+                {validacionResult.esValido ? 'CONFORME (0 ERRORES CRÍTICOS)' : 'OBSERVADO'}
+              </span>
+            </div>
+            <span className="font-mono">
+              Trabajadores procesados: {validacionResult.resumen?.trabajadoresProcesados || 0} | Advertencias:{' '}
+              {validacionResult.advertencias?.length || 0}
+            </span>
+          </div>
+          {validacionResult.errores?.length > 0 && (
+            <ul className="list-disc pl-5 mt-1">
+              {validacionResult.errores.map((e: string, idx: number) => (
+                <li key={idx}>{e}</li>
+              ))}
+            </ul>
+          )}
+          {validacionResult.advertencias?.length > 0 && (
+            <ul className="list-disc pl-5 mt-1 text-[#92400E]">
+              {validacionResult.advertencias.map((w: string, idx: number) => (
+                <li key={idx}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="flex-1 p-3 overflow-hidden flex flex-col gap-3">
+        <TablaDensa columnas={columnas} datos={filas} rowKey={(r) => r.extension} />
+
+        {/* Nota de supuestos normativos verificados */}
+        <div className="p-2 bg-[#F8FAFC] border border-[#D1D5DB] text-[11px] text-[#374151]">
+          <strong>Especificación técnica y supuestos verificados (Anexo 3 R.S. 183-2011/SUNAT y modificatorias):</strong>{' '}
+          Nomenclatura oficial <code className="font-mono">0601AAAAMMRUC.ext</code>; separador de campos pipe (<code className="font-mono">|</code>) con pipe final obligatorio y salto de línea CRLF; códigos de catálogo Tabla 22 (0121 Básico, 0201 Asig. Familiar, 0105/0106 Horas Extras 25%/35%, 0601/0606/0608 AFP, 0607 ONP, 0605 Renta 5ta, 0804 EsSalud). El exportador de T-Registro (altas, bajas y modificaciones) opera en módulo separado.
+        </div>
       </div>
+
+      <VentanaModal
+        abierto={Boolean(archivoPreview)}
+        onCerrar={() => setArchivoPreview(null)}
+        titulo={`Contenido Plano — ${archivoPreview?.nomenclatura || ''}`}
+        ancho="lg"
+        footer={
+          <button
+            type="button"
+            onClick={() => setArchivoPreview(null)}
+            className="h-6 px-3 text-[12px] border border-[#D1D5DB] bg-[#FFFFFF]"
+          >
+            Cerrar
+          </button>
+        }
+      >
+        {archivoPreview && (
+          <pre className="p-3 bg-[#111827] text-[#F9FAFB] font-mono text-[11px] overflow-auto max-h-80">
+            {archivoPreview.contenido || '(Archivo sin registros en el período seleccionado)'}
+          </pre>
+        )}
+      </VentanaModal>
     </div>
   );
 };

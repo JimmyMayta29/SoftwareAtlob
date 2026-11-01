@@ -91,11 +91,17 @@ export const trabajadorSchema = z.object({
   fechaNacimiento: z.string().optional(),
   direccion: z.string().optional(),
   telefono: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.string().optional(),
   fechaIngreso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  fechaCese: z.string().optional(),
+  motivoCese: z.string().optional(),
   cargo: z.string().min(1),
+  tipoContrato: z.enum(['INDETERMINADO', 'PLAZO_FIJO', 'TIEMPO_PARCIAL', 'SUJETO_MODALIDAD']).optional().default('INDETERMINADO'),
+  fechaInicioContrato: z.string().optional(),
+  fechaFinContrato: z.string().optional(),
   regimenLaboral: z.enum(['GENERAL', 'MYPE_MICRO', 'MYPE_PEQUENA']).default('GENERAL'),
   sueldoBase: z.number().positive(),
+  cargasFamiliares: z.number().int().min(0).optional().default(0),
   tieneAsignacionFamiliar: z.boolean().default(false),
   sistemaPensiones: z.enum(['ONP', 'AFP']),
   afpAdministradora: z.enum(['INTEGRA', 'PRIMA', 'PROFUTURO', 'HABITAT']).optional(),
@@ -103,13 +109,29 @@ export const trabajadorSchema = z.object({
   cuspp: z.string().optional(),
   centroCosto: z.string().default('ADMINISTRACION'),
   cuentaBancoSueldo: z.string().optional(),
+  cciSueldo: z.string().optional(),
   bancoSueldo: z.string().optional(),
+  afiliadoEps: z.boolean().optional().default(false),
   activo: z.boolean().default(true)
 });
 
 export const calcularPlanillaSchema = z.object({
   periodoId: z.string().min(1),
-  mes: z.string().regex(/^\d{4}-\d{2}$/)
+  mes: z.string().regex(/^\d{4}-\d{2}$/),
+  novedades: z.array(z.object({
+    trabajadorId: z.string(),
+    diasLaborados: z.number().optional(),
+    horasExtras25: z.number().optional(),
+    horasExtras35: z.number().optional(),
+    horasExtrasMonto: z.number().optional(),
+    diasFaltas: z.number().optional(),
+    minutosTardanza: z.number().optional(),
+    adelantosPrestamos: z.number().optional(),
+    bonificacionesGravadas: z.number().optional(),
+    conceptosNoGravados: z.number().optional(),
+    otrosIngresos: z.number().optional(),
+    otrosDescuentos: z.number().optional()
+  })).optional()
 });
 
 // ============================================================================
@@ -342,9 +364,9 @@ export const tesoreriaPlanillaController = {
   async listarTrabajadores(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
-      const userRole = (req as any).user?.role || 'CONTADOR';
-      const tienePermiso = userRole === 'ADMINISTRADOR' || userRole === 'RRHH';
-      const list = await planillaService.listarTrabajadores(empresaId, tienePermiso);
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const tienePermiso = userRole === 'ADMINISTRADOR' || userRole === 'ADMIN_ESTUDIO' || userRole === 'RRHH' || req.query.completo === 'true';
+      const list = await planillaService.listarTrabajadores(empresaId, tienePermiso, userRole);
       return successResponse(res, list);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -355,9 +377,46 @@ export const tesoreriaPlanillaController = {
     try {
       const empresaId = req.params.id;
       const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const permisos = planillaService.obtenerPermisosPlanilla(userRole);
+      if (!permisos.puedeEditarTrabajadoresYProcesar) {
+        return errorResponse(res, `ACCESO_DENEGADO_RBAC: El rol ${userRole} no tiene permisos para registrar trabajadores.`, 403);
+      }
       const data = trabajadorSchema.parse(req.body);
       const nuevo = await planillaService.crearTrabajador(empresaId, data as any, userId);
       return successResponse(res, nuevo, 'Trabajador registrado en nómina', 201);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async actualizarTrabajador(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const trabajadorId = req.params.trabajadorId;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const permisos = planillaService.obtenerPermisosPlanilla(userRole);
+      if (!permisos.puedeEditarTrabajadoresYProcesar) {
+        return errorResponse(res, `ACCESO_DENEGADO_RBAC: El rol ${userRole} no tiene permisos para modificar fichas de trabajadores.`, 403);
+      }
+      const actualizado = await planillaService.actualizarTrabajador(empresaId, trabajadorId, req.body, userId);
+      return successResponse(res, actualizado, 'Ficha de trabajador actualizada');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async listarPlanillas(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const mes = req.query.mes as string | undefined;
+      if (mes) {
+        const p = await planillaService.obtenerPlanillaPorMes(empresaId, mes);
+        return successResponse(res, p);
+      }
+      const list = await planillaService.listarPlanillas(empresaId);
+      return successResponse(res, list);
     } catch (err: any) {
       return errorResponse(res, err.message);
     }
@@ -367,8 +426,13 @@ export const tesoreriaPlanillaController = {
     try {
       const empresaId = req.params.id;
       const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
-      const { periodoId, mes } = calcularPlanillaSchema.parse(req.body);
-      const planilla = await planillaService.calcularPlanilla(empresaId, periodoId, mes, userId);
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const permisos = planillaService.obtenerPermisosPlanilla(userRole);
+      if (!permisos.puedeEditarTrabajadoresYProcesar) {
+        return errorResponse(res, `ACCESO_DENEGADO_RBAC: El rol ${userRole} no tiene permisos para calcular planillas.`, 403);
+      }
+      const { periodoId, mes, novedades } = calcularPlanillaSchema.parse(req.body);
+      const planilla = await planillaService.calcularPlanilla(empresaId, periodoId, mes, userId, novedades);
       return successResponse(res, planilla, 'Planilla calculada exitosamente', 200);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -400,14 +464,145 @@ export const tesoreriaPlanillaController = {
     }
   },
 
+  async consultarBoletaPago(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const planillaId = req.params.planillaId;
+      const trabajadorId = req.params.trabajadorId;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const accion = req.query.descarga === 'true' ? 'DESCARGAR_BOLETA_PAGO' : 'CONSULTAR_BOLETA_PAGO';
+      const boleta = await planillaService.consultarBoletaPago(empresaId, planillaId, trabajadorId, userId, userRole, accion);
+      return successResponse(res, boleta);
+    } catch (err: any) {
+      return errorResponse(res, err.message, err.message.includes('ACCESO_DENEGADO') ? 403 : 400);
+    }
+  },
+
+  async validarPlame(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const planillaId = req.params.planillaId;
+      const val = await planillaService.validarEstructuraPlame(empresaId, planillaId);
+      return successResponse(res, val);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
   async exportarPlame(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
       const planillaId = req.params.planillaId;
-      const info = await planillaService.exportarPlame(empresaId, planillaId);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const info = await planillaService.exportarPlame(empresaId, planillaId, userId, userRole);
       return successResponse(res, info);
     } catch (err: any) {
+      return errorResponse(res, err.message, err.message.includes('ACCESO_DENEGADO') ? 403 : 400);
+    }
+  },
+
+  async listarGratificaciones(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const periodo = req.query.periodo as string | undefined;
+      const list = await planillaService.listarGratificaciones(empresaId, periodo);
+      return successResponse(res, list);
+    } catch (err: any) {
       return errorResponse(res, err.message);
+    }
+  },
+
+  async calcularGratificaciones(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const { periodo } = req.body;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const resCalc = await planillaService.calcularGratificaciones(empresaId, periodo || '2026-07', userId);
+      return successResponse(res, resCalc, 'Gratificaciones calculadas exitosamente');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async contabilizarGratificaciones(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const { periodo } = req.body;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const resCont = await planillaService.contabilizarGratificaciones(empresaId, periodo || '2026-07', userId);
+      return successResponse(res, resCont, 'Gratificaciones contabilizadas');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async listarCts(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const periodo = req.query.periodo as string | undefined;
+      const list = await planillaService.listarCts(empresaId, periodo);
+      return successResponse(res, list);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async calcularCts(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const { periodo } = req.body;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const resCalc = await planillaService.calcularCts(empresaId, periodo || '2026-05', userId);
+      return successResponse(res, resCalc, 'CTS calculada exitosamente');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async contabilizarCts(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const { periodo } = req.body;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const resCont = await planillaService.contabilizarCts(empresaId, periodo || '2026-05', userId);
+      return successResponse(res, resCont, 'CTS contabilizada');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async listarLiquidacionesBeneficios(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const list = await planillaService.listarLiquidacionesBeneficios(empresaId);
+      return successResponse(res, list);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async calcularLiquidacionBeneficios(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const liq = await planillaService.calcularLiquidacionBeneficios(empresaId, req.body, userId);
+      return successResponse(res, liq, 'Liquidación de beneficios sociales emitida');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async exportarTRegistro(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const exp = await planillaService.exportarTRegistro(empresaId, userId, userRole);
+      return successResponse(res, exp);
+    } catch (err: any) {
+      return errorResponse(res, err.message, err.message.includes('ACCESO_DENEGADO') ? 403 : 400);
     }
   },
 

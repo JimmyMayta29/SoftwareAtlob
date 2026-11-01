@@ -46,7 +46,10 @@ import { SimuladorFiscalizacionView } from './components/views/SimuladorFiscaliz
 import { TrabajadoresView } from './components/views/TrabajadoresView';
 import { PlanillaPlameView } from './components/views/PlanillaPlameView';
 import { HonorariosView } from './components/views/HonorariosView';
+import { BoletasPagoView } from './components/views/BoletasPagoView';
+import { GratificacionesCtsView } from './components/views/GratificacionesCtsView';
 import { ExportarPlameView } from './components/views/ExportarPlameView';
+import { TRegistroView } from './components/views/TRegistroView';
 import { SirePropuestaComprasView } from './components/views/SirePropuestaComprasView';
 import { SirePropuestaVentasView } from './components/views/SirePropuestaVentasView';
 import { SireConciliadorView } from './components/views/SireConciliadorView';
@@ -396,7 +399,10 @@ function DesktopWorkspaceContent() {
                   honorarios={dataState.honorarios}
                 />
               )}
+              {activeModuleId === 'boletas-pago' && <BoletasPagoView />}
+              {activeModuleId === 'gratificaciones-cts' && <GratificacionesCtsView />}
               {activeModuleId === 'exportar-plame' && <ExportarPlameView />}
+              {activeModuleId === 't-registro' && <TRegistroView />}
 
               {/* Registros Electrónicos */}
               {(activeModuleId === 'sire-prop-compras' || activeModuleId === 'sire-propuesta-compras') && <SirePropuestaComprasView />}

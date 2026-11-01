@@ -42,7 +42,7 @@ export const parametroController = {
       const user = (req as any).user;
       const rol = String(req.userRolEnEmpresa || user?.rolGlobal || 'CONTADOR_SENIOR');
       const userId = user?.id || 'usr-admin-01';
-      const empresaId = (req.headers['x-empresa-id'] as string) || '00000000-0000-0000-0000-000000000001';
+      const empresaId = req.empresaId || '00000000-0000-0000-0000-000000000001';
 
       const actualizado = await parametroRepository.guardarOActualizarParametro(
         parsed.data,

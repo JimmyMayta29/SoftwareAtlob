@@ -20,7 +20,8 @@
     "test:fase7": "tsx server/tests/run_tests_fase7.ts",
     "test:fase8": "tsx server/tests/run_tests_fase8.ts",
     "test:fase9": "tsx server/tests/run_tests_fase9.ts",
-    "test:coverage": "c8 --reporter=text-summary tsx server/tests/run_all_tests.ts",
+    "test:pg": "tsx server/tests/real/test_pg_rls_planillas.ts",
+    "test:coverage": "c8 --reporter=text --reporter=text-summary tsx server/tests/run_all_tests.ts",
     "test:infra": "tsx server/tests/real/test_infra.ts"
   },
   "dependencies": {

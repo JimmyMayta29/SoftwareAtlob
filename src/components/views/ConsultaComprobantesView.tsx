@@ -47,7 +47,6 @@ export const ConsultaComprobantesView: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-empresa-id': state.activeEmpresa,
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
         body: JSON.stringify({

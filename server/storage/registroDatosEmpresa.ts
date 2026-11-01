@@ -308,6 +308,29 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
     { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
   ] },
+  { tabla: 'planilla_gratificaciones', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'asiento_id', tabla: 'asientos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'trabajador_id', tabla: 'trabajadores', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
+  { tabla: 'planilla_cts', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'asiento_id', tabla: 'asientos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'trabajador_id', tabla: 'trabajadores', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
+  { tabla: 'liquidaciones_beneficios', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'asiento_id', tabla: 'asientos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'trabajador_id', tabla: 'trabajadores', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
+  { tabla: 'tregistro_movimientos', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'trabajador_id', tabla: 'trabajadores', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
 ];
 
 export const REGISTRO_ARCHIVOS_EMPRESA = [

@@ -42,7 +42,7 @@ router.put('/', requireRol(['ADMIN_ESTUDIO', 'ADMINISTRADOR', 'ADMIN']), async (
     const user = (req as any).user;
     const rol = (req as any).userRolEnEmpresa || user?.rolGlobal || 'ADMINISTRADOR';
     const userId = user?.id || 'usr-admin-01';
-    const empresaId = (req.headers['x-empresa-id'] as string) || '00000000-0000-0000-0000-000000000001';
+    const empresaId = req.empresaId || '00000000-0000-0000-0000-000000000001';
 
     const actualizada = await cronogramaVencimientosService.actualizarFilaCronograma(
       parsed.data as { periodo: string; ultimoDigitoRuc: DigitoRucCronograma },

@@ -46,7 +46,6 @@ export const LibrosElectronicosView: React.FC = () => {
     try {
       const res = await fetch(`/api/sunat/ple/generar?periodo=${periodo}&codigoLibro=${libro.codigoLibro}`, {
         headers: {
-          'x-empresa-id': state.activeEmpresa,
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
       });

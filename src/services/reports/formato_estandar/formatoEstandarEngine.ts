@@ -757,3 +757,458 @@ export function exportarResumenPdt621EstandarPdf(params: {
   doc.save(nombreArchivo);
 }
 
+/**
+ * 6. BOLETA DE PAGO DE REMUNERACIONES (D.S. N° 009-2011-TR / R.M. N° 020-2008-TR)
+ * En Formato estándar Atlob (monocromo / corporativo limpio).
+ */
+export interface BoletaPagoPdfItem {
+  trabajadorNombre: string;
+  trabajadorDocumento: string;
+  cargo?: string;
+  regimenLaboral?: string;
+  fechaIngreso?: string;
+  cuspp?: string;
+  sistemaPensiones: 'ONP' | 'AFP';
+  afpAdministradora?: string;
+  afpTipoComision?: string;
+  centroCosto?: string;
+  bancoSueldo?: string;
+  cuentaBancoSueldo?: string;
+  diasTrabajados: number;
+  diasFaltas?: number;
+  horasOrdinarias: number;
+  horasExtras25?: number;
+  horasExtras35?: number;
+  sueldoBasico: number;
+  asignacionFamiliar: number;
+  montoHorasExtras25?: number;
+  montoHorasExtras35?: number;
+  bonificacionesGravadas?: number;
+  conceptosNoGravados?: number;
+  totalRemuneracion: number;
+  aporteObligatorioPension: number;
+  comisionAfp: number;
+  primaSeguroAfp: number;
+  retencionQuintaCategoria: number;
+  descuentoFaltasTardanzas?: number;
+  adelantosPrestamos?: number;
+  totalDescuentos: number;
+  aporteEssalud: number;
+  netoPagar: number;
+}
+
+function renderizarBoletaEnPagina(
+  doc: jsPDF,
+  empresa: { ruc: string; razonSocial: string; regimenTributario?: string },
+  periodo: string,
+  boleta: BoletaPagoPdfItem,
+  offsetY: number = 10
+): void {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 12;
+
+  // Cabecera Empleador y Título Oficial D.S. 001-98-TR / D.S. 009-2011-TR
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text(empresa.razonSocial.toUpperCase(), marginX, offsetY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(`R.U.C.: ${empresa.ruc}`, marginX, offsetY + 4);
+  doc.text('Formato estándar Atlob — D.S. N° 001-98-TR / D.S. N° 009-2011-TR', marginX, offsetY + 8);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('BOLETA DE PAGO DE REMUNERACIONES', pageWidth / 2, offsetY + 2, { align: 'center' });
+  doc.setFontSize(8);
+  doc.text(`PERÍODO DE PAGO: ${periodo}`, pageWidth / 2, offsetY + 7, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text(`MONEDA: SOLES (S/)`, pageWidth - marginX, offsetY, { align: 'right' });
+  doc.text(`C. COSTO: ${boleta.centroCosto || 'ADMINISTRACION'}`, pageWidth - marginX, offsetY + 4, { align: 'right' });
+
+  doc.setLineWidth(0.3);
+  doc.line(marginX, offsetY + 11, pageWidth - marginX, offsetY + 11);
+
+  // Datos del Trabajador
+  const yDatos = offsetY + 15;
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TRABAJADOR:', marginX, yDatos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(boleta.trabajadorNombre.toUpperCase(), marginX + 24, yDatos);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('DOC. IDENTIDAD:', pageWidth / 2 + 10, yDatos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(boleta.trabajadorDocumento, pageWidth / 2 + 36, yDatos);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('CARGO / OCUP.:', marginX, yDatos + 4.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text((boleta.cargo || 'COLABORADOR').toUpperCase(), marginX + 24, yDatos + 4.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('F. INGRESO:', pageWidth / 2 + 10, yDatos + 4.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(boleta.fechaIngreso || '-', pageWidth / 2 + 36, yDatos + 4.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('SIST. PENSIÓN:', marginX, yDatos + 9);
+  doc.setFont('helvetica', 'normal');
+  const pensionTexto =
+    boleta.sistemaPensiones === 'AFP'
+      ? `AFP ${boleta.afpAdministradora || ''} (${boleta.afpTipoComision || 'FLUJO'}) — CUSPP: ${boleta.cuspp || '-'}`
+      : 'ONP - D.L. 19990 (13%)';
+  doc.text(pensionTexto, marginX + 24, yDatos + 9);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('RÉGIMEN LAB.:', pageWidth / 2 + 10, yDatos + 9);
+  doc.setFont('helvetica', 'normal');
+  doc.text(boleta.regimenLaboral || 'GENERAL (D.L. 728)', pageWidth / 2 + 36, yDatos + 9);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('JORNADA MES:', marginX, yDatos + 13.5);
+  doc.setFont('helvetica', 'normal');
+  const hExtras = (boleta.horasExtras25 || 0) + (boleta.horasExtras35 || 0);
+  doc.text(
+    `${boleta.diasTrabajados} días lab. | ${boleta.diasFaltas || 0} faltas | ${boleta.horasOrdinarias} hrs ord. | ${hExtras} hrs extras`,
+    marginX + 24,
+    yDatos + 13.5
+  );
+
+  if (boleta.bancoSueldo || boleta.cuentaBancoSueldo) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('ABONO BANCO:', pageWidth / 2 + 10, yDatos + 13.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${boleta.bancoSueldo || ''} ${boleta.cuentaBancoSueldo || ''}`.trim(), pageWidth / 2 + 36, yDatos + 13.5);
+  }
+
+  // Construcción de filas de Conceptos PLAME
+  const filasConceptos: string[][] = [];
+  filasConceptos.push([
+    '0121',
+    'REMUNERACIÓN O JORNAL BÁSICO',
+    formatearImporteEstandar(boleta.sueldoBasico),
+    '',
+    ''
+  ]);
+  if (boleta.asignacionFamiliar > 0) {
+    filasConceptos.push([
+      '0201',
+      'ASIGNACIÓN FAMILIAR (LEY N° 25129 - 10% RMV)',
+      formatearImporteEstandar(boleta.asignacionFamiliar),
+      '',
+      ''
+    ]);
+  }
+  if ((boleta.montoHorasExtras25 || 0) > 0) {
+    filasConceptos.push([
+      '0105',
+      `TRABAJO EN SOBRETIEMPO (HORAS EXTRAS 25% — ${boleta.horasExtras25} HRS)`,
+      formatearImporteEstandar(boleta.montoHorasExtras25 || 0),
+      '',
+      ''
+    ]);
+  }
+  if ((boleta.montoHorasExtras35 || 0) > 0) {
+    filasConceptos.push([
+      '0106',
+      `TRABAJO EN SOBRETIEMPO (HORAS EXTRAS 35% — ${boleta.horasExtras35} HRS)`,
+      formatearImporteEstandar(boleta.montoHorasExtras35 || 0),
+      '',
+      ''
+    ]);
+  }
+  if ((boleta.bonificacionesGravadas || 0) > 0) {
+    filasConceptos.push([
+      '0306',
+      'BONIFICACIONES REGULARES GRAVADAS',
+      formatearImporteEstandar(boleta.bonificacionesGravadas || 0),
+      '',
+      ''
+    ]);
+  }
+  if ((boleta.conceptosNoGravados || 0) > 0) {
+    filasConceptos.push([
+      '0909',
+      'CONCEPTOS NO REMUNERATIVOS / MOVILIDAD SUPEDITADA',
+      formatearImporteEstandar(boleta.conceptosNoGravados || 0),
+      '',
+      ''
+    ]);
+  }
+
+  // Descuentos del trabajador
+  if (boleta.sistemaPensiones === 'ONP' && boleta.aporteObligatorioPension > 0) {
+    filasConceptos.push([
+      '0607',
+      'SISTEMA NACIONAL DE PENSIONES - D.L. 19990 (ONP 13%)',
+      '',
+      formatearImporteEstandar(boleta.aporteObligatorioPension),
+      ''
+    ]);
+  }
+  if (boleta.sistemaPensiones === 'AFP') {
+    if (boleta.aporteObligatorioPension > 0) {
+      filasConceptos.push([
+        '0608',
+        `SPP - APORTE OBLIGATORIO AFP (10%) - ${boleta.afpAdministradora || ''}`,
+        '',
+        formatearImporteEstandar(boleta.aporteObligatorioPension),
+        ''
+      ]);
+    }
+    if (boleta.comisionAfp > 0) {
+      filasConceptos.push([
+        '0601',
+        `SPP - COMISIÓN PORCENTUAL AFP (${boleta.afpTipoComision || 'FLUJO'})`,
+        '',
+        formatearImporteEstandar(boleta.comisionAfp),
+        ''
+      ]);
+    }
+    if (boleta.primaSeguroAfp > 0) {
+      filasConceptos.push([
+        '0606',
+        'SPP - PRIMA DE SEGURO DE INVALIDEZ Y SOBREVIVENCIA AFP',
+        '',
+        formatearImporteEstandar(boleta.primaSeguroAfp),
+        ''
+      ]);
+    }
+  }
+  if (boleta.retencionQuintaCategoria > 0) {
+    filasConceptos.push([
+      '0605',
+      'RENTA DE QUINTA CATEGORÍA RETENCIONES (ART. 75° LIR)',
+      '',
+      formatearImporteEstandar(boleta.retencionQuintaCategoria),
+      ''
+    ]);
+  }
+  if ((boleta.descuentoFaltasTardanzas || 0) > 0) {
+    filasConceptos.push([
+      '0705',
+      'INASISTENCIAS Y TARDANZAS DEDUCIBLES',
+      '',
+      formatearImporteEstandar(boleta.descuentoFaltasTardanzas || 0),
+      ''
+    ]);
+  }
+  if ((boleta.adelantosPrestamos || 0) > 0) {
+    filasConceptos.push([
+      '0701',
+      'ADELANTOS DE REMUNERACIONES / PRÉSTAMOS AL PERSONAL',
+      '',
+      formatearImporteEstandar(boleta.adelantosPrestamos || 0),
+      ''
+    ]);
+  }
+
+  // Aportes del empleador
+  if (boleta.aporteEssalud > 0) {
+    filasConceptos.push([
+      '0804',
+      'ESSALUD SEGURO REGULAR TRABAJADOR (9% EMPLEADOR)',
+      '',
+      '',
+      formatearImporteEstandar(boleta.aporteEssalud)
+    ]);
+  }
+
+  autoTable(doc, {
+    startY: yDatos + 17,
+    margin: { left: marginX, right: marginX },
+    head: [[
+      'CÓD. PLAME',
+      'CONCEPTO REMUNERATIVO / DESCUENTO / APORTE',
+      'INGRESOS (S/)',
+      'DESCUENTOS (S/)',
+      'APORTES EMP. (S/)'
+    ]],
+    body: filasConceptos,
+    foot: [[
+      '',
+      'TOTALES BOLETA DE PAGO',
+      formatearImporteEstandar(boleta.totalRemuneracion),
+      formatearImporteEstandar(boleta.totalDescuentos),
+      formatearImporteEstandar(boleta.aporteEssalud)
+    ]],
+    theme: 'plain',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.5,
+      cellPadding: 1.4,
+      textColor: [0, 0, 0],
+      lineColor: [180, 180, 180],
+      lineWidth: 0.1
+    },
+    headStyles: {
+      fontStyle: 'bold',
+      fillColor: [235, 238, 242],
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.25
+    },
+    footStyles: {
+      fontStyle: 'bold',
+      fillColor: [243, 244, 246],
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.25
+    },
+    columnStyles: {
+      0: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 86 },
+      2: { cellWidth: 26, halign: 'right' },
+      3: { cellWidth: 26, halign: 'right' },
+      4: { cellWidth: 26, halign: 'right' }
+    }
+  });
+
+  const finalY = ((doc as any).lastAutoTable?.finalY || yDatos + 60) + 5;
+  doc.setFillColor(235, 238, 242);
+  doc.rect(marginX, finalY, pageWidth - marginX * 2, 8, 'F');
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.25);
+  doc.rect(marginX, finalY, pageWidth - marginX * 2, 8, 'S');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('NETO A PAGAR AL TRABAJADOR:', marginX + 4, finalY + 5.5);
+  doc.text(`S/ ${formatearImporteEstandar(boleta.netoPagar)}`, pageWidth - marginX - 4, finalY + 5.5, { align: 'right' });
+
+  // Líneas de firma Empleador / Trabajador
+  const yFirma = finalY + 24;
+  doc.setLineWidth(0.2);
+  doc.line(marginX + 18, yFirma, marginX + 75, yFirma);
+  doc.line(pageWidth - marginX - 75, yFirma, pageWidth - marginX - 18, yFirma);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text('FIRMA Y SELLO DEL EMPLEADOR', marginX + 46.5, yFirma + 4, { align: 'center' });
+  doc.text('RECIBÍ CONFORME (FIRMA DEL TRABAJADOR)', pageWidth - marginX - 46.5, yFirma + 4, { align: 'center' });
+  doc.text(`DNI: ${boleta.trabajadorDocumento}`, pageWidth - marginX - 46.5, yFirma + 8, { align: 'center' });
+}
+
+export function exportarBoletaPagoEstandarPdf(params: {
+  empresa: { ruc: string; razonSocial: string; regimenTributario?: string };
+  periodo: string;
+  boleta: BoletaPagoPdfItem;
+}): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  renderizarBoletaEnPagina(doc, params.empresa, params.periodo, params.boleta, 12);
+  const nombreArchivo = `BOLETA_${params.empresa.ruc}_${params.periodo.replace('-', '')}_${params.boleta.trabajadorDocumento}.pdf`;
+  doc.save(nombreArchivo);
+}
+
+export function exportarLoteBoletasPagoEstandarPdf(params: {
+  empresa: { ruc: string; razonSocial: string; regimenTributario?: string };
+  periodo: string;
+  boletas: BoletaPagoPdfItem[];
+}): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  params.boletas.forEach((b, idx) => {
+    if (idx > 0) doc.addPage();
+    renderizarBoletaEnPagina(doc, params.empresa, params.periodo, b, 12);
+  });
+  const nombreArchivo = `BOLETAS_PAGO_${params.empresa.ruc}_${params.periodo.replace('-', '')}_LOTE.pdf`;
+  doc.save(nombreArchivo);
+}
+
+/**
+ * 7. LIQUIDACIÓN DE BENEFICIOS SOCIALES (LBS) EN FORMATO ESTÁNDAR ATLOB
+ */
+export function exportarLiquidacionBeneficiosEstandarPdf(params: {
+  empresa: { ruc: string; razonSocial: string };
+  liquidacion: {
+    trabajadorNombre: string;
+    trabajadorDocumento: string;
+    regimenLaboral: string;
+    fechaIngreso: string;
+    fechaCese: string;
+    motivoCese: string;
+    sueldoBasico: number;
+    asignacionFamiliar: number;
+    remuneracionComputable: number;
+    ctsTrunca: number;
+    vacacionesTruncas: number;
+    gratificacionTrunca: number;
+    bonificacionExtraTrunca: number;
+    remuneracionMensualPendiente: number;
+    totalBrutoBeneficios: number;
+    descuentoPensiones: number;
+    descuentoQuinta: number;
+    aporteEssalud: number;
+    netoLiquidacion: number;
+  };
+}): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 14;
+  const liq = params.liquidacion;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text(params.empresa.razonSocial.toUpperCase(), marginX, 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(`R.U.C.: ${params.empresa.ruc}`, marginX, 18);
+  doc.text('Formato estándar Atlob (SOLES)', pageWidth - marginX, 14, { align: 'right' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('LIQUIDACIÓN DE BENEFICIOS SOCIALES', pageWidth / 2, 24, { align: 'center' });
+  doc.setLineWidth(0.3);
+  doc.line(marginX, 27, pageWidth - marginX, 27);
+
+  doc.setFontSize(8);
+  doc.text(`TRABAJADOR: ${liq.trabajadorNombre.toUpperCase()}`, marginX, 33);
+  doc.text(`DOC. IDENTIDAD: ${liq.trabajadorDocumento}`, pageWidth / 2 + 10, 33);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`RÉGIMEN LABORAL: ${liq.regimenLaboral}`, marginX, 38);
+  doc.text(`MOTIVO DE CESE: ${liq.motivoCese}`, pageWidth / 2 + 10, 38);
+  doc.text(`FECHA DE INGRESO: ${liq.fechaIngreso}`, marginX, 43);
+  doc.text(`FECHA DE CESE: ${liq.fechaCese}`, pageWidth / 2 + 10, 43);
+  doc.text(`REMUNERACIÓN COMPUTABLE: S/ ${formatearImporteEstandar(liq.remuneracionComputable)}`, marginX, 48);
+
+  autoTable(doc, {
+    startY: 53,
+    margin: { left: marginX, right: marginX },
+    head: [['CONCEPTO DE LIQUIDACIÓN DE BENEFICIOS SOCIALES', 'BASE LEGAL', 'IMPORTE (S/)']],
+    body: [
+      ['1. Remuneración proporcional por días trabajados en el mes de cese', 'D.S. 003-97-TR', formatearImporteEstandar(liq.remuneracionMensualPendiente)],
+      ['2. Compensación por Tiempo de Servicios — CTS Trunca', 'D.S. 001-97-TR', formatearImporteEstandar(liq.ctsTrunca)],
+      ['3. Vacaciones Truncas / Pendientes de Goce', 'D. Leg. N° 713', formatearImporteEstandar(liq.vacacionesTruncas)],
+      ['4. Gratificación Legal Trunca', 'Ley N° 27735', formatearImporteEstandar(liq.gratificacionTrunca)],
+      ['5. Bonificación Extraordinaria Temporal (9% / 6.75%)', 'Ley N° 29351 / 30334', formatearImporteEstandar(liq.bonificacionExtraTrunca)],
+      ['TOTAL INGRESOS Y BENEFICIOS BRUTOS', '', formatearImporteEstandar(liq.totalBrutoBeneficios)],
+      ['(-) Retención Sistema de Pensiones (ONP / AFP sobre conceptos afectos)', 'D.L. 19990 / SPP', `- ${formatearImporteEstandar(liq.descuentoPensiones)}`],
+      ['(-) Retención Impuesto a la Renta 5ta Categoría', 'Art. 75° LIR', `- ${formatearImporteEstandar(liq.descuentoQuinta)}`],
+      ['(+) Aporte Empleador EsSalud (Informativo)', 'Ley N° 26790', formatearImporteEstandar(liq.aporteEssalud)]
+    ],
+    foot: [['NETO A PAGAR POR LIQUIDACIÓN DE BENEFICIOS SOCIALES', '', `S/ ${formatearImporteEstandar(liq.netoLiquidacion)}`]],
+    theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2, lineColor: [180, 180, 180], lineWidth: 0.1 },
+    headStyles: { fontStyle: 'bold', fillColor: [235, 238, 242], textColor: [0, 0, 0], lineWidth: 0.25 },
+    footStyles: { fontStyle: 'bold', fillColor: [235, 238, 242], textColor: [0, 0, 0], lineWidth: 0.25 },
+    columnStyles: {
+      0: { cellWidth: 112 },
+      1: { cellWidth: 38, halign: 'center' },
+      2: { cellWidth: 32, halign: 'right', fontStyle: 'bold' }
+    }
+  });
+
+  const finalY = ((doc as any).lastAutoTable?.finalY || 140) + 25;
+  doc.setLineWidth(0.2);
+  doc.line(marginX + 15, finalY, marginX + 75, finalY);
+  doc.line(pageWidth - marginX - 75, finalY, pageWidth - marginX - 15, finalY);
+  doc.setFontSize(7.5);
+  doc.text('FIRMA Y SELLO DEL EMPLEADOR', marginX + 45, finalY + 5, { align: 'center' });
+  doc.text('CONSTANCIA DE RECEPCIÓN DEL TRABAJADOR', pageWidth - marginX - 45, finalY + 5, { align: 'center' });
+
+  doc.save(`LIQUIDACION_BENEFICIOS_${params.empresa.ruc}_${liq.trabajadorDocumento}.pdf`);
+}
+
+

@@ -112,9 +112,20 @@ export interface TrabajadorApi {
   numeroDocumento: string;
   nombres: string;
   apellidos: string;
+  fechaNacimiento?: string;
+  direccion?: string;
+  telefono?: string;
+  email?: string;
+  fechaIngreso: string;
+  fechaCese?: string;
+  motivoCese?: string;
   cargo: string;
+  tipoContrato?: 'INDETERMINADO' | 'PLAZO_FIJO' | 'TIEMPO_PARCIAL' | 'SUJETO_MODALIDAD';
+  fechaInicioContrato?: string;
+  fechaFinContrato?: string;
   regimenLaboral: 'GENERAL' | 'MYPE_MICRO' | 'MYPE_PEQUENA';
   sueldoBase: number;
+  cargasFamiliares?: number;
   tieneAsignacionFamiliar: boolean;
   sistemaPensiones: 'ONP' | 'AFP';
   afpAdministradora?: 'INTEGRA' | 'PRIMA' | 'PROFUTURO' | 'HABITAT';
@@ -122,7 +133,9 @@ export interface TrabajadorApi {
   cuspp?: string;
   centroCosto: string;
   cuentaBancoSueldo?: string;
+  cciSueldo?: string;
   bancoSueldo?: string;
+  afiliadoEps?: boolean;
   activo: boolean;
 }
 
@@ -144,21 +157,37 @@ export interface PlanillaApi {
     trabajadorId: string;
     trabajadorNombre: string;
     trabajadorDocumento: string;
+    trabajadorCargo?: string;
+    regimenLaboral?: string;
+    sistemaPensiones?: string;
+    afpAdministradora?: string;
+    cuspp?: string;
     diasLaborados: number;
+    diasFaltas?: number;
+    minutosTardanza?: number;
+    horasExtras25?: number;
+    horasExtras35?: number;
+    montoHorasExtras25?: number;
+    montoHorasExtras35?: number;
     sueldoBasico: number;
     asignacionFamiliar: number;
     horasExtras: number;
+    bonificacionesGravadas?: number;
+    conceptosNoGravados?: number;
     otrosIngresos: number;
+    descuentoFaltasTardanzas?: number;
     totalRemuneracion: number;
     aporteObligatorioPension: number;
     comisionAfp: number;
     primaSeguroAfp: number;
     retencionQuinta: number;
+    adelantosPrestamos?: number;
     otrosDescuentos: number;
     totalDescuentos: number;
     aporteEssalud: number;
     netoPagar: number;
     centroCosto: string;
+    proyeccionQuinta?: any;
   }>;
 }
 
@@ -270,8 +299,10 @@ export const tesoreriaPlanillaApi = {
   },
 
   // Trabajadores y Planillas
-  async listarTrabajadores(empresaId: string): Promise<TrabajadorApi[]> {
-    const res = await apiClient.get<any>(`/empresas/${empresaId}/trabajadores`);
+  async listarTrabajadores(empresaId: string, completo = true): Promise<TrabajadorApi[]> {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/trabajadores`, {
+      params: completo ? { completo: 'true' } : undefined
+    });
     return extractData<TrabajadorApi[]>(res, []);
   },
 
@@ -280,10 +311,28 @@ export const tesoreriaPlanillaApi = {
     return extractData<TrabajadorApi>(res);
   },
 
-  async calcularPlanilla(empresaId: string, periodoId: string, mes: string): Promise<PlanillaApi> {
+  async actualizarTrabajador(empresaId: string, trabajadorId: string, datos: any): Promise<TrabajadorApi> {
+    const res = await apiClient.put<any>(`/empresas/${empresaId}/trabajadores/${trabajadorId}`, datos);
+    return extractData<TrabajadorApi>(res);
+  },
+
+  async listarPlanillas(empresaId: string, mes?: string): Promise<PlanillaApi[]> {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas`, { params: mes ? { mes } : undefined });
+    const data = extractData<any>(res, []);
+    if (!data) return [];
+    return Array.isArray(data) ? data : [data];
+  },
+
+  async obtenerPlanillaPorMes(empresaId: string, mes: string): Promise<PlanillaApi | null> {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas`, { params: { mes } });
+    return extractData<PlanillaApi | null>(res, null);
+  },
+
+  async calcularPlanilla(empresaId: string, periodoId: string, mes: string, novedades?: any[]): Promise<PlanillaApi> {
     const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/calcular`, {
       periodoId,
-      mes
+      mes,
+      novedades
     });
     return extractData<PlanillaApi>(res);
   },
@@ -298,9 +347,78 @@ export const tesoreriaPlanillaApi = {
     return extractData(res);
   },
 
+  async validarPlame(empresaId: string, planillaId: string) {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/${planillaId}/validar-plame`);
+    return extractData(res);
+  },
+
   async exportarPlame(empresaId: string, planillaId: string) {
     const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/${planillaId}/exportar-plame`);
     return extractData(res);
+  },
+
+  // Gratificaciones, CTS, Liquidación de Beneficios y T-Registro
+  async listarGratificaciones(empresaId: string, periodo?: string) {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/gratificaciones`, { params: { periodo } });
+    return extractData<any[]>(res, []);
+  },
+
+  async calcularGratificaciones(empresaId: string, periodo: string) {
+    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/gratificaciones/calcular`, { periodo });
+    return extractData<any>(res);
+  },
+
+  async contabilizarGratificaciones(empresaId: string, periodo: string) {
+    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/gratificaciones/contabilizar`, { periodo });
+    return extractData<any>(res);
+  },
+
+  async listarCts(empresaId: string, periodo?: string) {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/cts`, { params: { periodo } });
+    return extractData<any[]>(res, []);
+  },
+
+  async calcularCts(empresaId: string, periodo: string) {
+    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/cts/calcular`, { periodo });
+    return extractData<any>(res);
+  },
+
+  async contabilizarCts(empresaId: string, periodo: string) {
+    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/cts/contabilizar`, { periodo });
+    return extractData<any>(res);
+  },
+
+  async listarLiquidacionesBeneficios(empresaId: string) {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/liquidaciones-beneficios`);
+    return extractData<any[]>(res, []);
+  },
+
+  async calcularLiquidacionBeneficios(empresaId: string, datos: any) {
+    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/liquidaciones-beneficios/calcular`, datos);
+    return extractData<any>(res);
+  },
+
+  async exportarTRegistro(empresaId: string) {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/exportar-tregistro`);
+    return extractData<any>(res);
+  },
+
+  // Parámetros editables (RMV, UIT, Tasas ONP/AFP/EsSalud/5ta) con vigencia
+  async listarParametrosLaborales(): Promise<any[]> {
+    const res = await apiClient.get<any>('/parametros');
+    return extractData<any[]>(res, []);
+  },
+
+  async guardarParametroLaboral(datos: {
+    codigoParametro: string;
+    descripcion: string;
+    valorNumerico: number;
+    tipoDato: string;
+    vigenteDesde: string;
+    vigenteHasta?: string | null;
+  }): Promise<any> {
+    const res = await apiClient.post<any>('/parametros', datos);
+    return extractData<any>(res);
   },
 
   // Flujo de Caja
