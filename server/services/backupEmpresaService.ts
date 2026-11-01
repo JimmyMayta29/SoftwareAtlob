@@ -410,7 +410,7 @@ export const backupEmpresaService = {
     reemplazarPorEmpresa(GRATIFICACIONES_MEMORIA, nuevasGratificaciones);
     reemplazarPorEmpresa(CTS_MEMORIA, nuevasCts);
     reemplazarPorEmpresa(LIQUIDACIONES_BENEFICIOS_MEMORIA, nuevasLiquidaciones);
-    reemplazarPorEmpresa(TREGISTRO_MEMORIA_ALIAS(TREGISTRO_MOVIMIENTOS_MEMORIA), nuevosTRegistro);
+    reemplazarPorEmpresa(TREGISTRO_MOVIMIENTOS_MEMORIA, nuevosTRegistro);
     reemplazarPorEmpresa(ARTICULOS_MEMORIA, nuevosArticulos);
     reemplazarPorEmpresa(PERIODOS_MEMORIA, nuevosPeriodos);
     reemplazarPorEmpresa(DECLARACIONES_PDT621_MEMORIA, nuevasDeclPdt621);

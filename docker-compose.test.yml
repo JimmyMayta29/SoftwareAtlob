@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    container_name: atlob_postgres_test
+    environment:
+      POSTGRES_USER: atlob_test
+      POSTGRES_PASSWORD: atlob_test_2026!
+      POSTGRES_DB: atlob_test_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlob_test -d atlob_test_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_test_data:

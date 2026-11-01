@@ -62,6 +62,7 @@ export interface ProyeccionQuintaDetalle {
   bonificacionExtraProyectada: number;
   rentaBrutaAnualProyectada: number;
   deduccion7Uit: number;
+  deduccionAdicional3Uit?: number;
   deduccionAdicional3UitAplicada?: number;
   rentaNetaAnualQuinta: number;
   impuestoTramo1_8pct: number;
@@ -107,6 +108,7 @@ export interface PlanillaLineaModel {
   diasTrabajados?: number;
   horasOrdinarias?: number;
   diasFaltas?: number;
+  diasSuspensionPerfecta?: number;
   minutosTardanza?: number;
   horasExtras25?: number;
   horasExtras35?: number;
@@ -460,7 +462,7 @@ function calcularDiasLaborablesMes(mes: string, fechaIngreso: string, fechaCese?
 /**
  * Obtiene el divisor oficial del mes según Art. 40° inc. d) del Reglamento de la LIR
  */
-function obtenerDivisorQuintaCategoria(mesNumero: number): number {
+export function obtenerDivisorQuintaCategoria(mesNumero: number): number {
   if (mesNumero >= 1 && mesNumero <= 3) return 12;
   if (mesNumero === 4) return 9;
   if (mesNumero >= 5 && mesNumero <= 7) return 8;
@@ -472,7 +474,7 @@ function obtenerDivisorQuintaCategoria(mesNumero: number): number {
 /**
  * Determina hasta qué mes anterior se deducen las retenciones previas según Art. 40° Rgto. LIR
  */
-function obtenerMesCorteRetencionesPrevias(mesNumero: number): number {
+export function obtenerMesCorteRetencionesPrevias(mesNumero: number): number {
   if (mesNumero <= 3) return 0; // Ene-Mar no deducen retenciones previas
   if (mesNumero === 4) return 3; // Abril deduce Ene-Mar
   if (mesNumero >= 5 && mesNumero <= 7) return 4; // May-Jul deduce Ene-Abr
@@ -555,8 +557,72 @@ export const MATRIZ_RBAC_PLANILLAS = {
 export const planillaService = {
   enmascararDni,
   enmascararCuentaBancaria,
+  obtenerDivisorQuintaCategoria,
+  obtenerMesCorteRetencionesPrevias,
   obtenerMatrizRbac() {
     return MATRIZ_RBAC_PLANILLAS;
+  },
+  obtenerPermisosPlanilla(rolUsuario: string = 'ADMINISTRADOR') {
+    const rolNormalizado = (rolUsuario || 'ADMINISTRADOR').toUpperCase();
+    if (rolNormalizado.includes('ADMIN') || rolNormalizado === 'ADMIN_ESTUDIO') {
+      return {
+        verDatosPersonales: true,
+        verSueldos: true,
+        verCuentasDesencriptadas: true,
+        verBoletas: true,
+        descargarBoletas: true,
+        puedeDescargarBoletas: true,
+        puedeEditarTrabajadoresYProcesar: true,
+        calcularPlanilla: true,
+        contabilizarPlanilla: true,
+        puedeExportarPlameTRegistro: true,
+        exportarPlameTRegistro: true
+      };
+    }
+    if (rolNormalizado.includes('SENIOR') || rolNormalizado === 'CONTADOR') {
+      return {
+        verDatosPersonales: true,
+        verSueldos: true,
+        verCuentasDesencriptadas: true,
+        verBoletas: true,
+        descargarBoletas: true,
+        puedeDescargarBoletas: true,
+        puedeEditarTrabajadoresYProcesar: true,
+        calcularPlanilla: true,
+        contabilizarPlanilla: true,
+        puedeExportarPlameTRegistro: true,
+        exportarPlameTRegistro: true
+      };
+    }
+    if (rolNormalizado.includes('ASISTENTE')) {
+      return {
+        verDatosPersonales: false,
+        verSueldos: true,
+        verCuentasDesencriptadas: false,
+        verBoletas: true,
+        descargarBoletas: false,
+        puedeDescargarBoletas: false,
+        puedeEditarTrabajadoresYProcesar: false,
+        calcularPlanilla: true,
+        contabilizarPlanilla: false,
+        puedeExportarPlameTRegistro: false,
+        exportarPlameTRegistro: false
+      };
+    }
+    // AUDITOR_REVISOR u otros
+    return {
+      verDatosPersonales: false,
+      verSueldos: false,
+      verCuentasDesencriptadas: false,
+      verBoletas: false,
+      descargarBoletas: false,
+      puedeDescargarBoletas: false,
+      puedeEditarTrabajadoresYProcesar: false,
+      calcularPlanilla: false,
+      contabilizarPlanilla: false,
+      puedeExportarPlameTRegistro: false,
+      exportarPlameTRegistro: false
+    };
   },
 
   // --------------------------------------------------------------------------
@@ -643,7 +709,8 @@ export const planillaService = {
     }
 
     const fechaIngresoRef = datos.fechaIngreso || new Date().toISOString().split('T')[0];
-    const rmvVigente = await parametroRepository.obtenerValorNumerico('RMV', 1025.00, fechaIngresoRef);
+    const paramRmvIngreso = await parametroRepository.obtenerParametroPorCodigo('RMV', fechaIngresoRef);
+    const rmvVigente = paramRmvIngreso ? paramRmvIngreso.valorNumerico : 0;
     const tipoCont = datos.tipoContrato || 'INDETERMINADO';
     if (tipoCont !== 'TIEMPO_PARCIAL' && Number(datos.sueldoBase) < rmvVigente) {
       throw new Error(`SUELDO_MENOR_RMV: La remuneración básica (S/ ${datos.sueldoBase}) no puede ser menor a la RMV vigente (S/ ${rmvVigente}).`);
@@ -1030,7 +1097,7 @@ export const planillaService = {
     const paramHe35 = await parametroRepository.obtenerParametroPorCodigo('TASA_HORA_EXTRA_35', fechaRef);
     const paramTopeSeguro = await parametroRepository.obtenerParametroPorCodigo('TOPE_PRIMA_SEGURO_AFP', fechaRef);
 
-    const rmvMonto = paramRmv ? paramRmv.valorNumerico : 1025.00;
+    const rmvMonto = paramRmv ? paramRmv.valorNumerico : ((await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))?.valorNumerico || 0);
     const tasaEssalud = paramEssalud ? paramEssalud.valorNumerico : 0.09;
     const tasaOnp = paramOnp ? paramOnp.valorNumerico : 0.13;
     const tasaAsigFam = paramAsigFam ? paramAsigFam.valorNumerico : 0.10;
@@ -1183,8 +1250,15 @@ export const planillaService = {
         )
       );
 
-      // Aportes del Empleador (EsSalud 9%)
-      const aporteEssalud = Money.round(baseImponibleAportes.times(tasaEssalud));
+      // Aportes del Empleador (EsSalud 9% - Art. 6° Ley N° 26790 y D.S. N° 009-97-SA Art. 33°)
+      // La base imponible para el cálculo de aportaciones a EsSalud no puede ser menor a la RMV vigente (proporcional si vínculo es menor a 30 días)
+      const baseMinimaEssalud = diasCalendarioTrab >= 30
+        ? rmvMonto
+        : Money.toNumber(Money.round(Money.create(rmvMonto).dividedBy(30).times(diasCalendarioTrab)));
+      const baseEssaludEfectiva = diasLaborados > 0
+        ? Math.max(Money.toNumber(baseImponibleAportes), baseMinimaEssalud)
+        : Money.toNumber(baseImponibleAportes);
+      const aporteEssalud = Money.round(Money.create(baseEssaludEfectiva).times(tasaEssalud));
 
       // Neto a Pagar
       const netoPagar = Money.sub(totalRemun, totalDescTrabajador);
@@ -1534,7 +1608,7 @@ export const planillaService = {
 
     const paramRmv = (await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))
       || (await parametroRepository.obtenerParametroPorCodigo('RMV_2026', fechaRef));
-    const rmvMonto = paramRmv ? paramRmv.valorNumerico : 1025.00;
+    const rmvMonto = paramRmv ? paramRmv.valorNumerico : ((await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))?.valorNumerico || 0);
     const tasaAsigFam = await parametroRepository.obtenerValorNumerico('TASA_ASIGNACION_FAMILIAR', 0.10, fechaRef);
     const montoAsigFam = Money.toNumber(Money.round(Money.create(rmvMonto).times(tasaAsigFam)));
     const tasaBonifEssalud = await parametroRepository.obtenerValorNumerico('TASA_BONIF_EXTRA_ESSALUD', 0.09, fechaRef);
@@ -1738,7 +1812,7 @@ export const planillaService = {
 
     const paramRmv = (await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))
       || (await parametroRepository.obtenerParametroPorCodigo('RMV_2026', fechaRef));
-    const rmvMonto = paramRmv ? paramRmv.valorNumerico : 1025.00;
+    const rmvMonto = paramRmv ? paramRmv.valorNumerico : ((await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))?.valorNumerico || 0);
     const tasaAsigFam = await parametroRepository.obtenerValorNumerico('TASA_ASIGNACION_FAMILIAR', 0.10, fechaRef);
     const montoAsigFam = Money.toNumber(Money.round(Money.create(rmvMonto).times(tasaAsigFam)));
 
@@ -1923,7 +1997,8 @@ export const planillaService = {
     const [anioCese, mesCese, diaCese] = input.fechaCese.split('-').map(Number);
     const [anioIng, mesIng, diaIng] = trab.fechaIngreso.split('-').map(Number);
 
-    const rmvMonto = await parametroRepository.obtenerValorNumerico('RMV', 1025.00, input.fechaCese);
+    const paramRmvCese = await parametroRepository.obtenerParametroPorCodigo('RMV', input.fechaCese);
+    const rmvMonto = paramRmvCese ? paramRmvCese.valorNumerico : 0;
     const tasaAsigFam = await parametroRepository.obtenerValorNumerico('TASA_ASIGNACION_FAMILIAR', 0.10, input.fechaCese);
     const tasaOnp = await parametroRepository.obtenerValorNumerico('TASA_ONP', 0.13, input.fechaCese);
     const tasaEssalud = await parametroRepository.obtenerValorNumerico('TASA_ESSALUD', 0.09, input.fechaCese);

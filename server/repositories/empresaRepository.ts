@@ -72,11 +72,10 @@ export const empresaRepository = {
       return res.rows;
     }
 
-    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production') throw new Error('DATABASE_NO_DISPONIBLE');
     const usuario = USUARIOS_ESTUDIO_MEMORIA.find(u => u.id === userId && u.isActive);
-    if (!usuario) return [];
     const permitidas = USUARIOS_EMPRESA_MEMORIA.filter(m => m.usuarioId === userId && m.estado === 'ACTIVO').map(m => m.empresaId);
-    const estudio = usuario.rolGlobal === 'ADMINISTRADOR'
+    const estudio = usuario && usuario.rolGlobal === 'ADMINISTRADOR'
       ? (await (await import('../services/setupService')).setupService.obtenerEstadoSetup()).estudio : null;
     return EMPRESAS_STORE.filter(e => e.isActive && (e.tenantId === estudio?.tenantId || permitidas.includes(e.id)));
   },
@@ -97,7 +96,7 @@ export const empresaRepository = {
       return res.rows[0] || null;
     }
 
-    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (process.env.NODE_ENV === 'production' || env.NODE_ENV === 'production') throw new Error('DATABASE_NO_DISPONIBLE');
     return EMPRESAS_STORE.find(e => e.id === id) || null;
   },
 

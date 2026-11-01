@@ -1,0 +1,50 @@
+name: Test Suite & PostgreSQL Behavioral Verification
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: atlob_test
+          POSTGRES_PASSWORD: atlob_test_2026!
+          POSTGRES_DB: atlob_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint (TypeScript type-check)
+        run: npm run lint
+
+      - name: Run behavioral PostgreSQL RLS test
+        env:
+          TEST_DATABASE_URL: postgres://atlob_test:atlob_test_2026!@localhost:5432/atlob_test_db
+        run: npm run test:pg
+
+      - name: Run complete unit and integration tests
+        run: npm test

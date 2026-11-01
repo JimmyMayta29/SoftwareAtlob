@@ -14,8 +14,9 @@ let isConnected = false;
 
 export async function initializeDatabase(): Promise<void> {
   if (pool && isConnected) return;
-  if (!env.DATABASE_URL) {
-    if (env.NODE_ENV === 'production') {
+  const currentDbUrl = process.env.DATABASE_URL !== undefined ? process.env.DATABASE_URL : env.DATABASE_URL;
+  if (!currentDbUrl) {
+    if (env.NODE_ENV === 'production' || process.env.NODE_ENV === 'production') {
       throw new Error('DATABASE_URL_REQUERIDA: Configure PostgreSQL antes de iniciar el servidor.');
     }
     console.warn('⚠️ [Database] ADVERTENCIA: DATABASE_URL no configurada. Operando en modo DESARROLLO/TEST con almacén transaccional en memoria.');
@@ -29,7 +30,7 @@ export async function initializeDatabase(): Promise<void> {
     isConnected = true;
   } catch (error) {
     await candidate.end();
-    if (env.NODE_ENV === 'production') {
+    if (env.NODE_ENV === 'production' || process.env.NODE_ENV === 'production') {
       throw error;
     }
     console.warn(`⚠️ [Database] No se pudo conectar a PostgreSQL (${(error as Error).message}). Operando en modo DESARROLLO/TEST con almacén en memoria.`);

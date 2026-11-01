@@ -62,7 +62,7 @@ export const TrabajadoresView: React.FC = () => {
 
   const rmvActual = useMemo(() => {
     const rmvItem = parametrosLaborales.find((p: any) => p.codigoParametro === 'RMV');
-    return rmvItem ? Number(rmvItem.valorNumerico) : 1025;
+    return rmvItem ? Number(rmvItem.valorNumerico) : 1130;
   }, [parametrosLaborales]);
 
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -101,7 +101,7 @@ export const TrabajadoresView: React.FC = () => {
   // Campos de edición de parámetro laboral (Tarea 6)
   const [paramCodigo, setParamCodigo] = useState('RMV');
   const [paramDesc, setParamDesc] = useState('Remuneración Mínima Vital Vigente');
-  const [paramValor, setParamValor] = useState('1025');
+  const [paramValor, setParamValor] = useState('1130');
   const [paramTipo, setParamTipo] = useState('MONEDA');
   const [paramDesde, setParamDesde] = useState('2026-01-01');
   const [paramHasta, setParamHasta] = useState('');

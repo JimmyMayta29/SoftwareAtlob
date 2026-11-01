@@ -54,10 +54,34 @@ async function main() {
     const falso = jwt.sign({ sub: 'usr-contador-01' }, env.JWT_SECRET, { algorithm: 'HS256' });
     assert.equal((await request('/empresas', falso)).status, 401);
     assert.equal((await request('/empresas', contador.refreshToken)).status, 401);
+    // A2: Pruebas de integración HTTP contra servidor levantado
+    // 1. Header x-empresa-id falsificado con token de Empresa A intentando acceder a Empresa B
+    const resHeaderFalsificado = await fetch(`http://127.0.0.1:${port}/api/empresas/empresa-ajena/planillas`, {
+      headers: {
+        Authorization: `Bearer ${contador.accessToken}`,
+        'x-empresa-id': 'emp-01',
+        'X-Empresa-Id': 'emp-01',
+        'Content-Type': 'application/json'
+      }
+    });
+    assert.equal(resHeaderFalsificado.status, 403, 'Header x-empresa-id falsificado no debe eludir la seguridad y debe retornar 403');
+
+    // 2. Token de Empresa A pidiendo datos de Empresa B en rutas de planillas
+    assert.equal((await request('/empresas/empresa-ajena/planillas', contador.accessToken)).status, 403);
+    assert.equal((await request('/empresas/empresa-ajena/trabajadores', contador.accessToken)).status, 403);
+    assert.equal((await request('/empresas/empresa-ajena/gratificaciones', contador.accessToken)).status, 403);
+    assert.equal((await request('/empresas/empresa-ajena/cts', contador.accessToken)).status, 403);
+    assert.equal((await request('/empresas/empresa-ajena/liquidaciones', contador.accessToken)).status, 403);
+    assert.equal((await request('/empresas/empresa-ajena/tregistro', contador.accessToken)).status, 403);
+
+    // 3. Peticiones sin autenticación deben dar 401 sin filtrar datos
+    assert.equal((await request('/empresas/emp-01/planillas')).status, 401);
+    assert.equal((await request('/empresas/emp-01/trabajadores')).status, 401);
+
     const membresia = USUARIOS_EMPRESA_MEMORIA.find(m => m.usuarioId === 'usr-contador-01' && m.empresaId === 'emp-01')!;
     membresia.estado = 'REVOCADO';
     assert.equal((await request('/empresas/emp-01', contador.accessToken)).status, 403);
-    console.log('Acceso HTTP: identidad, rol, empresa, revocación y segregación verificados.');
+    console.log('Acceso HTTP: identidad, rol, empresa, header falsificado, revocación y segregación verificados.');
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
   }

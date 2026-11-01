@@ -430,7 +430,7 @@ export const importacionService = {
             cargo: fila.cargo || 'EMPLEADO',
             centroCosto: fila.centrocosto || 'ADMINISTRACION',
             regimenLaboral: 'GENERAL',
-            sueldoBase: parseFloat(fila.sueldobasico || '1025.00'),
+            sueldoBase: parseFloat(fila.sueldobasico || '0'),
             tieneAsignacionFamiliar: String(fila.asignacionfamiliar).toUpperCase() === 'SI',
             sistemaPensiones: (fila.regimenpensionario || 'ONP') as any,
             activo: true,

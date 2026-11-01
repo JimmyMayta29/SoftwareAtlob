@@ -304,8 +304,8 @@ async function ejecutarSuiteFase4() {
   // --------------------------------------------------------------------------
   console.log('\n🔹 Test 6: Planilla de Remuneraciones, Aportes y Contabilización');
   {
-    // Trabajador 1: Carlos Mendoza (S/ 3,500 + Asig Fam S/ 102.50 = S/ 3,602.50) con ONP (13%)
-    // ONP 13% = S/ 468.33, EsSalud 9% = S/ 324.23, Neto = S/ 3,134.17
+    // Trabajador 1: Carlos Mendoza (S/ 3,500 + Asig Fam S/ 113.00 = S/ 3,613.00) con ONP (13%)
+    // ONP 13% = S/ 469.69, EsSalud 9% = S/ 325.17, Neto = S/ 3,143.31
     // Trabajador 2: Mariana Vargas (S/ 2,800.00) con AFP Integra (Fondo 10% = 280, Com Flujo 1.55% = 43.40, Seguro 1.84% = 51.52)
     // Total Desc AFP = 374.92, EsSalud 9% = 252.00, Neto = S/ 2,425.08
 
@@ -313,10 +313,10 @@ async function ejecutarSuiteFase4() {
     assert(planilla.lineas.length === 2, 'Planilla procesó a los 2 colaboradores de prueba');
 
     const l1 = planilla.lineas.find(l => l.trabajadorId === 'trab-01')!;
-    assert(l1.asignacionFamiliar === 102.50, 'Asignación familiar calculada correctamente (10% de RMV = S/ 102.50)');
-    assert(l1.totalRemuneracion === 3602.50, 'Remuneración bruta con asignación familiar exacta (S/ 3,602.50)');
-    assert(l1.aporteObligatorioPension === 468.33, 'Aporte ONP 13% exacto (S/ 468.33)');
-    assert(l1.aporteEssalud === 324.23, 'Aporte patronal EsSalud 9% exacto (S/ 324.23)');
+    assert(l1.asignacionFamiliar === 113.00, 'Asignación familiar calculada correctamente (10% de RMV = S/ 113.00)');
+    assert(l1.totalRemuneracion === 3613.00, 'Remuneración bruta con asignación familiar exacta (S/ 3,613.00)');
+    assert(l1.aporteObligatorioPension === 469.69, 'Aporte ONP 13% exacto (S/ 469.69)');
+    assert(l1.aporteEssalud === 325.17, 'Aporte patronal EsSalud 9% exacto (S/ 325.17)');
 
     const l2 = planilla.lineas.find(l => l.trabajadorId === 'trab-02')!;
     assert(l2.asignacionFamiliar === 0.00, 'Trabajador sin asignación familiar registra S/ 0.00');

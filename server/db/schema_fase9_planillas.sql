@@ -188,3 +188,45 @@ CREATE POLICY rls_tregistro_movimientos_empresa ON tregistro_movimientos
     USING (empresa_id = NULLIF(current_setting('app.current_empresa_id', true), '')::uuid)
     WITH CHECK (empresa_id = NULLIF(current_setting('app.current_empresa_id', true), '')::uuid);
 
+-- 8. Bitácora de Auditoría por Empresa (Append-Only) y FORCE RLS en Asientos
+CREATE TABLE IF NOT EXISTS auditoria_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    empresa_id UUID REFERENCES empresas(id) ON DELETE CASCADE,
+    usuario_id UUID REFERENCES usuarios_estudio(id) ON DELETE SET NULL,
+    tabla VARCHAR(60) NOT NULL,
+    registro_id VARCHAR(64) NOT NULL,
+    accion VARCHAR(20) NOT NULL CHECK (accion IN ('INSERT', 'UPDATE', 'DELETE', 'ANULAR', 'CIERRE_PERIODO', 'LOGIN', 'CONSULTA')),
+    valores_anteriores JSONB,
+    valores_nuevos JSONB,
+    direccion_ip VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE auditoria_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auditoria_log FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_auditoria_log_empresa ON auditoria_log;
+CREATE POLICY rls_auditoria_log_empresa ON auditoria_log
+    USING (empresa_id = NULLIF(current_setting('app.current_empresa_id', true), '')::uuid)
+    WITH CHECK (empresa_id = NULLIF(current_setting('app.current_empresa_id', true), '')::uuid);
+
+ALTER TABLE asientos FORCE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION fn_auditoria_log_inmutable()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'AUDITORIA_INMUTABLE: La bitácora de auditoría es estrictamente append-only. Se prohíbe UPDATE, DELETE o TRUNCATE.';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_auditoria_log_inmutable_row ON auditoria_log;
+CREATE TRIGGER trg_auditoria_log_inmutable_row
+BEFORE UPDATE OR DELETE ON auditoria_log
+FOR EACH ROW EXECUTE FUNCTION fn_auditoria_log_inmutable();
+
+DROP TRIGGER IF EXISTS trg_auditoria_log_inmutable_stmt ON auditoria_log;
+CREATE TRIGGER trg_auditoria_log_inmutable_stmt
+BEFORE TRUNCATE ON auditoria_log
+FOR EACH STATEMENT EXECUTE FUNCTION fn_auditoria_log_inmutable();
+
+

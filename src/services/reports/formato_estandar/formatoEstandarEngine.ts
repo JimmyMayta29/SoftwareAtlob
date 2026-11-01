@@ -1,4 +1,4 @@
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { EmpresaCliente, Comprobante } from '../../../types';
 
@@ -1115,6 +1115,29 @@ export function exportarLoteBoletasPagoEstandarPdf(params: {
   });
   const nombreArchivo = `BOLETAS_PAGO_${params.empresa.ruc}_${params.periodo.replace('-', '')}_LOTE.pdf`;
   doc.save(nombreArchivo);
+}
+
+export function generarBoletaPagoPdfBuffer(params: {
+  empresa: { ruc: string; razonSocial: string; regimenTributario?: string };
+  periodo: string;
+  boleta: BoletaPagoPdfItem;
+}): Buffer {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  renderizarBoletaEnPagina(doc, params.empresa, params.periodo, params.boleta, 12);
+  return Buffer.from(doc.output('arraybuffer'));
+}
+
+export function generarLoteBoletasPagoPdfBuffer(params: {
+  empresa: { ruc: string; razonSocial: string; regimenTributario?: string };
+  periodo: string;
+  boletas: BoletaPagoPdfItem[];
+}): Buffer {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  params.boletas.forEach((b, idx) => {
+    if (idx > 0) doc.addPage();
+    renderizarBoletaEnPagina(doc, params.empresa, params.periodo, b, 12);
+  });
+  return Buffer.from(doc.output('arraybuffer'));
 }
 
 /**
