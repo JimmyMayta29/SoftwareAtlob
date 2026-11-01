@@ -72,7 +72,7 @@ export const empresaRepository = {
       return res.rows;
     }
 
-    if (env.NODE_ENV !== 'test' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
     const usuario = USUARIOS_ESTUDIO_MEMORIA.find(u => u.id === userId && u.isActive);
     if (!usuario) return [];
     const permitidas = USUARIOS_EMPRESA_MEMORIA.filter(m => m.usuarioId === userId && m.estado === 'ACTIVO').map(m => m.empresaId);
@@ -97,7 +97,7 @@ export const empresaRepository = {
       return res.rows[0] || null;
     }
 
-    if (env.NODE_ENV !== 'test' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
     return EMPRESAS_STORE.find(e => e.id === id) || null;
   },
 
@@ -187,7 +187,7 @@ export const empresaRepository = {
       }
     }
 
-    if (env.NODE_ENV !== 'test' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
     if (EMPRESAS_STORE.some(e => e.tenantId === empresaData.tenantId && e.ruc === empresaData.ruc)) {
       throw new Error('EMPRESA_DUPLICADA: El RUC ya existe en este estudio.');
     }

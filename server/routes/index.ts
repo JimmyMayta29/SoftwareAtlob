@@ -20,10 +20,11 @@ import { db } from '../config/database';
 const router = Router();
 
 router.get('/health', (req, res) => {
-  const disponible = db.isPostgresConnected();
+  const isPostgres = db.isPostgresConnected();
+  const disponible = isPostgres || (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test');
   res.status(disponible ? 200 : 503).json({
     status: disponible ? 'UP' : 'DOWN',
-    database: disponible ? 'POSTGRESQL_CONNECTED' : 'UNAVAILABLE',
+    database: isPostgres ? 'POSTGRESQL_CONNECTED' : (disponible ? 'IN_MEMORY_FALLBACK' : 'UNAVAILABLE'),
     environment: process.env.NODE_ENV || 'development',
     version: process.env.npm_package_version || '0.0.0',
     timestamp: new Date().toISOString()

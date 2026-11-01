@@ -100,7 +100,7 @@ export const setupService = {
       const count = parseInt(res.rows[0]?.count || '0', 10);
       return count > 0;
     }
-    if (env.NODE_ENV !== 'test' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
     return USUARIOS_ESTUDIO_MEMORIA.some(u => u.rolGlobal === 'ADMINISTRADOR');
   },
 
@@ -216,7 +216,7 @@ export const setupService = {
       }
     }
 
-    if (env.NODE_ENV !== 'test' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
+    if (env.NODE_ENV === 'production' || env.DATABASE_URL) throw new Error('DATABASE_NO_DISPONIBLE');
     if (USUARIOS_ESTUDIO_MEMORIA.some(u => u.rolGlobal === 'ADMINISTRADOR')) throw new Error('SISTEMA_YA_CONFIGURADO: El estudio ya cuenta con un usuario Administrador configurado.');
     USUARIOS_ESTUDIO_MEMORIA.push(nuevoAdmin);
     const estudioAnterior = ESTUDIO_CONFIGURADO;

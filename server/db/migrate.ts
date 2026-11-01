@@ -7,6 +7,9 @@ import { runCatalogosSeeds } from './seed_catalogos';
 export const MIGRATION_FILES = ['schema_a_preflight.sql', 'schema.sql', 'schema_fase2.sql', 'schema_fase3.sql', 'schema_fase4.sql', 'schema_fase5.sql', 'schema_fase6.sql', 'schema_fase7.sql', 'schema_a_compat.sql', 'triggers_fase2.sql'] as const;
 
 export async function runMigrations() {
+  if (!db.isPostgresConnected()) {
+    return;
+  }
   const client = await db.getClient();
   try {
     await client.query('BEGIN');

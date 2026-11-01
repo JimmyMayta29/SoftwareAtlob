@@ -14,7 +14,13 @@ let isConnected = false;
 
 export async function initializeDatabase(): Promise<void> {
   if (pool && isConnected) return;
-  if (!env.DATABASE_URL) throw new Error('DATABASE_URL_REQUERIDA: Configure PostgreSQL antes de iniciar el servidor.');
+  if (!env.DATABASE_URL) {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('DATABASE_URL_REQUERIDA: Configure PostgreSQL antes de iniciar el servidor.');
+    }
+    console.warn('⚠️ [Database] ADVERTENCIA: DATABASE_URL no configurada. Operando en modo DESARROLLO/TEST con almacén transaccional en memoria.');
+    return;
+  }
   const candidate = new Pool({ connectionString: env.DATABASE_URL, max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 });
   candidate.on('error', () => { isConnected = false; });
   try {
@@ -42,7 +48,7 @@ export function setPostgresPool(customPool: Pool | any, connected = true) {
 
 async function transaction<T>(empresaId: string, userId: string | undefined, action: (client: PoolClient) => Promise<T>): Promise<T> {
   if (!pool || !isConnected) {
-    if (env.NODE_ENV === 'test' && !env.DATABASE_URL) return action({} as PoolClient);
+    if (env.NODE_ENV !== 'production' && !env.DATABASE_URL) return action({} as PoolClient);
     throw new Error('DATABASE_NO_DISPONIBLE');
   }
   const client = await pool.connect();

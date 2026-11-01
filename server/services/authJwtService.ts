@@ -143,7 +143,7 @@ function consultarControl(sql: string, parametros: any[], client?: PoolClient) {
 }
 
 function exigirAlmacenDisponible() {
-  if (!db.isPostgresConnected() && (env.NODE_ENV !== 'test' || env.DATABASE_URL)) throw new Error('DATABASE_NO_DISPONIBLE');
+  if (!db.isPostgresConnected() && (env.NODE_ENV === 'production' || env.DATABASE_URL)) throw new Error('DATABASE_NO_DISPONIBLE');
 }
 
 export function normalizarRol(rol: string): RolEstudio {
