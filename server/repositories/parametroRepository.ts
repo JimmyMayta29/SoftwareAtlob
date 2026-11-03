@@ -79,8 +79,19 @@ export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
   // Parámetros AFP Comisión Flujo, Mixta y Seguros (Vigentes - SUPUESTO A VALIDAR trimestralmente en portal SBS)
   { id: 'prm-afp-ap-gen', codigoParametro: 'AFP_APORTE_OBLIGATORIO', descripcion: 'AFP Aporte Obligatorio al Fondo (10%)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
   { id: 'prm-afp-ps-gen', codigoParametro: 'AFP_PRIMA_SEGURO', descripcion: 'AFP Prima de Seguro Invalidez y Sobrevivencia (1.84% semilla editable)', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO SPP D.S. N° 054-97-EF Art. 30° / Licitación SISCO SBS (SUPUESTO A VALIDAR según SISCO vigente)' },
-  { id: 'prm-afp-tope-seg-2024-1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope Remuneración Máxima Asegurable Prima Seguro AFP SBS Ene-Jun 2024 (S/ 12,135.22)', valorNumerico: 12135.22, vigenteDesde: '2024-01-01', vigenteHasta: '2024-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-178-2023 / Compendio Normas SPP Art. 117°' },
-  { id: 'prm-afp-tope-seg-2024-2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope Remuneración Máxima Asegurable Prima Seguro AFP SBS Jul 2024 en adelante (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2024-07-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-180-2024 y AFP-181-2024 (Tope RMA S/ 12,410.00)' },
+  // Tope Remuneración Máxima Asegurable (RMA) para cálculo de prima de seguro AFP - Serie Trimestral SBS (Art. 117° Compendio SPP)
+  { id: 'prm-afp-tope-seg-2024-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2024 (S/ 12,135.22)', valorNumerico: 12135.22, vigenteDesde: '2024-01-01', vigenteHasta: '2024-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-178-2023 (El Peruano, Dic 2023)' },
+  { id: 'prm-afp-tope-seg-2024-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2024 (S/ 12,324.96)', valorNumerico: 12324.96, vigenteDesde: '2024-04-01', vigenteHasta: '2024-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-179-2024 (El Peruano, Mar 2024)' },
+  { id: 'prm-afp-tope-seg-2024-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2024 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2024-07-01', vigenteHasta: '2024-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-180-2024 (El Peruano, Jun 2024)' },
+  { id: 'prm-afp-tope-seg-2024-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2024 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2024-10-01', vigenteHasta: '2024-12-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-181-2024 (El Peruano, Set 2024)' },
+  { id: 'prm-afp-tope-seg-2025-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-01-01', vigenteHasta: '2025-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-181-2024 proyectada (SUPUESTO A VALIDAR según publicación trimestral SBS)' },
+  { id: 'prm-afp-tope-seg-2025-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-04-01', vigenteHasta: '2025-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2025-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-07-01', vigenteHasta: '2025-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2025-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-10-01', vigenteHasta: '2025-12-31', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2026-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-01-01', vigenteHasta: '2026-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2026-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-04-01', vigenteHasta: '2026-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2026-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-07-01', vigenteHasta: '2026-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-tope-seg-2026-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-10-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
   { id: 'prm-afp-int-ap', codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
   { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
   { id: 'prm-afp-int-cm', codigoParametro: 'AFP_INTEGRA_COMISION_MIXTA', descripcion: 'AFP Integra - Comisión mixta sobre flujo', valorNumerico: 0.0015, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
@@ -193,6 +204,37 @@ export const parametroRepository = {
     if (especifico) return Number(especifico.valorNumerico);
     const actual = await this.obtenerParametroPorCodigo('VALOR_UIT_2026', `${anio}-06-01`);
     return actual ? Number(actual.valorNumerico) : 5500.00;
+  },
+
+  async obtenerRmvPorPeriodo(periodo: string): Promise<number> {
+    const param = await this.obtenerParametroPorCodigo('RMV', `${periodo}-15`);
+    return param ? Number(param.valorNumerico) : 1130.00;
+  },
+
+  async obtenerValidacionParametrosPlanilla(periodo: string): Promise<{
+    rmv: number;
+    topeRmaSeguro: number;
+    advertencias: string[];
+  }> {
+    const advertencias: string[] = [];
+    const fechaRef = `${periodo}-15`;
+    const paramRmv = await this.obtenerParametroPorCodigo('RMV', fechaRef);
+    const rmv = paramRmv ? paramRmv.valorNumerico : 1130.00;
+    if (rmv >= 1300) {
+      advertencias.push(
+        'ADVERTENCIA: La RMV de S/ 1,300.00 corresponde al segundo tramo del D.S. N° 015-2026-TR [SUPUESTO A VALIDAR: fecha exacta de entrada en vigencia sujeta a ratificación en El Peruano].'
+      );
+    }
+
+    const paramTope = await this.obtenerParametroPorCodigo('TOPE_PRIMA_SEGURO_AFP', fechaRef);
+    const topeRmaSeguro = paramTope ? paramTope.valorNumerico : 12410.00;
+    if (paramTope && paramTope.normaRespaldo && paramTope.normaRespaldo.includes('SUPUESTO A VALIDAR')) {
+      advertencias.push(
+        `ADVERTENCIA PREVISIONAL: El tope de prima seguro AFP (S/ ${topeRmaSeguro.toFixed(2)}) para el período ${periodo} no cuenta con Circular SBS definitiva publicada. Se utilizó el valor proyectado (Circular SBS N° AFP-181-2024) [SUPUESTO A VALIDAR: requiere verificación trimestral en portal SBS].`
+      );
+    }
+
+    return { rmv, topeRmaSeguro, advertencias };
   },
 
   async guardarOActualizarParametro(

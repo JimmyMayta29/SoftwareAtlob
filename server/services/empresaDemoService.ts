@@ -8,6 +8,7 @@ import { CUENTAS_FINANCIERAS_MEMORIA, MOVIMIENTOS_TESORERIA_MEMORIA, CuentaFinan
 import { TRABAJADORES_MEMORIA, PLANILLAS_MEMORIA, TrabajadorModel, PlanillaResumenModel } from './planillaService';
 import { PERIODOS_MEMORIA, PeriodoModel, periodoService } from './periodoService';
 import { CATALOGO_PCGE_BASE } from '../data/catalogos/pcgeCatalogo';
+import { parametroRepository } from '../repositories/parametroRepository';
 import { Money } from '../utils/decimal';
 
 export const EMPRESA_DEMO_ID = 'emp-demo-sac';
@@ -418,7 +419,11 @@ export const empresaDemoService = {
     for (let m = 0; m < periodos.length; m++) {
       const per = periodos[m];
       const asientoId = `ast-demo-pln-${per}`;
-      const totalBruto = 3500.00 + 102.50 + 2200.00 + 1800.00; // 7,602.50
+      const paramAsigFam = await parametroRepository.obtenerParametroPorCodigo('TASA_ASIGNACION_FAMILIAR', `${per}-15`);
+      const tasaAf = paramAsigFam ? paramAsigFam.valorNumerico : 0.10;
+      const rmvPer = await parametroRepository.obtenerRmvPorPeriodo(per);
+      const afDemo = Money.toNumber(Money.round(Money.create(rmvPer).times(tasaAf)));
+      const totalBruto = Money.toNumber(Money.add(3500.00, Money.add(afDemo, Money.add(2200.00, 1800.00))));
       const essalud = Money.toNumber(Money.multiply(totalBruto, 0.09)); // 684.23
       const onp = Money.toNumber(Money.multiply(2200.00, 0.13)); // 286.00
       const afpTotal = 469.73 + 240.48; // Aportes AFP Integra + Prima

@@ -2,10 +2,13 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 
 dotenv.config({ quiet: true });
-
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.preprocess((val) => {
+    // Si la plataforma expone nginx en el puerto 8080, el servidor Node debe escuchar en 3000
+    if (val === '8080' || val === 8080) return 3000;
+    return val;
+  }, z.coerce.number().default(3000)),
   DATABASE_URL: z.string().optional().default(''),
   JWT_SECRET: z.string().min(32).default('development-only-access-secret-change-before-deploy'),
   JWT_REFRESH_SECRET: z.string().min(32).default('development-only-refresh-secret-change-before-deploy'),

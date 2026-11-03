@@ -154,6 +154,7 @@ export interface PlanillaModel {
   asientoId?: string;
   asientoPagoId?: string;
   version: number;
+  advertencias?: string[];
   lineas: PlanillaLineaModel[];
 }
 
@@ -1086,8 +1087,9 @@ export const planillaService = {
       throw new Error('PLANILLA_CONTABILIZADA: No se puede recalcular una planilla ya contabilizada. Debe anular el asiento contable primero.');
     }
 
-    // 3. Obtener Parámetros Tributarios y Laborales vigentes para el PERÍODO de la planilla
+    // 3. Obtener Parámetros Tributarios y Laborales vigentes para el PERÍODO de la planilla con validación de advertencias
     const fechaRef = `${mes}-28`;
+    const valParams = await parametroRepository.obtenerValidacionParametrosPlanilla(mes);
     const paramRmv = (await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))
       || (await parametroRepository.obtenerParametroPorCodigo('RMV_2026', fechaRef));
     const paramEssalud = await parametroRepository.obtenerParametroPorCodigo('TASA_ESSALUD', fechaRef);
@@ -1097,13 +1099,13 @@ export const planillaService = {
     const paramHe35 = await parametroRepository.obtenerParametroPorCodigo('TASA_HORA_EXTRA_35', fechaRef);
     const paramTopeSeguro = await parametroRepository.obtenerParametroPorCodigo('TOPE_PRIMA_SEGURO_AFP', fechaRef);
 
-    const rmvMonto = paramRmv ? paramRmv.valorNumerico : ((await parametroRepository.obtenerParametroPorCodigo('RMV', fechaRef))?.valorNumerico || 0);
+    const rmvMonto = paramRmv ? paramRmv.valorNumerico : valParams.rmv;
     const tasaEssalud = paramEssalud ? paramEssalud.valorNumerico : 0.09;
     const tasaOnp = paramOnp ? paramOnp.valorNumerico : 0.13;
     const tasaAsigFam = paramAsigFam ? paramAsigFam.valorNumerico : 0.10;
     const sobretasaHe25 = paramHe25 ? paramHe25.valorNumerico : 0.25;
     const sobretasaHe35 = paramHe35 ? paramHe35.valorNumerico : 0.35;
-    const topePrimaSeguro = paramTopeSeguro ? paramTopeSeguro.valorNumerico : 12135.22;
+    const topePrimaSeguro = paramTopeSeguro ? paramTopeSeguro.valorNumerico : valParams.topeRmaSeguro;
     // Asignación Familiar (Ley N° 25129 Art. 1° y 2° / D.S. N° 035-90-TR Art. 3°):
     // 10% de la RMV vigente en el período, pago único por trabajador con derecho, independiente del número de hijos.
     const montoAsignacionFamiliarFijo = Money.toNumber(Money.round(Money.create(rmvMonto).times(tasaAsigFam)));
@@ -1325,6 +1327,7 @@ export const planillaService = {
       totalNeto: Money.toNumber(totNeto),
       estado: 'CALCULADA',
       version: (planillaExistente?.version || 0) + 1,
+      advertencias: valParams.advertencias,
       lineas
     };
 
@@ -1875,9 +1878,25 @@ export const planillaService = {
         trab.regimenLaboral === 'GENERAL' ? 1.0 :
         trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
 
-      // 1/6 de la última gratificación percibida (Diciembre para CTS Mayo, Julio para CTS Noviembre)
+      // 1/6 de la gratificación percibida en el semestre anterior (Art. 18° TUO D.Leg. 650)
+      // Para CTS Mayo corresponde Diciembre anterior; para CTS Noviembre corresponde Julio del mismo año
       const baseOrdinaria = Money.add(sueldoComp, asigFam);
-      const sextoGratificacion = Money.round(baseOrdinaria.times(factorRegimen).dividedBy(6));
+      let sextoGratificacion = Money.create(0);
+      let tieneHistorialGratif = false;
+      const periodoGratAnterior = semestre === 'MAYO' ? `${anio - 1}-12` : `${anio}-07`;
+      const gratPrevia = GRATIFICACIONES_MEMORIA.find(
+        g => g.empresaId === empresaId && g.trabajadorId === trab.id && g.periodo === periodoGratAnterior
+      );
+
+      if (gratPrevia && gratPrevia.gratificacionOrdinaria > 0) {
+        sextoGratificacion = Money.round(Money.create(gratPrevia.gratificacionOrdinaria).dividedBy(6));
+        tieneHistorialGratif = true;
+      } else if ((trab as any).gratificacionSemestreAnterior) {
+        sextoGratificacion = Money.round(Money.create((trab as any).gratificacionSemestreAnterior).dividedBy(6));
+        tieneHistorialGratif = true;
+      } else {
+        sextoGratificacion = Money.round(baseOrdinaria.times(factorRegimen).dividedBy(6));
+      }
       const remComputable = Money.add(baseOrdinaria, Money.add(promedioVariables, sextoGratificacion));
 
       // CTS = (Remuneración Computable * factorRegimen) * (meses / 12 + dias / 360)

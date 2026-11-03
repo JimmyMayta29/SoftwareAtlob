@@ -502,15 +502,70 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
   }
 }
 
+function sanitizarUrlDb(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.password) parsed.password = '******';
+    return parsed.toString();
+  } catch {
+    return urlStr.replace(/:[^:@/]+@/, ':******@');
+  }
+}
+
+function obtenerNombreBaseDatos(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.pathname.replace(/^\//, '');
+  } catch {
+    const match = urlStr.match(/\/([^/?#]+)(?:[?#]|$)/);
+    return match ? match[1] : '';
+  }
+}
+
 async function main() {
+  // 1. Cargar .env.test si existe en la raíz del proyecto
+  const envTestPath = path.resolve(process.cwd(), '.env.test');
+  if (fs.existsSync(envTestPath)) {
+    const envContent = fs.readFileSync(envTestPath, 'utf8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+
   const testDbUrl = process.env.TEST_DATABASE_URL;
   if (!testDbUrl) {
     console.error('❌ ERROR FATAL: TEST_DATABASE_URL es requerido para ejecutar test:pg.');
     console.error('   Esta prueba de comportamiento requiere una instancia PostgreSQL 15+ real.');
-    console.error('   Configure TEST_DATABASE_URL=postgres://usuario:clave@host:puerto/bd_test');
+    console.error('   Configure TEST_DATABASE_URL en su terminal o en un archivo .env.test (excluido de git).');
+    console.error('   Ejemplo Linux / Mac:');
+    console.error('     export TEST_DATABASE_URL="postgres://usuario:clave@localhost:5432/atlob_test"');
+    console.error('   Ejemplo Windows PowerShell:');
+    console.error('     $env:TEST_DATABASE_URL="postgres://usuario:clave@localhost:5432/atlob_test"; npm run test:pg');
     console.error('   O levante el entorno con: docker compose -f docker-compose.test.yml up -d');
     process.exit(1);
   }
+
+  // 2. Comprobación estricta de seguridad: el nombre de la BD DEBE terminar en "_test"
+  const dbName = obtenerNombreBaseDatos(testDbUrl);
+  if (!dbName.endsWith('_test')) {
+    console.error(`❌ RECHAZO DE SEGURIDAD: La base de datos "${dbName}" en TEST_DATABASE_URL no termina en "_test".`);
+    console.error('   Para prevenir la alteración o borrado accidental de bases de datos de trabajo o producción,');
+    console.error('   el script solo se ejecutará contra bases con sufijo "_test" (ej. "atlob_test" o "empresa_demo_test").');
+    console.error(`   URL sanitizada provista: ${sanitizarUrlDb(testDbUrl)}`);
+    process.exit(1);
+  }
+
+  console.log(`🔒 Validación de seguridad superada: Base de datos de prueba identificada como "${dbName}".`);
+  console.log(`   Destino sanitizado: ${sanitizarUrlDb(testDbUrl)}\n`);
 
   await ejecutarPruebaComportamientoPostgresReal(testDbUrl);
 }
