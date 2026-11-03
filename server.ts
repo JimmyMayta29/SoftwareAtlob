@@ -37,8 +37,9 @@ async function startServer() {
   }
 
   const port = env.PORT || 3000;
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 [Server] Atlob Consultores ERP corriendo en http://0.0.0.0:${port}`);
+  const host = process.env.HOST || '0.0.0.0';
+  app.listen(port, host, () => {
+    console.log(`🚀 [Server] Sistema disponible en http://${host}:${port}`);
   });
 }
 
