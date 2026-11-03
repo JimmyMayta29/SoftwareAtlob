@@ -50,16 +50,17 @@ export async function runTestProduccionSinDb() {
 
     // C) Probar ejecución real de server.ts en subproceso con NODE_ENV=production
     console.log('  Ejecutando proceso server.ts con NODE_ENV=production...');
-    const serverPath = path.resolve(process.cwd(), 'server.ts');
     const childExitCode = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', serverPath], {
+      const child = spawn('npx', ['tsx', 'server.ts'], {
+        cwd: process.cwd(),
         env: {
           ...process.env,
           NODE_ENV: 'production',
           DATABASE_URL: '',
           PORT: '3999'
         },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true
       });
 
       let stdout = '';

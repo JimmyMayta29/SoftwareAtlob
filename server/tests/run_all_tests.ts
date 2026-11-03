@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 
 // Las suites de fixtures nunca deben conectarse a una base configurada por el usuario.
 process.env.NODE_ENV = 'test';
-delete process.env.DATABASE_URL;
+process.env.DATABASE_URL = '';
 
 const suites = [
   { name: 'Sesión del cliente y renovación concurrente', path: 'src/api/session.test.ts' },
@@ -42,7 +42,10 @@ for (const suite of suites) {
   const start = Date.now();
   console.log(`▶ Ejecutando ${suite.name} (${suite.path})...`);
   try {
-    execSync(`npx tsx ${suite.path}`, { stdio: 'inherit' });
+    execSync(`npx tsx ${suite.path}`, {
+      stdio: 'inherit',
+      env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: '' }
+    });
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
     console.log(`✅ [${suite.name}] completado en ${elapsed}s\n`);
     totalPassed++;
@@ -54,5 +57,5 @@ for (const suite of suites) {
 
 const totalTime = ((Date.now() - startTotal) / 1000).toFixed(2);
 console.log('========================================================================');
-console.log(`RESULTADO FINAL: ${totalPassed}/${totalSuites} suites aprobadas (${totalSuites - totalPassed} fallidas) en ${totalTime}s`);
-console.log('========================================================================\n');
+console.log(`🎉 RESUMEN FINAL: ${totalPassed}/${totalSuites} suites completadas con éxito en ${totalTime}s.`);
+console.log('========================================================================');
