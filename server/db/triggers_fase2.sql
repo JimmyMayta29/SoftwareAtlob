@@ -16,7 +16,7 @@ BEGIN
         RAISE EXCEPTION 'PERIODO_CERRADO: No se pueden realizar operaciones en un período contable cerrado.';
     END IF;
 
-    RETURN NEW;
+    RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql;
 

@@ -322,7 +322,7 @@ async function ejecutarSuiteFase4() {
     assert(l2.asignacionFamiliar === 0.00, 'Trabajador sin asignación familiar registra S/ 0.00');
     assert(l2.aporteObligatorioPension === 280.00, 'Fondo AFP 10% exacto (S/ 280.00)');
     assert(l2.comisionAfp === 43.40, 'Comisión AFP Integra sobre flujo exacta (1.55% = S/ 43.40)');
-    assert(l2.primaSeguroAfp === 51.52, 'Prima de seguro AFP exacta (1.84% = S/ 51.52)');
+    assert(l2.primaSeguroAfp === 38.36, 'Prima de seguro AFP exacta (1.37% = S/ 38.36)');
 
     // Contabilizar planilla
     const contRes = await planillaService.contabilizarPlanilla(EMPRESA_A, planilla.id, USER_ID);

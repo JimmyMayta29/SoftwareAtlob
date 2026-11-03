@@ -30,6 +30,9 @@ const PARAMETROS_INICIALES: ParametroTributarioItem[] = [
   { id: 'p-1', codigoParametro: 'VALOR_UIT_2026', descripcion: 'Valor de la UIT Ejercicio 2026 (D.S. N° 301-2025-EF)', valorNumerico: 5500.0, tipoDato: 'MONEDA', vigenteDesde: '2026-01-01', vigenteHasta: '2026-12-31' },
   { id: 'p-2', codigoParametro: 'VALOR_UIT_2025', descripcion: 'Valor de la UIT Ejercicio 2025 (D.S. N° 260-2024-EF)', valorNumerico: 5350.0, tipoDato: 'MONEDA', vigenteDesde: '2025-01-01', vigenteHasta: '2025-12-31' },
   { id: 'p-3', codigoParametro: 'VALOR_UIT_2024', descripcion: 'Valor de la UIT Ejercicio 2024 (D.S. N° 309-2023-EF)', valorNumerico: 5150.0, tipoDato: 'MONEDA', vigenteDesde: '2024-01-01', vigenteHasta: '2024-12-31' },
+  { id: 'p-rmv-1', codigoParametro: 'RMV_2025_2026_T1', descripcion: 'Remuneración Mínima Vital hasta Sep-2026 (D.S. N° 006-2024-TR)', valorNumerico: 1130.0, tipoDato: 'MONEDA', vigenteDesde: '2025-01-01', vigenteHasta: '2026-09-30' },
+  { id: 'p-rmv-2', codigoParametro: 'RMV_2026_OCT', descripcion: 'Remuneración Mínima Vital desde Oct-2026 (D.S. N° 015-2026-TR Tramo 1)', valorNumerico: 1230.0, tipoDato: 'MONEDA', vigenteDesde: '2026-10-01', vigenteHasta: '2026-12-31' },
+  { id: 'p-rmv-3', codigoParametro: 'RMV_SEGUNDO_TRAMO_PENDIENTE', descripcion: 'RMV segundo tramo (+70, hasta 1,300) pendiente de decreto con fecha de vigencia', valorNumerico: 1300.0, tipoDato: 'MONEDA', vigenteDesde: '9999-12-31', vigenteHasta: null },
   { id: 'p-4', codigoParametro: 'TASA_IGV', descripcion: 'Tasa Total IGV + IPM (16% + 2%)', valorNumerico: 0.18, tipoDato: 'PORCENTAJE', vigenteDesde: '2011-03-01', vigenteHasta: null },
   { id: 'p-5', codigoParametro: 'TASA_RENTA_MYPE_T1', descripcion: 'Pago a Cuenta Mensual RMT (Ingresos <= 300 UIT)', valorNumerico: 0.01, tipoDato: 'PORCENTAJE', vigenteDesde: '2017-01-01', vigenteHasta: null },
   { id: 'p-6', codigoParametro: 'TASA_RENTA_RG_MIN', descripcion: 'Pago a Cuenta Mínimo Régimen General / RMT > 300 UIT (Art. 85° LIR)', valorNumerico: 0.015, tipoDato: 'PORCENTAJE', vigenteDesde: '2015-01-01', vigenteHasta: null },
@@ -205,6 +208,13 @@ export const ParametrosTributariosView: React.FC = () => {
           </div>
         }
       />
+
+      <div className="bg-[#FEF3C7] border-b border-[#FCD34D] px-3 py-1.5 flex items-center justify-between text-[11px] text-[#92400E]">
+        <div className="flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wider bg-[#F59E0B] text-white px-1.5 py-0.5 text-[10px]">Aviso Normativo</span>
+          <span><strong>RMV segundo tramo pendiente de decreto:</strong> El incremento a S/ 1,300.00 no tiene fecha de vigencia publicada y se mantiene inactivo. La RMV vigente es S/ 1,230.00 (desde 01/10/2026, D.S. 015-2026-TR).</span>
+        </div>
+      </div>
 
       <div className="flex-1 p-3 overflow-hidden flex flex-col">
         {!mostrarAuditoria ? (

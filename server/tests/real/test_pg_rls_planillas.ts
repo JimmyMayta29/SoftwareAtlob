@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Pool, PoolClient } from 'pg';
@@ -86,39 +87,51 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const usrAdmin = '00000000-0000-0000-0000-000000000001';
 
     await ownerClient.query(`
-      INSERT INTO tenants (id, nombre, ruc) VALUES ($1, 'TENANT TEST', '20100000001')
-      ON CONFLICT (id) DO NOTHING;
+      INSERT INTO tenants (id, nombre, subdominio) VALUES ($1, 'TENANT TEST', 'tenant-test')
+      ON CONFLICT (id) DO NOTHING
+    `, [tenantId]);
 
+    await ownerClient.query(`
       INSERT INTO usuarios_estudio (id, email, nombre, password_hash, rol_global)
       VALUES ($1, 'admin@test.pe', 'ADMIN TEST', '$2a$10$abcdefghijklmnopqrstuv', 'ADMINISTRADOR')
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (id) DO NOTHING
+    `, [usrAdmin]);
 
+    await ownerClient.query(`
       INSERT INTO empresas (id, tenant_id, codigo_empresa, ruc, razon_social, regimen_tributario, domicilio_fiscal, moneda_principal)
       VALUES
         ($2, $1, 'EMPA', '20600000011', 'EMPRESA A SAC', 'REGIMEN_GENERAL', 'AV A 123', 'PEN'),
         ($3, $1, 'EMPB', '20600000022', 'EMPRESA B SAC', 'REGIMEN_GENERAL', 'AV B 456', 'PEN')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO ejercicios (id, empresa_id, anio, estado) VALUES
-        ('00000000-0000-0000-0000-0000000000e1', $2, 2026, 'ABIERTO'),
-        ('00000000-0000-0000-0000-0000000000e2', $3, 2026, 'ABIERTO')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO periodos (id, empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado) VALUES
-        ('00000000-0000-0000-0000-0000000000p1', $2, '00000000-0000-0000-0000-0000000000e1', 2026, 9, '2026-09', 'ABIERTO'),
-        ('00000000-0000-0000-0000-0000000000p2', $3, '00000000-0000-0000-0000-0000000000e2', 2026, 9, '2026-09', 'ABIERTO')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO subdiarios (id, empresa_id, codigo, descripcion, tipo) VALUES
-        ('00000000-0000-0000-0000-0000000000s1', $2, '01', 'OPERACIONES MANUALES', 'APERTURA'),
-        ('00000000-0000-0000-0000-0000000000s2', $3, '01', 'OPERACIONES MANUALES', 'APERTURA')
-      ON CONFLICT (id) DO NOTHING;
-
-      INSERT INTO plan_cuentas (id, empresa_id, codigo, descripcion, nivel, tipo_cuenta, permite_movimiento) VALUES
-        ('00000000-0000-0000-0000-0000000000c1', $2, '1011', 'Caja M/N', 4, 'ACTIVO', TRUE),
-        ('00000000-0000-0000-0000-0000000000c2', $2, '70111', 'Ventas M/N', 5, 'INGRESO', TRUE)
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (id) DO NOTHING
     `, [tenantId, empA, empB]);
+
+    await ownerClient.query(`
+      INSERT INTO ejercicios (id, empresa_id, anio, estado) VALUES
+        ('00000000-0000-0000-0000-0000000000e1', $1, 2026, 'ABIERTO'),
+        ('00000000-0000-0000-0000-0000000000e2', $2, 2026, 'ABIERTO')
+      ON CONFLICT (id) DO NOTHING
+    `, [empA, empB]);
+
+    await ownerClient.query(`
+      INSERT INTO periodos (id, empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado) VALUES
+        ('00000000-0000-0000-0000-000000000011', $1, '00000000-0000-0000-0000-0000000000e1', 2026, 9, '2026-09', 'ABIERTO'),
+        ('00000000-0000-0000-0000-000000000012', $2, '00000000-0000-0000-0000-0000000000e2', 2026, 9, '2026-09', 'ABIERTO')
+      ON CONFLICT (id) DO NOTHING
+    `, [empA, empB]);
+
+    await ownerClient.query(`
+      INSERT INTO subdiarios (id, empresa_id, codigo, descripcion, tipo) VALUES
+        ('00000000-0000-0000-0000-000000000021', $1, '01', 'OPERACIONES MANUALES', 'APERTURA'),
+        ('00000000-0000-0000-0000-000000000022', $2, '01', 'OPERACIONES MANUALES', 'APERTURA')
+      ON CONFLICT (id) DO NOTHING
+    `, [empA, empB]);
+
+    await ownerClient.query(`
+      INSERT INTO plan_cuentas (id, empresa_id, codigo, nombre, nivel, tipo_cuenta, permite_movimiento) VALUES
+        ('00000000-0000-0000-0000-0000000000c1', $1, '1011', 'Caja M/N', 4, 'ACTIVO', TRUE),
+        ('00000000-0000-0000-0000-0000000000c2', $1, '70111', 'Ventas M/N', 5, 'INGRESO', TRUE)
+      ON CONFLICT (id) DO NOTHING
+    `, [empA]);
 
     // 5. Demostración de Aislamiento de Comportamiento RLS con rol app_user (NOBYPASSRLS)
     console.log('5. Demostrando aislamiento de comportamiento RLS con rol app_user (NOBYPASSRLS)...');
@@ -145,15 +158,15 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       // Insertar trabajador para Empresa A
       const trabAId = '00000000-0000-0000-0000-000000000101';
       await appClient.query(`
-        INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, regimen_laboral, sueldo_base, sistema_pensiones)
-        VALUES ($1, $2, '01', '41223344', 'TRABAJADOR A', 'APELLIDO A', '2026-01-01', 'GENERAL', 3200.00, 'ONP')
+        INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, cargo, regimen_laboral, sueldo_base, sistema_pensiones)
+        VALUES ($1, $2, '01', '41223344', 'TRABAJADOR A', 'APELLIDO A', '2026-01-01', 'CONTADOR', 'GENERAL', 3200.00, 'ONP')
       `, [trabAId, empA]);
 
       // Insertar planillas para Empresa A
       const planAId = '00000000-0000-0000-0000-000000000201';
       await appClient.query(`
         INSERT INTO planillas (id, empresa_id, periodo_id, mes, fecha_calculo, total_ingresos, total_descuentos, total_aportes_empleador, total_neto, estado)
-        VALUES ($1, $2, 'per-2026-09', '2026-09', '2026-09-30', 3200, 416, 288, 2784, 'CALCULADA')
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '2026-09', '2026-09-30', 3200, 416, 288, 2784, 'CALCULADA')
       `, [planAId, empA]);
 
       // Insertar gratificación para Empresa A
@@ -188,15 +201,15 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       const asientoAId = '00000000-0000-0000-0000-000000000701';
       await appClient.query(`
         INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, fecha, glosa, moneda, estado)
-        VALUES ($1, $2, '00000000-0000-0000-0000-0000000000p1', '00000000-0000-0000-0000-0000000000s1', '2026-09-15', 'Asiento Empresa A', 'PEN', 'BORRADOR')
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '2026-09-15', 'Asiento Empresa A', 'PEN', 'BORRADOR')
       `, [asientoAId, empA]);
 
       // Insertar Auditoría para Empresa A
       const audAId = '00000000-0000-0000-0000-000000000801';
       await appClient.query(`
-        INSERT INTO auditoria_log (id, empresa_id, tabla, registro_id, accion)
-        VALUES ($1, $2, 'trabajadores', $3, 'INSERT')
-      `, [audAId, empA, trabAId]);
+        INSERT INTO auditoria_log (id, empresa_id, usuario_id, tabla_afectada, registro_id, accion, hash_previo, hash_actual)
+        VALUES ($1, $2, $3, 'trabajadores', $4, 'INSERT', '000000', '111111')
+      `, [audAId, empA, usrAdmin, trabAId]);
 
       // C) Intentar INSERT con empresa_id de Empresa B estando en contexto de A -> debe ser rechazado
       console.log('   c) Intentando INSERT con empresa_id de Empresa B estando en contexto de A (debe fallar)...');
@@ -206,24 +219,24 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
         try {
           if (tabla === 'trabajadores') {
             await appClient.query(`
-              INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, regimen_laboral, sueldo_base, sistema_pensiones)
-              VALUES ('00000000-0000-0000-0000-000000000102', $1, '01', '49887766', 'INTRUSO', 'B', '2026-01-01', 'GENERAL', 2500, 'ONP')
+              INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, cargo, regimen_laboral, sueldo_base, sistema_pensiones)
+              VALUES ('00000000-0000-0000-0000-000000000102', $1, '01', '49887766', 'INTRUSO', 'B', '2026-01-01', 'CONTADOR', 'GENERAL', 2500, 'ONP')
             `, [empB]);
           } else if (tabla === 'planillas') {
             await appClient.query(`
               INSERT INTO planillas (id, empresa_id, periodo_id, mes, fecha_calculo, total_ingresos, total_descuentos, total_aportes_empleador, total_neto, estado)
-              VALUES ('00000000-0000-0000-0000-000000000202', $1, 'per-2026-09', '2026-09', '2026-09-30', 2500, 300, 225, 2200, 'CALCULADA')
+              VALUES ('00000000-0000-0000-0000-000000000202', $1, '00000000-0000-0000-0000-000000000011', '2026-09', '2026-09-30', 2500, 300, 225, 2200, 'CALCULADA')
             `, [empB]);
           } else if (tabla === 'asientos') {
             await appClient.query(`
               INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, fecha, glosa, moneda, estado)
-              VALUES ('00000000-0000-0000-0000-000000000702', $1, '00000000-0000-0000-0000-0000000000p2', '00000000-0000-0000-0000-0000000000s2', '2026-09-15', 'Asiento intruso', 'PEN', 'BORRADOR')
+              VALUES ('00000000-0000-0000-0000-000000000702', $1, '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000022', '2026-09-15', 'Asiento intruso', 'PEN', 'BORRADOR')
             `, [empB]);
           } else if (tabla === 'auditoria_log') {
             await appClient.query(`
-              INSERT INTO auditoria_log (id, empresa_id, tabla, registro_id, accion)
-              VALUES ('00000000-0000-0000-0000-000000000802', $1, 'trabajadores', 'reg-02', 'INSERT')
-            `, [empB]);
+              INSERT INTO auditoria_log (id, empresa_id, usuario_id, tabla_afectada, registro_id, accion, hash_previo, hash_actual)
+              VALUES ('00000000-0000-0000-0000-000000000802', $1, $2, 'trabajadores', 'reg-02', 'INSERT', '000000', '222222')
+            `, [empB, usrAdmin]);
           } else {
             // Tablas dependientes de trabajador
             await appClient.query(`
@@ -312,15 +325,15 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
 
       const logId = '00000000-0000-0000-0000-000000000999';
       await audTestClient.query(`
-        INSERT INTO auditoria_log (id, empresa_id, tabla, registro_id, accion)
-        VALUES ($1, $2, 'test_inmutable', 'reg-01', 'INSERT')
-      `, [logId, empA]);
+        INSERT INTO auditoria_log (id, empresa_id, usuario_id, tabla_afectada, registro_id, accion, hash_previo, hash_actual)
+        VALUES ($1, $2, $3, 'test_inmutable', 'reg-01', 'INSERT', '000000', '333333')
+      `, [logId, empA, usrAdmin]);
 
       // Intento 1: UPDATE
       let falloUpdateAud = false;
       await audTestClient.query('SAVEPOINT sp_aud_upd');
       try {
-        await audTestClient.query(`UPDATE auditoria_log SET tabla = 'HACKEADO' WHERE id = $1`, [logId]);
+        await audTestClient.query(`UPDATE auditoria_log SET tabla_afectada = 'HACKEADO' WHERE id = $1`, [logId]);
       } catch (e: any) {
         falloUpdateAud = true;
         assert.match(e.message, /AUDITORIA_INMUTABLE/, 'Error debe mencionar AUDITORIA_INMUTABLE');
@@ -368,7 +381,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       const asientoSelloId = '00000000-0000-0000-0000-000000000888';
       await inmutClient.query(`
         INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, numero, fecha, glosa, moneda, estado)
-        VALUES ($1, $2, '00000000-0000-0000-0000-0000000000p1', '00000000-0000-0000-0000-0000000000s1', '01090001', '2026-09-15', 'Asiento Contabilizado Inmutable', 'PEN', 'CONTABILIZADO')
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '01090001', '2026-09-15', 'Asiento Contabilizado Inmutable', 'PEN', 'BORRADOR')
       `, [asientoSelloId, empA]);
 
       await inmutClient.query(`
@@ -378,6 +391,10 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
           ('00000000-0000-0000-0000-000000000882', $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 1500)
       `, [asientoSelloId, empA]);
 
+      await inmutClient.query(`
+        UPDATE asientos SET estado = 'CONTABILIZADO' WHERE id = $1
+      `, [asientoSelloId]);
+
       // Intento de UPDATE sobre asiento contabilizado
       let falloUpdateAsiento = false;
       await inmutClient.query('SAVEPOINT sp_asiento_upd');
@@ -385,7 +402,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
         await inmutClient.query(`UPDATE asientos SET glosa = 'Glosa alterada' WHERE id = $1`, [asientoSelloId]);
       } catch (e: any) {
         falloUpdateAsiento = true;
-        assert.match(e.message, /ASIENTO_INMUTABLE/, 'Error debe mencionar ASIENTO_INMUTABLE');
+        assert.match(e.message, /(ASIENTO_INMUTABLE|DETALLE_INMUTABLE)/, 'Error debe mencionar ASIENTO_INMUTABLE o DETALLE_INMUTABLE');
         await inmutClient.query('ROLLBACK TO SAVEPOINT sp_asiento_upd');
       }
       assert.equal(falloUpdateAsiento, true, 'No debe permitir UPDATE a un asiento ya contabilizado');
@@ -397,7 +414,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
         await inmutClient.query(`DELETE FROM asientos WHERE id = $1`, [asientoSelloId]);
       } catch (e: any) {
         falloDeleteAsiento = true;
-        assert.match(e.message, /ASIENTO_INMUTABLE/, 'Error debe mencionar ASIENTO_INMUTABLE');
+        assert.match(e.message, /(ASIENTO_INMUTABLE|DETALLE_INMUTABLE)/, 'Error debe mencionar ASIENTO_INMUTABLE o DETALLE_INMUTABLE');
         await inmutClient.query('ROLLBACK TO SAVEPOINT sp_asiento_del');
       }
       assert.equal(falloDeleteAsiento, true, 'No debe permitir DELETE a un asiento ya contabilizado');
@@ -415,25 +432,26 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
 
     try {
       // Crear un asiento borrador listo para contabilizar
-      const asientoBorradorId = '00000000-0000-0000-0000-000000000777';
+      const asientoBorradorId = crypto.randomUUID();
+      const detalle1Id = crypto.randomUUID();
+      const detalle2Id = crypto.randomUUID();
       await ownerClient.query(`
         INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, fecha, glosa, moneda, estado)
-        VALUES ($1, $2, '00000000-0000-0000-0000-0000000000p1', '00000000-0000-0000-0000-0000000000s1', '2026-09-15', 'Asiento Concurrente', 'PEN', 'BORRADOR')
-        ON CONFLICT (id) DO NOTHING
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '2026-09-15', 'Asiento Concurrente', 'PEN', 'BORRADOR')
       `, [asientoBorradorId, empA]);
 
       await ownerClient.query(`
         INSERT INTO asiento_detalle (id, asiento_id, empresa_id, linea, cuenta_id, debe, haber)
         VALUES
-          ('00000000-0000-0000-0000-000000000771', $1, $2, 1, '00000000-0000-0000-0000-0000000000c1', 200, 0),
-          ('00000000-0000-0000-0000-000000000772', $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 200)
-        ON CONFLICT (id) DO NOTHING
-      `, [asientoBorradorId, empA]);
+          ($3, $1, $2, 1, '00000000-0000-0000-0000-0000000000c1', 200, 0),
+          ($4, $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 200)
+      `, [asientoBorradorId, empA, detalle1Id, detalle2Id]);
 
       // Función que simula el flujo de contabilización atómica con SELECT ... FOR UPDATE
       async function contabilizarConcurrente(client: PoolClient, workerName: string): Promise<string> {
         await client.query('BEGIN');
-        await client.query(`SET LOCAL app.current_empresa_id = $1`, [empA]);
+        // Establecer contexto de empresa
+        await client.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
 
         // Bloqueo pesimista de fila
         const aRes = await client.query(

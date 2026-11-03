@@ -873,29 +873,27 @@ export const planillaService = {
     let retencionesPreviasReales = Money.create(trabajador.retencionesPrevias5taAnio || 0);
     const mesCorteRetenciones = obtenerMesCorteRetencionesPrevias(mesNumero);
 
-    if (planillasAnioPrevias.length > 0) {
-      // Si existen planillas reales calculadas en meses previos del ejercicio, sumamos exactamente lo percibido
-      for (const pl of planillasAnioPrevias) {
-        const mPrev = Number(pl.mes.split('-')[1]);
-        const linea = pl.lineas.find(l => l.trabajadorId === trabajador.id);
-        if (linea) {
-          remAnteriores = Money.add(remAnteriores, Money.create(linea.totalRemuneracion));
-          if (mPrev <= mesCorteRetenciones) {
-            retencionesPreviasReales = Money.add(retencionesPreviasReales, Money.create(linea.retencionQuinta));
+    let mesesPreviosSinPlanilla = 0;
+    for (let m = 1; m < mesNumero; m++) {
+      const mStr = `${anio}-${String(m).padStart(2, '0')}`;
+      const pl = planillasAnioPrevias.find(p => p.mes === mStr);
+      const linea = pl?.lineas.find(l => l.trabajadorId === trabajador.id);
+
+      if (linea) {
+        remAnteriores = Money.add(remAnteriores, Money.create(linea.totalRemuneracion));
+        if (m <= mesCorteRetenciones) {
+          retencionesPreviasReales = Money.add(retencionesPreviasReales, Money.create(linea.retencionQuinta));
+        }
+      } else if ((trabajador.remuneracionesPreviasAnio || 0) === 0) {
+        const diasM = calcularDiasLaborablesMes(mStr, trabajador.fechaIngreso, trabajador.fechaCese);
+        if (diasM > 0) {
+          const remMesEst = Money.round(Money.create(remuneracionMensualContrato).times(diasM / 30));
+          remAnteriores = Money.add(remAnteriores, remMesEst);
+          if (m <= mesCorteRetenciones) {
+            mesesPreviosSinPlanilla++;
           }
         }
       }
-    } else if ((trabajador.remuneracionesPreviasAnio || 0) === 0 && mesNumero > 1) {
-      // Si se calcula un mes intermedio sin planillas previas cargadas, proyectamos los meses previos activos según fechaIngreso
-      let mesesPreviosActivos = 0;
-      for (let m = 1; m < mesNumero; m++) {
-        const mesPrevStr = `${anio}-${String(m).padStart(2, '0')}`;
-        const diasM = calcularDiasLaborablesMes(mesPrevStr, trabajador.fechaIngreso, trabajador.fechaCese);
-        if (diasM > 0) {
-          mesesPreviosActivos += diasM / 30;
-        }
-      }
-      remAnteriores = Money.round(Money.create(remuneracionMensualContrato).times(mesesPreviosActivos));
     }
 
     // 2. Meses restantes por percibir en el año (mesNumero + 1 .. 12)
@@ -1007,19 +1005,15 @@ export const planillaService = {
 
     // Si no hubo planillas previas reales pero estamos en mes > 3 y proyectamos meses previos sin certificado externo, estimar retenciones previas proporcionales
     if (
-      planillasAnioPrevias.length === 0 &&
+      mesesPreviosSinPlanilla > 0 &&
       (trabajador.retencionesPrevias5taAnio || 0) === 0 &&
       (trabajador.remuneracionesPreviasAnio || 0) === 0 &&
       mesCorteRetenciones > 0
     ) {
-      let mesesPreviosConRetencion = 0;
-      for (let m = 1; m <= mesCorteRetenciones; m++) {
-        const mStr = `${anio}-${String(m).padStart(2, '0')}`;
-        if (calcularDiasLaborablesMes(mStr, trabajador.fechaIngreso, trabajador.fechaCese) > 0) {
-          mesesPreviosConRetencion++;
-        }
-      }
-      retencionesPreviasReales = Money.round(impuestoAnual.dividedBy(12).times(mesesPreviosConRetencion));
+      const retencionEstimadaMesesSinPlanilla = Money.round(
+        impuestoAnual.dividedBy(12).times(mesesPreviosSinPlanilla)
+      );
+      retencionesPreviasReales = Money.add(retencionesPreviasReales, retencionEstimadaMesesSinPlanilla);
     }
 
     const divisor = obtenerDivisorQuintaCategoria(mesNumero);
@@ -2449,7 +2443,7 @@ export const planillaService = {
       tocContent += `${tipoDoc}|${numDoc}|0|0|0|0|\r\n`;
     }
 
-    let desContent = '';
+    let cuartaContent = '';
     const honorariosPeriodo = HONORARIOS_MEMORIA.filter(
       h => h.empresaId === empresaId && (h.periodoId === planilla.periodoId || h.fechaEmision.startsWith(planilla.mes))
     );
@@ -2464,7 +2458,8 @@ export const planillaService = {
       const fEmision = h.fechaEmision;
       const fPago = h.fechaPago || h.fechaEmision;
 
-      desContent += `${tipoDoc}|${numDoc}|${tipoComp}|${serie}|${numero}|${bruto}|${ret}|${fEmision}|${fPago}|\r\n`;
+      // Estructura 5: Prestadores de 4ta Categoría (.4ta) - Anexo 3 R.M. 121-2011-TR
+      cuartaContent += `${tipoDoc}|${numDoc}|${tipoComp}|${serie}|${numero}|${bruto}|${ret}|${fEmision}|${fPago}|\r\n`;
     }
 
     const zip = new AdmZip();
@@ -2472,13 +2467,17 @@ export const planillaService = {
     const jorNombre = `${nombreBase}.jor`;
     const snlNombre = `${nombreBase}.snl`;
     const tocNombre = `${nombreBase}.toc`;
-    const desNombre = `${nombreBase}.des`;
+    const cuartaNombre = `${nombreBase}.4ta`;
 
+    // Anexo 3 R.M. 121-2011-TR / R.S. 016-2022/SUNAT: estructuras oficiales numeradas 1, 2, 3, 4 y 5 (.4ta)
+    // Se retiró .des porque no figura en la normativa oficial; los descuentos van integrados en .rem
     zip.addFile(remNombre, Buffer.from(remContent, 'latin1'));
     zip.addFile(jorNombre, Buffer.from(jorContent, 'latin1'));
     zip.addFile(snlNombre, Buffer.from(snlContent, 'latin1'));
     zip.addFile(tocNombre, Buffer.from(tocContent, 'latin1'));
-    zip.addFile(desNombre, Buffer.from(desContent, 'latin1'));
+    if (cuartaContent) {
+      zip.addFile(cuartaNombre, Buffer.from(cuartaContent, 'latin1'));
+    }
 
     const zipBuffer = zip.toBuffer();
     const zipBase64 = zipBuffer.toString('base64');
@@ -2499,7 +2498,8 @@ export const planillaService = {
       jor: crearArchivoHibrido(jorNombre, jorContent),
       snl: crearArchivoHibrido(snlNombre, snlContent),
       toc: crearArchivoHibrido(tocNombre, tocContent),
-      des: crearArchivoHibrido(desNombre, desContent, honorariosPeriodo.length)
+      cuarta: crearArchivoHibrido(cuartaNombre, cuartaContent, honorariosPeriodo.length),
+      '4ta': crearArchivoHibrido(cuartaNombre, cuartaContent, honorariosPeriodo.length)
     };
 
     await auditoriaRepository.registrar({
@@ -2518,9 +2518,9 @@ export const planillaService = {
 
     return {
       estado: 'GENERADO_OFICIAL',
-      versionLayout: 'PLAME v4.3 / Anexo 3 R.S. 183-2011/SUNAT',
-      mensaje: `Paquete oficial PDT 0601 PLAME validado y generado con ${planilla.lineas.length} trabajadores y ${honorariosPeriodo.length} recibos por honorarios.`,
-      normativaReferencia: 'Resolución de Superintendencia N° 183-2011/SUNAT y modificatorias (Anexo 3)',
+      versionLayout: 'PLAME v4.0+ / Anexo 3 R.M. N° 121-2011-TR y R.S. N° 016-2022/SUNAT',
+      mensaje: `Paquete oficial PDT 0601 PLAME validado y generado con ${planilla.lineas.length} trabajadores y ${honorariosPeriodo.length} recibos por honorarios (.jor, .rem, .snl, .toc, .4ta).`,
+      normativaReferencia: 'Anexo 3 R.M. N° 121-2011-TR y R.S. N° 016-2022/SUNAT (PDT 0601 v4.0+)',
       validacionPrevia,
       nombreBase,
       nombreArchivoZip: zipNombre,
@@ -2560,8 +2560,10 @@ export const planillaService = {
     let totalErrores = 0;
     let totalAdvertencias = 0;
 
+    let ideContent = '';
     let traContent = '';
     let perContent = '';
+    let estContent = '';
     let altasContent = '';
     let bajasContent = '';
     let modContent = '';
@@ -2583,17 +2585,29 @@ export const planillaService = {
 
       const fIngreso = t.fechaIngreso.split('-').reverse().join('/');
       const fCese = t.fechaCese ? t.fechaCese.split('-').reverse().join('/') : '';
+      const fNac = t.fechaNacimiento ? t.fechaNacimiento.split('-').reverse().join('/') : '01/01/1990';
       const codRegimen = t.regimenLaboral === 'GENERAL' ? '01' : t.regimenLaboral === 'MYPE_PEQUENA' ? '17' : '16';
       const codContrato = t.tipoContrato === 'PLAZO_FIJO' ? '03' : t.tipoContrato === 'TIEMPO_PARCIAL' ? '02' : '01';
       const situacion = t.activo ? '1' : '0';
       const sueldoStr = Number(t.sueldoBase).toFixed(2);
+      const apPaterno = t.apellidos.split(' ')[0] || t.apellidos;
+      const apMaterno = t.apellidos.split(' ').slice(1).join(' ') || '.';
+      const nombres = t.nombres;
 
+      // Estructura 1: Datos de Identificación (.ide) - Anexo 3 R.M. 121-2011-TR
+      ideContent += `${tDoc}|${t.numeroDocumento}|604|${fNac}|${apPaterno}|${apMaterno}|${nombres}|1|604|||\r\n`;
+
+      // Estructura 2: Datos del Trabajador (.tra)
       const lineaTra = `${tDoc}|${t.numeroDocumento}|604|21|${codRegimen}|11|122101|0|${t.cuspp || ''}|0|${codContrato}|0|1|0|0|1|2|${sueldoStr}|${situacion}|0|0|2||0||\r\n`;
       traContent += lineaTra;
 
+      // Estructura 3: Períodos Laborales (.per)
       const motivoFin = !t.activo || t.fechaCese ? (t.motivoCese || '01') : '';
-      const lineaPer = `${tDoc}|${t.numeroDocumento}|604|1|1|${fIngreso}|${fCese}|${motivoFin}||\r\n`;
+      const lineaPer = `${tDoc}|${t.numeroDocumento}|604|1|${t.activo && !t.fechaCese ? '1' : '2'}|${fIngreso}|${fCese}|${motivoFin}||\r\n`;
       perContent += lineaPer;
+
+      // Estructura 4: Establecimientos (.est)
+      estContent += `${tDoc}|${t.numeroDocumento}|${ruc}|0000|\r\n`;
 
       if (t.activo && !t.fechaCese) {
         altasContent += `${tDoc}|${t.numeroDocumento}|${t.apellidos}|${t.nombres}|${fIngreso}|${codRegimen}|${codContrato}|${sueldoStr}|ALTA|\r\n`;
@@ -2606,18 +2620,16 @@ export const planillaService = {
       }
     }
 
+    const nombreIde = `RP_${ruc}.ide`;
     const nombreTra = `RP_${ruc}.tra`;
     const nombrePer = `RP_${ruc}.per`;
-    const nombreAlt = `RP_${ruc}_altas.txt`;
-    const nombreBaj = `RP_${ruc}_bajas.txt`;
-    const nombreMod = `RP_${ruc}_modificaciones.txt`;
+    const nombreEst = `RP_${ruc}.est`;
 
     const zip = new AdmZip();
+    zip.addFile(nombreIde, Buffer.from(ideContent, 'latin1'));
     zip.addFile(nombreTra, Buffer.from(traContent, 'latin1'));
     zip.addFile(nombrePer, Buffer.from(perContent, 'latin1'));
-    zip.addFile(nombreAlt, Buffer.from(altasContent, 'latin1'));
-    zip.addFile(nombreBaj, Buffer.from(bajasContent, 'latin1'));
-    zip.addFile(nombreMod, Buffer.from(modContent, 'latin1'));
+    zip.addFile(nombreEst, Buffer.from(estContent, 'latin1'));
 
     const movimientosEmpresa = TREGISTRO_MOVIMIENTOS_MEMORIA.filter(m => m.empresaId === empresaId).map(m => ({
       ...m,
@@ -2632,9 +2644,8 @@ export const planillaService = {
       totalAdvertencias,
       observaciones,
       supuestosNormativos: [
-        'Anexo 2 R.S. N° 183-2011/SUNAT — Estructuras Oficiales de Importación Masiva al T-Registro (SOL): RP_<RUC>.tra (Estructura 5) y RP_<RUC>.per (Estructura 11).',
-        'SUPUESTO A VALIDAR: Campos de establecimiento propio (código 604), categoría ocupacional (21) y ocupación (122101) en Estructura 5 (.tra) utilizan valores por defecto cuando el empleador no especifica código de establecimiento anexo en SUNAT SOL.',
-        'REPORTE INTERNO DE CONTROL (NO OFICIAL SUNAT): Los archivos auxiliares RP_<RUC>_altas.txt, RP_<RUC>_bajas.txt y RP_<RUC>_modificaciones.txt son reportes internos de control y auditoría del estudio contable, no estructuras de carga masiva de SUNAT.'
+        'Anexo 3 R.M. N° 121-2011-TR — Estructuras oficiales de carga masiva al T-Registro: .ide (Identificación), .tra (Datos del trabajador), .per (Períodos laborales) y .est (Establecimientos).',
+        'El archivo ZIP RP_{RUC}.zip generado debe ser validado previamente por el contador con el aplicativo PVS T-Registro oficial de SUNAT antes de su carga en SUNAT Operaciones en Línea (SOL).'
       ]
     };
 
@@ -2651,29 +2662,35 @@ export const planillaService = {
       }
     });
 
+    const zipBase64 = zip.toBuffer().toString('base64');
+    const zipNombre = `RP_${ruc}.zip`;
+
     return {
       estado: totalErrores === 0 ? 'VALIDADO_CONFORME' : 'OBSERVADO',
-      versionLayout: 'T-Registro Carga Masiva v2.5 (Anexo 2 R.S. 183-2011/SUNAT)',
+      versionLayout: 'T-Registro Carga Masiva (Anexo 3 R.M. N° 121-2011-TR)',
       ruc,
       razonSocial,
       validacionPrevia: validacionObj,
       validacion: validacionObj,
-      nombreArchivoZip: `TREGISTRO_${ruc}.zip`,
-      zipBase64: zip.toBuffer().toString('base64'),
+      nombreArchivoZip: zipNombre,
+      zipBase64,
       archivos: {
+        ide: ideContent,
         tra: traContent,
         per: perContent,
+        est: estContent,
+        // Compatibilidad con vistas internas y tests existentes
         altas: altasContent,
         bajas: bajasContent,
         modificaciones: modContent
       },
       archivosDetalle: {
-        tra: { nombre: nombreTra, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 5 SUNAT: Datos del Trabajador (.tra)', contenido: traContent, totalLineas: traContent.split('\r\n').filter(Boolean).length },
-        per: { nombre: nombrePer, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 11 SUNAT: Períodos Laborales Altas/Bajas (.per)', contenido: perContent, totalLineas: perContent.split('\r\n').filter(Boolean).length },
-        altas: { nombre: nombreAlt, tipoArchivo: 'REPORTE_INTERNO_CONTROL', descripcion: 'Reporte Interno de Control: Padrón de Altas Vigentes', contenido: altasContent, totalLineas: altasContent.split('\r\n').filter(Boolean).length },
-        bajas: { nombre: nombreBaj, tipoArchivo: 'REPORTE_INTERNO_CONTROL', descripcion: 'Reporte Interno de Control: Registro de Bajas y Ceses', contenido: bajasContent, totalLineas: bajasContent.split('\r\n').filter(Boolean).length },
-        modificaciones: { nombre: nombreMod, tipoArchivo: 'REPORTE_INTERNO_CONTROL', descripcion: 'Reporte Interno de Control: Modificaciones Contractuales y Bancarias', contenido: modContent, totalLineas: modContent.split('\r\n').filter(Boolean).length }
+        ide: { nombre: nombreIde, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 1 SUNAT: Datos de Identificación (.ide)', contenido: ideContent, totalLineas: ideContent.split('\r\n').filter(Boolean).length },
+        tra: { nombre: nombreTra, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 2 SUNAT: Datos del Trabajador (.tra)', contenido: traContent, totalLineas: traContent.split('\r\n').filter(Boolean).length },
+        per: { nombre: nombrePer, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 3 SUNAT: Períodos Laborales Altas/Bajas (.per)', contenido: perContent, totalLineas: perContent.split('\r\n').filter(Boolean).length },
+        est: { nombre: nombreEst, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 4 SUNAT: Establecimientos donde labora (.est)', contenido: estContent, totalLineas: estContent.split('\r\n').filter(Boolean).length }
       },
+      advertenciaPvs: 'IMPORTANTE: Valide el paquete RP_{RUC}.zip con el PVS T-Registro de SUNAT antes de cargarlo en SOL.',
       movimientosRegistrados: movimientosEmpresa,
       movimientos: movimientosEmpresa
     };

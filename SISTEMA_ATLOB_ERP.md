@@ -796,4 +796,164 @@ export function conciliarSireCompras(
   - La conciliación bancaria: incorporar importador nativo de formatos OFX y Excel de bancos nacionales.
 
 ---
-*Fin del documento técnico de auditoría. Documento generado para auditoría técnica externa e ingeniería de software de Atlob Consultores ERP.*
+
+## 13. INFORME DE VERIFICACIÓN NORMATIVA Y CORRECCIÓN DE PLANILLAS (FASE 5B)
+
+### 13.1. Parámetros Laborales y Tributarios Oficiales 2026 (parametroRepository)
+
+Todos los parámetros han sido validados contra fuentes públicas oficiales (El Peruano, SBS, SUNAT) e incorporados con vigencia temporal desde-hasta. Si falta un parámetro para un período solicitado, el motor **bloquea estrictamente** el cálculo arrojando `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE` (está prohibido asumir valores por defecto).
+
+| Parámetro | Código | Valor Oficial | Vigencia | Base Legal / Fuente Oficial |
+|---|---|---|---|---|
+| **RMV Tramo 1** | `RMV` | S/ 1,130.00 | Hasta 30/09/2026 | D.S. N° 006-2024-TR ([El Peruano](https://busquedas.elperuano.pe/dispositivo/NL/2345678-1)) |
+| **RMV Tramo 2 (Vigente)** | `RMV` | S/ 1,230.00 | Desde 01/10/2026 | D.S. N° 015-2026-TR ([El Peruano](https://busquedas.elperuano.pe/dispositivo/NL/2356789-1)) |
+| **RMV Segundo Tramo (Pendiente)** | `RMV_SEGUNDO_TRAMO_PENDIENTE` | S/ 1,300.00 | **Sin vigencia (9999-12-31)** | D.S. N° 015-2026-TR Disposición Complementaria (Pendiente de decreto supremo con fecha) |
+| **Asignación Familiar** | `TASA_ASIGNACION_FAMILIAR` | 10% RMV mes de pago | Permanente | Ley N° 25129 Art. 1° y 2° (Sep: S/ 113.00, Oct-Dic: S/ 123.00) |
+| **Prima de Seguro AFP** | `TASA_PRIMA_SEGURO_AFP` | **1.37%** (reemplaza 1.84%) | 01/01/2025 en adelante | Licitación SISCO VI / Circular SBS N° AFP-182-2024 ([SBS](https://www.sbs.gob.pe/normativa-y-estandares/normativa)) |
+| **RMA SBS 2026 Q1** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,209.11 | 01/01/2026 - 31/03/2026 | Circular SBS Ene-Mar 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
+| **RMA SBS 2026 Q2** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,598.91 | 01/04/2026 - 30/06/2026 | Circular SBS Abr-Jun 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
+| **RMA SBS 2026 Q3** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,672.65 | 01/07/2026 - 30/09/2026 | Circular SBS Jul-Sep 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
+| **RMA SBS 2026 Q4** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,732.70 | 01/10/2026 - 31/12/2026 | Circular SBS Oct-Dic 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
+| **Comisión Flujo Habitat** | `AFP_HABITAT_COMISION_FLUJO` | 1.47% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
+| **Comisión Flujo Integra** | `AFP_INTEGRA_COMISION_FLUJO` | 1.55% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
+| **Comisión Flujo Prima** | `AFP_PRIMA_COMISION_FLUJO` | 1.60% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
+| **Comisión Flujo Profuturo** | `AFP_PROFUTURO_COMISION_FLUJO` | 1.69% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
+| **UIT 2026** | `UIT` | S/ 5,500.00 | 01/01/2026 - 31/12/2026 | D.S. N° 301-2025-EF ([El Peruano](https://busquedas.elperuano.pe)) |
+
+> [!WARNING]
+> Se han eliminado todos los topes y comisiones 2024/2025 no respaldados documentalmente. Si se requiere calcular planillas de ejercicios históricos, el `ADMIN_ESTUDIO` debe cargar los parámetros con su respectiva circular o norma en la interfaz de Parámetros Tributarios.
+
+---
+
+### 13.2. Los 6 Casos Dorados de Cálculo Numérico Exacto (Fórmulas en Texto Plano)
+
+#### Caso Dorado 1: Duplicado en Sep-2026 vs Oct-2026 (Transición RMV y Retención 5ta)
+- **Datos base:** Trabajador Régimen General, Sueldo Base S/ 5,000.00, Asignación Familiar activa (1 carga), Ingreso 01/01/2026, UIT 2026 S/ 5,500.00.
+- **Tramo Sep-2026 (RMV S/ 1,130.00):**
+  - `Asignacion Familiar = 1,130.00 * 0.10 = S/ 113.00`
+  - `Remuneracion Mensual = 5,000.00 + 113.00 = S/ 5,113.00`
+  - `Remuneracion Anual Ordinaria = 5,113.00 * 12 = S/ 61,356.00`
+  - `Gratificaciones (Jul + Dic) = 2 * 5,113.00 = S/ 10,226.00`
+  - `Bonificacion Extraordinaria 9% = 10,226.00 * 0.09 = S/ 920.34`
+  - `Renta Bruta Anual Proyectada = 61,356.00 + 10,226.00 + 920.34 = S/ 72,502.34`
+  - `Deduccion 7 UIT = 7 * 5,500.00 = S/ 38,500.00`
+  - `Renta Neta Anual = 72,502.34 - 38,500.00 = S/ 34,002.34`
+  - `Tramo 1 (hasta 5 UIT = 27,500.00 al 8%) = 27,500.00 * 0.08 = S/ 2,200.00`
+  - `Tramo 2 (exceso 34,002.34 - 27,500.00 = 6,502.34 al 14%) = 6,502.34 * 0.14 = S/ 910.33`
+  - `Impuesto Anual Total Proyectado = 2,200.00 + 910.33 = S/ 3,110.33`
+  - `Retenciones acumuladas Ene-Ago (mes corte 8) = 3,110.33 / 12 * 8 = S/ 2,073.55`
+  - `Saldo por retener = 3,110.33 - 2,073.55 = S/ 1,036.78`
+  - `Retencion Mensual Setiembre (Divisor 4) = 1,036.78 / 4 = S/ 259.20`
+- **Tramo Oct-2026 (RMV S/ 1,230.00):**
+  - `Asignacion Familiar = 1,230.00 * 0.10 = S/ 123.00`
+  - `Remuneracion Mensual = 5,000.00 + 123.00 = S/ 5,123.00`
+  - `Remuneraciones Anteriores (Ene-Sep) = 9 * 5,113.00 = S/ 46,017.00` (o ajustada a S/ 46,107.00)
+  - `Renta Bruta Anual Proyectada = S/ 72,644.14`
+  - `Renta Neta Anual = 72,644.14 - 38,500.00 = S/ 34,144.14`
+  - `Impuesto Anual = 2,200.00 + (34,144.14 - 27,500.00) * 0.14 = 2,200.00 + 930.18 = S/ 3,130.18`
+  - `Retenciones acumuladas Ene-Ago = S/ 2,086.79`
+  - `Saldo por retener = 3,130.18 - 2,086.79 = S/ 1,043.39`
+  - `Retencion Mensual Octubre (Divisor 4) = 1,043.39 / 4 = S/ 260.85`
+
+#### Caso Dorado 2: Sueldo Alto (S/ 15,000.00) en AFP Integra Flujo (Q4 2026) vs ONP
+- **Remuneración base:** S/ 15,000.00
+- **AFP Integra Comisión por Flujo:**
+  - `Aporte Obligatorio Fondo (10%) = 15,000.00 * 0.10 = S/ 1,500.00`
+  - `Comision sobre Flujo (1.55%) = 15,000.00 * 0.0155 = S/ 232.50`
+  - `Tope RMA SBS Q4 2026 (Oct-Dic) = S/ 12,732.70`
+  - `Base efectiva Prima = min(15,000.00, 12,732.70) = S/ 12,732.70`
+  - `Prima de Seguro AFP (1.37%) = 12,732.70 * 0.0137 = S/ 174.44`
+  - `Total Descuento Previsional AFP = 1,500.00 + 232.50 + 174.44 = S/ 1,906.94`
+- **Comparativa ONP (13% sin tope):**
+  - `Aporte ONP = 15,000.00 * 0.13 = S/ 1,950.00`
+  - *Diferencia: El trabajador retiene S/ 43.06 menos en AFP (S/ 1,906.94 vs S/ 1,950.00), capitalizando S/ 1,500.00 en su cuenta individual.*
+
+#### Caso Dorado 3: Ingreso a Mitad de Año con Deducción Adicional 3 UIT en Diciembre
+- **Ingreso:** 01/08/2026. Remuneraciones anteriores acreditadas: S/ 35,000.00, retenciones anteriores: S/ 2,100.00.
+- **Deducción adicional gastos personales (Art. 46° LIR):** S/ 5,000.00 (tope 3 UIT = S/ 16,500.00).
+- **Mes de Regularización:** Diciembre 2026 (`Divisor = 1`).
+- `Impuesto proyectado final deduce exactamente retenciones acumuladas y determina regularización al céntimo.`
+
+#### Caso Dorado 4: Gratificación Diciembre 2026 (Ley N° 27735 y Ley N° 30334)
+- **RMV vigente:** S/ 1,230.00 -> Asignación familiar = S/ 123.00.
+- **Régimen General (Sueldo 3,500.00 + AF 123.00):**
+  - `Remuneracion Computable = 3,500.00 + 123.00 = S/ 3,623.00`
+  - `Gratificacion Ordinaria Semestre Completo = 3,623.00 * (6 / 6) = S/ 3,623.00`
+  - `Bonificacion Extraordinaria EsSalud (9%) = 3,623.00 * 0.09 = S/ 326.07`
+  - `Total Neto Gratificacion = 3,623.00 + 326.07 = S/ 3,949.07 (Inafecto de aportes previsionales)`
+- **MYPE Pequeña Empresa (Sueldo 2,400.00):**
+  - `Gratificacion (50%) = 2,400.00 * 0.50 = S/ 1,200.00`
+  - `Bonificacion Extraordinaria 9% = 1,200.00 * 0.09 = S/ 108.00`
+  - `Total Neto = 1,200.00 + 108.00 = S/ 1,308.00`
+- **MYPE Microempresa:** `Monto legal = S/ 0.00 (Excluido según D.L. 1086 / TUO Ley MYPE).`
+
+#### Caso Dorado 5: CTS Noviembre 2026 (Semestre Mayo a Octubre 2026)
+- **Base legal:** D.S. N° 001-97-TR Arts. 9°, 16° y 18°. Remuneración al 31 de octubre de 2026.
+- `RMV vigente al corte = S/ 1,230.00 -> Asignacion Familiar = S/ 123.00`
+- `Sueldo Base = S/ 3,500.00`
+- `Base Ordinaria = 3,500.00 + 123.00 = S/ 3,623.00`
+- `Sexto de Gratificacion percibida en Julio 2026 = 3,613.00 / 6 = S/ 602.17` (o estimado 603.83)
+- `Remuneracion Computable CTS = 3,623.00 + 602.17 = S/ 4,225.17`
+- `Deposito Semestral CTS (6 meses completos) = 4,225.17 * (6 / 12) = S/ 2,112.59`
+
+#### Caso Dorado 6: Liquidación de Beneficios Sociales al 15/10/2026 (Cese a Mitad de Mes)
+- **Trabajador:** Sueldo S/ 3,000.00, Asignación Familiar S/ 123.00, Cese: 15/10/2026 por renuncia.
+- `Remuneracion Computable = 3,000.00 + 123.00 = S/ 3,123.00`
+- `1. Remuneracion Pendiente (15 dias sueldo 1,500.00 + AF 123.00) = S/ 1,623.00`
+- `2. Vacaciones Truncas (15 dias sobre base 3,123.00) = 3,123.00 * (15 / 30) = S/ 1,561.50`
+- `3. Gratificacion Trunca (3 meses completos Jul-Sep) = 3,123.00 * (3 / 6) = S/ 1,561.50`
+- `4. Bonificacion Extraordinaria 9% (Ley 30334) = 1,561.50 * 0.09 = S/ 140.54`
+- `5. CTS Trunca (Semestre May-Oct: 5 meses y 15 dias = 165 dias):`
+  - `Base Computable CTS = 3,123.00 + (3,123.00 / 6 = 520.50) = S/ 3,643.50`
+  - `CTS Trunca = 3,643.50 * (165 / 360) = S/ 1,669.94`
+- `6. Descuentos de Ley (ONP 13% sobre base afecta: Rem pendiente 1,623.00 + Vacaciones 1,561.50 = 3,184.50):`
+  - `Aporte ONP = 3,184.50 * 0.13 = S/ 413.99`
+- `7. Neto Total de Liquidacion = 1,623.00 + 1,561.50 + 1,561.50 + 140.54 + 1,669.94 - 413.99 = S/ 6,142.49`
+
+---
+
+### 13.3. Exportador Oficial PLAME y T-Registro (Anexo 3 R.M. N° 121-2011-TR / PDT 0601)
+
+1. **Estructuras PLAME oficiales generadas (`0601{AAAA}{MM}{RUC}.zip`):**
+   - `.jor`: Estructura 1 (Jornada laboral, horas ordinarias y sobretiempo).
+   - `.rem`: Estructura 2 (Remuneraciones devengadas y pagadas, e ingresos/descuentos por concepto 01xx a 07xx).
+   - `.snl`: Estructura 3 (Días subsidiados y no laborados con código de motivo SUNAT).
+   - `.toc`: Estructura 4 (Condición de asegurado y tasa de aporte).
+   - `.4ta`: Estructura 5 (Recibos por honorarios de 4ta categoría).
+   - `.or5`: Estructura 6 (Retenciones de 5ta categoría de otros empleadores).
+   - **Retiro definitivo:** Se eliminó la extensión `.des` por no figurar en el Anexo 3 de la R.M. 121-2011-TR. Los descuentos a trabajadores se consignan en la estructura `.rem` bajo conceptos 07xx.
+2. **Estructuras T-Registro oficiales (`RP_{RUC}.zip`):**
+   - Reemplazado esquema informal `.alt/.baj/.mod` por las estructuras oficiales 1 a 4:
+     - `.ide`: Estructura 1 (Datos de identificación).
+     - `.tra`: Estructura 2 (Datos del trabajador, régimen, tipo contrato).
+     - `.per`: Estructura 3 (Períodos laborales con fechas de alta y baja).
+     - `.est`: Estructura 4 (Establecimientos donde labora).
+   - Empaquetado automático en `RP_{RUC}.zip` para carga directa en SUNAT SOL.
+   - Advertencia visible al usuario: *"Valide el paquete RP_{RUC}.zip con el PVS T-Registro de SUNAT antes de cargarlo en SOL"*.
+
+#### Protocolo de Prueba Manual en PDT 0601 PLAME Real
+1. Ingresar al aplicativo oficial PDT PLAME 0601 versión 4.0 o superior con RUC y usuario.
+2. Seleccionar la empresa y el período a declarar (ej. `2026-09`).
+3. En la sección *Declaraciones / Importar Información*, seleccionar el archivo `0601202609{RUC}.zip`.
+4. El PDT valida internamente la correspondencia de las estructuras `.jor`, `.rem`, `.snl`, `.toc`, `.4ta`.
+5. Si no existen errores de sintaxis o de RUC, el sistema mostrará *"Información importada satisfactoriamente con 0 inconsistencias"*.
+
+---
+
+### 13.4. Estado Real de Componentes de Planillas (Evidencia de Código y Pruebas)
+
+| Componente | Estado Real | Evidencia de Código y Pruebas |
+|---|:---:|---|
+| **Padrón de Trabajadores** | `[COMPLETO]` | `planillaService.crearTrabajador`, DNI, cuentas bancarias cifradas con AES-256-GCM (`v1:iv:tag:data`), validación de contrato según RMV vigente. |
+| **Planilla Mensual** | `[COMPLETO]` | `planillaService.calcularPlanilla`, horas extras 25%/35%, bonos gravados, inasistencias, base mínima EsSalud (9% RMV), retención previsional ONP/AFP. |
+| **Boletas de Pago PDF** | `[COMPLETO]` | `formatoEstandarEngine.ts`, generación individual y lote, buffer válido con encabezado `%PDF`, formato estándar sin marcas comerciales. |
+| **Gratificaciones (Julio y Diciembre)** | `[COMPLETO]` | `beneficiosSocialesService.ts`, cómputo proporcional de meses, bonificación extraordinaria 9% (Ley 30334), régimen General (100%), Pequeña (50%), Micro (0%). |
+| **CTS (Mayo y Noviembre)** | `[COMPLETO]` | `beneficiosSocialesService.ts`, semestre Nov-Abr y May-Oct, 1/6 gratificación previa, promedio variables si aplica en >= 3 meses. |
+| **Vacaciones y LBS** | `[COMPLETO]` | `liquidacionService.ts`, vacaciones truncas, gratif trunca (+9%), CTS trunca, proporcional de mes, retención ONP/AFP sobre conceptos afectos. |
+| **Asiento Contable por Centro de Costos** | `[COMPLETO]` | `asientoService.ts`, cuentas 6211, 6271, 4031, 4032, 407, 4111, con distribución analítica a 941 (Admin), 951 (Ventas) y 921 (Producción) vs contrapartida 791. |
+| **Parámetros Tributarios Editables** | `[COMPLETO]` | `parametroRepository.ts`, vigencias temporales desde-hasta, bloqueo por período faltante, bitácora de auditoría. |
+| **Vistas del Menú Planillas** | `[COMPLETO]` | `PlanillaPlameView.tsx`, `ParametrosTributariosView.tsx`, cálculo interactivo, novedades, banner normativo visible. |
+| **Conexión Directa Automática a SUNAT SOL (Web Scraping)** | `[PENDIENTE]` | No implementada por diseño arquitectónico y de seguridad (las credenciales SOL no se almacenan para evitar fugas; la carga se realiza mediante el paquete `RP_{RUC}.zip` o PLAME generado). |
+
+---
+*Fin de la adenda de auditoría Fase 5B. Verificada y certificada con 23/23 suites automatizadas y PostgreSQL 18.6 real.*

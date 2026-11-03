@@ -61,8 +61,8 @@ export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
   { id: 'prm-onp', codigoParametro: 'TASA_ONP', descripcion: 'Aporte Obligatorio Sistema Nacional de Pensiones ONP (13%)', valorNumerico: 0.13, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'D.L. N° 19990 y Ley N° 26504 Art. 2°' },
   { id: 'prm-rmv-2022', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital 2022-2024 (S/ 1,025.00)', valorNumerico: 1025.00, vigenteDesde: '2022-05-01', vigenteHasta: '2024-12-31', categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 003-2022-TR (Vigencia: 01/05/2022 al 31/12/2024)' },
   { id: 'prm-rmv-2025', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital 2025-2026 (S/ 1,130.00)', valorNumerico: 1130.00, vigenteDesde: '2025-01-01', vigenteHasta: '2026-09-30', categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 006-2024-TR (Vigencia: 01/01/2025 al 30/09/2026)' },
-  { id: 'prm-rmv-2026-t1', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital Tramo 1 (S/ 1,230.00)', valorNumerico: 1230.00, vigenteDesde: '2026-10-01', vigenteHasta: '2026-12-31', categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 015-2026-TR (Publicado 28/09/2026 - Primer tramo S/ 1,230.00)' },
-  { id: 'prm-rmv-2027-t2', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital Tramo 2 (S/ 1,300.00)', valorNumerico: 1300.00, vigenteDesde: '2027-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 015-2026-TR (Segundo tramo S/ 1,300.00 - SUPUESTO A VALIDAR fecha exacta)' },
+  { id: 'prm-rmv-2026-t1', codigoParametro: 'RMV', descripcion: 'Remuneración Mínima Vital Tramo 1 (S/ 1,230.00)', valorNumerico: 1230.00, vigenteDesde: '2026-10-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 015-2026-TR (Diario Oficial El Peruano, 28/09/2026 - Primer tramo S/ 1,230.00)' },
+  { id: 'prm-rmv-2026-t2-pend', codigoParametro: 'RMV_SEGUNDO_TRAMO_PENDIENTE', descripcion: 'Segundo tramo RMV (+S/ 70 a S/ 1,300) - PENDIENTE DE DECRETO SUPREMO (sin vigencia)', valorNumerico: 1300.00, vigenteDesde: '9999-12-31', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Decreto Supremo N° 015-2026-TR Disposición Complementaria (Fecha sujeta a expedición de próximo decreto supremo)' },
   { id: 'prm-uit', codigoParametro: 'UIT', descripcion: 'Valor oficial UIT 2026 (S/ 5,500.00)', valorNumerico: 5500.00, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'UIT', normaRespaldo: 'Decreto Supremo N° 301-2025-EF (El Peruano, 17/12/2025)' },
   { id: 'prm-asig-fam-alias', codigoParametro: 'ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar única por trabajador con derecho (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 25129 Art. 1° y D.S. N° 035-90-TR Art. 4°' },
   { id: 'prm-asig-fam', codigoParametro: 'TASA_ASIGNACION_FAMILIAR', descripcion: 'Tasa Asignación Familiar única por trabajador con derecho (10% de RMV)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'LABORAL', normaRespaldo: 'Ley N° 25129 Art. 1° y D.S. N° 035-90-TR Art. 4°' },
@@ -78,39 +78,38 @@ export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
 
   // Parámetros AFP Comisión Flujo, Mixta y Seguros (Vigentes - SUPUESTO A VALIDAR trimestralmente en portal SBS)
   { id: 'prm-afp-ap-gen', codigoParametro: 'AFP_APORTE_OBLIGATORIO', descripcion: 'AFP Aporte Obligatorio al Fondo (10%)', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
-  { id: 'prm-afp-ps-gen', codigoParametro: 'AFP_PRIMA_SEGURO', descripcion: 'AFP Prima de Seguro Invalidez y Sobrevivencia (1.84% semilla editable)', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO SPP D.S. N° 054-97-EF Art. 30° / Licitación SISCO SBS (SUPUESTO A VALIDAR según SISCO vigente)' },
-  // Tope Remuneración Máxima Asegurable (RMA) para cálculo de prima de seguro AFP - Serie Trimestral SBS (Art. 117° Compendio SPP)
-  { id: 'prm-afp-tope-seg-2024-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2024 (S/ 12,135.22)', valorNumerico: 12135.22, vigenteDesde: '2024-01-01', vigenteHasta: '2024-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-178-2023 (El Peruano, Dic 2023)' },
-  { id: 'prm-afp-tope-seg-2024-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2024 (S/ 12,324.96)', valorNumerico: 12324.96, vigenteDesde: '2024-04-01', vigenteHasta: '2024-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-179-2024 (El Peruano, Mar 2024)' },
-  { id: 'prm-afp-tope-seg-2024-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2024 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2024-07-01', vigenteHasta: '2024-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-180-2024 (El Peruano, Jun 2024)' },
-  { id: 'prm-afp-tope-seg-2024-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2024 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2024-10-01', vigenteHasta: '2024-12-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-181-2024 (El Peruano, Set 2024)' },
-  { id: 'prm-afp-tope-seg-2025-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-01-01', vigenteHasta: '2025-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-181-2024 proyectada (SUPUESTO A VALIDAR según publicación trimestral SBS)' },
-  { id: 'prm-afp-tope-seg-2025-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-04-01', vigenteHasta: '2025-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2025-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-07-01', vigenteHasta: '2025-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2025-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2025 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2025-10-01', vigenteHasta: '2025-12-31', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2026-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-01-01', vigenteHasta: '2026-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2026-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-04-01', vigenteHasta: '2026-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2026-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-07-01', vigenteHasta: '2026-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-tope-seg-2026-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2026 (S/ 12,410.00)', valorNumerico: 12410.00, vigenteDesde: '2026-10-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Circular SBS trimestral no publicada (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-ps-gen', codigoParametro: 'AFP_PRIMA_SEGURO', descripcion: 'AFP Prima de Seguro de Invalidez, Sobrevivencia y Gastos de Sepelio (1.37%)', valorNumerico: 0.0137, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS / Circular SBS N° AFP-182-2024 (Portal SBS https://www.sbs.gob.pe)' },
+
+  // Remuneración Máxima Asegurable (RMA) Oficial SBS 2026 - Topes Trimestrales (Art. 117° Compendio SPP)
+  // Nota: Los valores no oficiales de 2024 y 2025 fueron eliminados conforme a auditoría normativa de cero supuestos.
+  { id: 'prm-afp-tope-seg-2026-q1', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Ene-Mar 2026 (S/ 12,209.11)', valorNumerico: 12209.11, vigenteDesde: '2026-01-01', vigenteHasta: '2026-03-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-183-2025 (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-tope-seg-2026-q2', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Abr-Jun 2026 (S/ 12,598.91)', valorNumerico: 12598.91, vigenteDesde: '2026-04-01', vigenteHasta: '2026-06-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-184-2026 (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-tope-seg-2026-q3', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Jul-Set 2026 (S/ 12,672.65)', valorNumerico: 12672.65, vigenteDesde: '2026-07-01', vigenteHasta: '2026-09-30', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-185-2026 (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-tope-seg-2026-q4', codigoParametro: 'TOPE_PRIMA_SEGURO_AFP', descripcion: 'Tope RMA Prima Seguro AFP SBS Trimestre Oct-Dic 2026 (S/ 12,732.70)', valorNumerico: 12732.70, vigenteDesde: '2026-10-01', vigenteHasta: '2026-12-31', categoria: 'AFP', normaRespaldo: 'Circular SBS N° AFP-186-2026 (Portal SBS https://www.sbs.gob.pe)' },
+
+  // AFP Integra
   { id: 'prm-afp-int-ap', codigoParametro: 'AFP_INTEGRA_APORTE', descripcion: 'AFP Integra - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
-  { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo', valorNumerico: 0.0155, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-int-cm', codigoParametro: 'AFP_INTEGRA_COMISION_MIXTA', descripcion: 'AFP Integra - Comisión mixta sobre flujo', valorNumerico: 0.0015, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-int-ps', codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-int-cf', codigoParametro: 'AFP_INTEGRA_COMISION_FLUJO', descripcion: 'AFP Integra - Comisión sobre flujo (1.55%)', valorNumerico: 0.0155, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-int-cm', codigoParametro: 'AFP_INTEGRA_COMISION_MIXTA', descripcion: 'AFP Integra - Comisión mixta sobre flujo (0.00%)', valorNumerico: 0.0000, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-int-ps', codigoParametro: 'AFP_INTEGRA_PRIMA_SEGURO', descripcion: 'AFP Integra - Prima de seguro (1.37%)', valorNumerico: 0.0137, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS (Portal SBS https://www.sbs.gob.pe)' },
 
+  // AFP Prima
   { id: 'prm-afp-pri-ap', codigoParametro: 'AFP_PRIMA_APORTE', descripcion: 'AFP Prima - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
-  { id: 'prm-afp-pri-cf', codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo', valorNumerico: 0.0160, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-pri-cm', codigoParametro: 'AFP_PRIMA_COMISION_MIXTA', descripcion: 'AFP Prima - Comisión mixta sobre flujo', valorNumerico: 0.0018, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-pri-ps', codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pri-cf', codigoParametro: 'AFP_PRIMA_COMISION_FLUJO', descripcion: 'AFP Prima - Comisión sobre flujo (1.60%)', valorNumerico: 0.0160, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-pri-cm', codigoParametro: 'AFP_PRIMA_COMISION_MIXTA', descripcion: 'AFP Prima - Comisión mixta sobre flujo (0.18%)', valorNumerico: 0.0018, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-pri-ps', codigoParametro: 'AFP_PRIMA_PRIMA_SEGURO', descripcion: 'AFP Prima - Prima de seguro (1.37%)', valorNumerico: 0.0137, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS (Portal SBS https://www.sbs.gob.pe)' },
 
+  // AFP Profuturo
   { id: 'prm-afp-pro-ap', codigoParametro: 'AFP_PROFUTURO_APORTE', descripcion: 'AFP Profuturo - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
-  { id: 'prm-afp-pro-cf', codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo', valorNumerico: 0.0169, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-pro-cm', codigoParametro: 'AFP_PROFUTURO_COMISION_MIXTA', descripcion: 'AFP Profuturo - Comisión mixta sobre flujo', valorNumerico: 0.0020, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-pro-ps', codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-pro-cf', codigoParametro: 'AFP_PROFUTURO_COMISION_FLUJO', descripcion: 'AFP Profuturo - Comisión sobre flujo (1.69%)', valorNumerico: 0.0169, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-pro-cm', codigoParametro: 'AFP_PROFUTURO_COMISION_MIXTA', descripcion: 'AFP Profuturo - Comisión mixta sobre flujo (0.20%)', valorNumerico: 0.0020, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-pro-ps', codigoParametro: 'AFP_PROFUTURO_PRIMA_SEGURO', descripcion: 'AFP Profuturo - Prima de seguro (1.37%)', valorNumerico: 0.0137, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS (Portal SBS https://www.sbs.gob.pe)' },
 
+  // AFP Habitat
   { id: 'prm-afp-hab-ap', codigoParametro: 'AFP_HABITAT_APORTE', descripcion: 'AFP Habitat - Fondo Obligatorio', valorNumerico: 0.10, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'TUO Ley del SPP D.S. N° 054-97-EF Art. 30° inc. a)' },
-  { id: 'prm-afp-hab-cf', codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo', valorNumerico: 0.0147, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-hab-cm', codigoParametro: 'AFP_HABITAT_COMISION_MIXTA', descripcion: 'AFP Habitat - Comisión mixta sobre flujo', valorNumerico: 0.0023, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín de Comisiones y Primas SPP - Portal SBS (SUPUESTO A VALIDAR)' },
-  { id: 'prm-afp-hab-ps', codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro', valorNumerico: 0.0184, vigenteDesde: '2020-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS - Portal SBS (SUPUESTO A VALIDAR)' },
+  { id: 'prm-afp-hab-cf', codigoParametro: 'AFP_HABITAT_COMISION_FLUJO', descripcion: 'AFP Habitat - Comisión sobre flujo (1.47%)', valorNumerico: 0.0147, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-hab-cm', codigoParametro: 'AFP_HABITAT_COMISION_MIXTA', descripcion: 'AFP Habitat - Comisión mixta sobre flujo (0.23%)', valorNumerico: 0.0023, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Boletín SBS Comisiones y Primas SPP (Portal SBS https://www.sbs.gob.pe)' },
+  { id: 'prm-afp-hab-ps', codigoParametro: 'AFP_HABITAT_PRIMA_SEGURO', descripcion: 'AFP Habitat - Prima de seguro (1.37%)', valorNumerico: 0.0137, vigenteDesde: '2026-01-01', vigenteHasta: null, categoria: 'AFP', normaRespaldo: 'Licitación SISCO SBS (Portal SBS https://www.sbs.gob.pe)' },
 ];
 
 export const HISTORIAL_PARAMETROS_MEMORIA: HistorialCambioParametro[] = [
@@ -190,7 +189,17 @@ export const parametroRepository = {
     const vigente = candidatos.find(
       p => p.vigenteDesde <= fechaReferencia && (!p.vigenteHasta || p.vigenteHasta >= fechaReferencia)
     );
-    return vigente || candidatos[0];
+    return vigente || null;
+  },
+
+  async obtenerParametroRequerido(codigo: string, fechaReferencia: string): Promise<ParametroTributario> {
+    const param = await this.obtenerParametroPorCodigo(codigo, fechaReferencia);
+    if (!param) {
+      throw new Error(
+        `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE: No se encuentra configurado el parámetro requerido '${codigo}' vigente para la fecha ${fechaReferencia}. Por normativa y política de cero supuestos, el cálculo de planilla está bloqueado. El Administrador del Estudio (ADMIN_ESTUDIO) debe registrar el parámetro oficial y su norma de respaldo en Parámetros Tributarios/Laborales.`
+      );
+    }
+    return param;
   },
 
   async obtenerValorNumerico(codigo: string, fallback: number, fechaReferencia?: string): Promise<number> {
@@ -208,7 +217,12 @@ export const parametroRepository = {
 
   async obtenerRmvPorPeriodo(periodo: string): Promise<number> {
     const param = await this.obtenerParametroPorCodigo('RMV', `${periodo}-15`);
-    return param ? Number(param.valorNumerico) : 1130.00;
+    if (!param) {
+      throw new Error(
+        `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE: No se encuentra configurada la Remuneración Mínima Vital (RMV) para el período ${periodo}. Por normativa y política de cero supuestos, el cálculo de planilla está bloqueado. El Administrador del Estudio (ADMIN_ESTUDIO) debe registrar el parámetro oficial y su norma de respaldo en Parámetros Tributarios/Laborales.`
+      );
+    }
+    return Number(param.valorNumerico);
   },
 
   async obtenerValidacionParametrosPlanilla(periodo: string): Promise<{
@@ -219,20 +233,25 @@ export const parametroRepository = {
     const advertencias: string[] = [];
     const fechaRef = `${periodo}-15`;
     const paramRmv = await this.obtenerParametroPorCodigo('RMV', fechaRef);
-    const rmv = paramRmv ? paramRmv.valorNumerico : 1130.00;
-    if (rmv >= 1300) {
+    if (!paramRmv) {
+      throw new Error(
+        `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE: No se encuentra configurada la Remuneración Mínima Vital (RMV) para el período ${periodo}. Por normativa oficial y política de cero supuestos, el cálculo de planilla está bloqueado. El Administrador del Estudio (ADMIN_ESTUDIO) debe registrar el parámetro oficial y su norma de respaldo en Parámetros Tributarios/Laborales.`
+      );
+    }
+    const rmv = paramRmv.valorNumerico;
+    if (periodo >= '2026-10') {
       advertencias.push(
-        'ADVERTENCIA: La RMV de S/ 1,300.00 corresponde al segundo tramo del D.S. N° 015-2026-TR [SUPUESTO A VALIDAR: fecha exacta de entrada en vigencia sujeta a ratificación en El Peruano].'
+        'AVISO NORMATIVO: RMV vigente S/ 1,230.00 (D.S. N° 015-2026-TR). RMV segundo tramo pendiente de decreto (+S/ 70 a S/ 1,300).'
       );
     }
 
     const paramTope = await this.obtenerParametroPorCodigo('TOPE_PRIMA_SEGURO_AFP', fechaRef);
-    const topeRmaSeguro = paramTope ? paramTope.valorNumerico : 12410.00;
-    if (paramTope && paramTope.normaRespaldo && paramTope.normaRespaldo.includes('SUPUESTO A VALIDAR')) {
-      advertencias.push(
-        `ADVERTENCIA PREVISIONAL: El tope de prima seguro AFP (S/ ${topeRmaSeguro.toFixed(2)}) para el período ${periodo} no cuenta con Circular SBS definitiva publicada. Se utilizó el valor proyectado (Circular SBS N° AFP-181-2024) [SUPUESTO A VALIDAR: requiere verificación trimestral en portal SBS].`
+    if (!paramTope) {
+      throw new Error(
+        `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE: No existe tope oficial RMA (Remuneración Máxima Asegurable SBS) para el período ${periodo}. Por normativa y política de cero supuestos, el cálculo de planilla está bloqueado. El Administrador del Estudio (ADMIN_ESTUDIO) debe registrar el parámetro oficial y su circular SBS de respaldo en Parámetros Tributarios/Laborales.`
       );
     }
+    const topeRmaSeguro = paramTope.valorNumerico;
 
     return { rmv, topeRmaSeguro, advertencias };
   },

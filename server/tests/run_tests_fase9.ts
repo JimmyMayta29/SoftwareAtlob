@@ -117,7 +117,7 @@ async function ejecutarSuiteFase9() {
     assert(zipEntries.some(e => e.endsWith('.rem')), 'Estructura .rem (Remuneraciones) incluida en el archivo ZIP');
     assert(zipEntries.some(e => e.endsWith('.jor')), 'Estructura .jor (Jornada Laboral) incluida en el archivo ZIP');
     assert(zipEntries.some(e => e.endsWith('.snl')), 'Estructura .snl (Conceptos Detallados SUNAT) incluida en el archivo ZIP');
-    assert(zipEntries.some(e => e.endsWith('.des')), 'Estructura .des (Prestadores de 4ta Categoría) incluida en el archivo ZIP');
+    assert(zipEntries.some(e => e.endsWith('.4ta')), 'Estructura .4ta (Prestadores de 4ta Categoría - Estructura 5 Anexo 3) incluida en el archivo ZIP');
 
     // Validar líneas y delimitadores pleca
     const remTxt = exportacion.archivos!.rem.contenido;
@@ -132,9 +132,9 @@ async function ejecutarSuiteFase9() {
     assert(snlTxt.includes('0201'), 'Concepto SUNAT 0201 (Asignación familiar) presente en .snl');
     assert(snlTxt.includes('0804'), 'Concepto SUNAT 0804 (EsSalud 9%) presente en .snl');
 
-    const desTxt = exportacion.archivos!.des.contenido;
-    assert(desTxt.includes('10445566771'), 'RUC de prestador de 4ta categoría presente en .des');
-    assert(desTxt.includes('E001|0000452'), 'Serie y número del recibo por honorarios presentes en .des');
+    const cuartaTxt = (exportacion.archivos as any)['4ta']?.contenido || (exportacion.archivos as any).cuarta?.contenido;
+    assert(cuartaTxt.includes('10445566771'), 'RUC de prestador de 4ta categoría presente en .4ta (Estructura 5 Anexo 3)');
+    assert(cuartaTxt.includes('E001|0000452'), 'Serie y número del recibo por honorarios presentes en .4ta');
   }
 
   // --------------------------------------------------------------------------

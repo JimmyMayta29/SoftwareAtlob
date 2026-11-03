@@ -197,6 +197,14 @@ export const PlanillaPlameView: React.FC<PlanillaPlameViewProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF]">
+      {/* Aviso Normativo RMV */}
+      <div className="bg-[#FEF3C7] border-b border-[#FCD34D] px-3 py-1.5 flex items-center justify-between text-[11px] text-[#92400E]">
+        <div className="flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wider bg-[#F59E0B] text-white px-1.5 py-0.5 text-[10px]">Aviso Laboral</span>
+          <span><strong>RMV segundo tramo pendiente de decreto:</strong> La RMV vigente desde 01/10/2026 es S/ 1,230.00 (D.S. 015-2026-TR). El segundo tramo (+70, hasta S/ 1,300.00) no tiene fecha de vigencia y permanece sin vigencia en el sistema.</span>
+        </div>
+      </div>
+
       <BarraHerramientasLocal
         titulo="Planilla Mensual de Remuneraciones"
         subtitulo="Remuneración proporcional por días, horas extras (25% / 35%), descuentos, ONP/AFP, EsSalud 9%, 5ta categoría proyectada y asiento por centro de costos"
