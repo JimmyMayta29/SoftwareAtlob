@@ -11,3 +11,4 @@ Las instrucciones directas del usuario tienen prioridad. El plan vigente está e
 - El respaldo excluye credenciales SUNAT y usuarios/roles conforme a las decisiones confirmadas. Solo ADMINISTRADOR puede generarlo o restaurarlo. No registrar secretos en archivos de auditoría o respuestas.
 - Implementar en orden A → B → B2 → C → D → E. B incluye los hallazgos 5, 6, 7, 12, 8 y 10; el hallazgo 9 se cierra en B2, después de sus pruebas reales.
 - No certificar B2 sin ida y vuelta completa, archivo alterado rechazado, aislamiento de otra empresa y persistencia tras reinicio sobre PostgreSQL real. La fase E debe ejecutar estas pruebas desde `npm run verify` y fallar si falta el entorno real.
+- Después de implementar cualquier cambio en el sistema, realizar commit con mensaje descriptivo y neutral, y subirlo (push) obligatoriamente al repositorio remoto de GitHub (`origin/main`) para respaldar y almacenar los cambios.
