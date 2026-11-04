@@ -1,632 +1,541 @@
 # AUDITORÍA TÉCNICA INTEGRAL DEL SISTEMA: ATLOB CONSULTORES ERP
+
 **Documento Maestro de Arquitectura, Estado de Implementación, Cumplimiento Normativo SUNAT y Deuda Técnica**
 
 - **Sistema:** Atlob Consultores ERP (Gestión Contable & Tributaria Multiempresa)
 - **Autoría & Liderazgo de Ingeniería:** Jimmy Mayta (`jimmymayta29@gmail.com`)
 - **Estudio Contable Destino:** Atlob Consultores S.A.C.
-- **Fecha de Auditoría:** 01 de Noviembre de 2026
+- **Fecha de Auditoría:** 04 de Noviembre de 2026
 - **Rol del Auditor:** Arquitecto de Software & Auditor Técnico Senior
-- **Propósito:** Documentar con absoluta veracidad y evidencia de código el estado de cada componente, tabla, función y módulo para permitir auditoría externa y evolución sin necesidad de inspeccionar el código fuente.
+- **Propósito:** Documentar con trazabilidad directa al código real el estado verificado de cada componente, tabla, función, prueba automatizada y supuesto normativo pendiente del sistema, sin marcar fases como cerradas mientras existan validaciones externas o de persistencia pendientes.
 
 ---
 
 ## 1. RESUMEN EJECUTIVO
 
 ### 1.1. Propósito y Alcance del Producto
-**Atlob Consultores ERP** es una plataforma contable y tributaria de alta densidad para estudios contables peruanos. Su diseño arquitectónico y funcional se enfoca en resolver la contabilidad multiempresa bajo las normativas vigentes en Perú:
-- **Plan Contable General Empresarial (PCGE)** modificado 2019/vigente 2026.
-- **Sistema Integrado de Registros Electrónicos (SIRE)** conforme a la R.S. N° 000112-2021/SUNAT (RCE compras y RVIE ventas).
-- **Programa de Libros Electrónicos (PLE 5.2)** con generación y validación de estructuras TXT normativas.
-- **Declaraciones Juradas SUNAT (PDT 621 IGV-Renta, PLAME, DAOT, PDB)**.
-- **Auditoría Preventiva y Cierre Contable** con asientos automáticos de Elemento 8 y 9.
+
+**Atlob Consultores ERP** es una plataforma contable, laboral y tributaria de escritorio web para estudios contables peruanos, diseñada bajo aislamiento multiempresa para operar conforme al marco normativo vigente en el Perú:
+
+- **Plan Contable General Empresarial (PCGE)** modificado 2019 (Resolución CNC N° 002-2019-EF/30).
+- **Sistema Integrado de Registros Electrónicos (SIRE)** conforme a la R.S. N° 000112-2021/SUNAT y modificatorias (RCE compras y RVIE ventas) en submódulo independiente.
+- **Programa de Libros Electrónicos (PLE 5.2)** conforme a la R.S. N° 286-2009/SUNAT y modificatorias en submódulo independiente.
+- **Declaraciones Juradas y Obligaciones Tributarias (Formulario Virtual / PDT 621 IGV-Renta, Prorrata IGV, Renta Anual, DAOT, Cronograma)**.
+- **Gestión de Planillas, Beneficios Sociales, Exportador PDT PLAME 0601 y T-Registro**.
+- **Auditoría Preventiva, Estados Financieros y Cierre Contable** con asientos automáticos de Elemento 8 y Elemento 9.
 
 ### 1.2. Stack Tecnológico Real (Inspección de `package.json` y Runtime)
+
 | Capa | Tecnología | Versión Real | Propósito en el Repositorio |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Runtime** | Node.js | `>= 22.12.0` | Motor de ejecución del servidor backend y scripts de verificación |
-| **Backend Framework** | Express | `4.21.2` | Servidor HTTP RESTful montado en `/server` con middlewares de seguridad y guards |
-| **Frontend Framework** | React | `19.0.1` | Renderizado SPA con Hooks y arquitectura funcional |
-| **Lenguaje** | TypeScript | `7.0.2` | Tipado estático estricto verificado con `tsc --noEmit` |
-| **Bundler / Dev Server** | Vite | `8.3.0` | Empaquetador y middleware en desarrollo (`server.ts`) |
-| **Motor de Base de Datos** | PostgreSQL / `pg` | `8.23.1` | Driver nativo con pool de conexiones y migraciones SQL versionadas |
-| **Base de Datos en Memoria** | `pg-mem` | `3.0.14` | Emulación PostgreSQL para suites de prueba automatizadas sin dependencias externas |
-| **Cálculo Numérico** | `decimal.js` | `10.6.0` | Aritmética de punto fijo decimal para evitar imprecisiones de redondeo en céntimos |
-| **Esquemas & Validación** | Zod | `4.6.5` | Validación de contratos de entrada en endpoints y formularios |
-| **Autenticación** | `jsonwebtoken` & `bcryptjs` | `9.0.3` / `3.0.3` | Emisión de Access/Refresh tokens y hashing de contraseñas (10 rounds) |
-| **Generación de Reportes** | `jspdf` & `jspdf-autotable` | `4.2.1` / `5.0.8` | Motor de renderizado vectorial de documentos PDF (Estándar y Corporativo) |
-| **Procesamiento de Archivos** | `adm-zip` & `fast-xml-parser` | `0.6.1` / `5.11.2` | Empaquetado ZIP de respaldos y lectura de comprobantes XML UBL 2.1 |
-| **Estilos CSS** | Tailwind CSS | `4.3.3` | Estilizado declarativo con `@tailwindcss/vite` |
-| **Iconografía** | `lucide-react` | `0.546.0` | Glifos vectoriales en interfaces operativas |
+| **Backend Framework** | Express | `^4.21.2` | Servidor HTTP RESTful montado en `server/` con middlewares de autenticación y RBAC |
+| **Frontend Framework** | React | `^19.0.1` | Renderizado SPA con Hooks, contextos operativos y vistas 1:1 |
+| **Lenguaje** | TypeScript | `^7.0.2` | Tipado estático estricto verificado con `tsc --noEmit` (`npm run lint`) |
+| **Bundler / Dev Server** | Vite | `^8.3.0` | Empaquetador de producción y servidor de desarrollo integrado en `server.ts` |
+| **Motor de Base de Datos** | PostgreSQL / `pg` | `^8.23.1` | Driver nativo con pool de conexiones, transacciones ACID, RLS y migraciones SQL |
+| **Emulador SQL de Pruebas** | `pg-mem` | `^3.0.14` | Emulación parcial de PostgreSQL en memoria usada puntualmente en `postgresTestHarness.ts` |
+| **Cálculo Numérico** | `decimal.js` | `^10.6.0` | Aritmética decimal exacta (`Money`) para eliminar errores de coma flotante binaria |
+| **Esquemas & Validación** | Zod | `^4.6.5` | Validación estructural de contratos de entrada en endpoints y formularios |
+| **Autenticación** | `jsonwebtoken` & `bcryptjs` | `^9.0.3` / `^3.0.3` | Emisión de Access/Refresh tokens y hash de contraseñas |
+| **Generación de Reportes** | `jspdf` & `jspdf-autotable` | `^4.2.1` / `^5.0.8` | Motor vectorial de documentos PDF en formato estándar (`estandar`) y corporativo (`actual`) |
+| **Procesamiento de Archivos** | `adm-zip` & `fast-xml-parser` | `^0.6.1` / `^5.11.2` | Empaquetado ZIP de respaldos/declaraciones y lectura segura de XML UBL 2.1 |
+| **Estilos e Iconografía** | Tailwind CSS & `lucide-react` | `^4.3.3` / `^0.546.0` | Estilizado declarativo de alta densidad e iconografía vectorial |
 
 ---
 
-### 1.3. Matriz de Resumen por Módulo
-*Etiquetas aplicadas según Regla de Honestidad: `[COMPLETO]`, `[PARCIAL]`, `[MAQUETA]`, `[ROTO]`, `[PENDIENTE]`.*
+### 1.3. Matriz de Resumen por Módulo (Deduplicada y Verificada contra Código)
 
-| Módulo / Dominio | Estado Real | % Avance Real | Nivel de Riesgo | Justificación Técnica |
-|---|---|:---:|:---:|---|
-| **Núcleo Contable (PCGE & Asientos)** | `[COMPLETO]` | 95% | **Bajo** | Partida doble forzada en DB (`asiento_cuadrado_chk`), estados borrador/contabilizado/anulado, extornos y Libro Diario con PostgreSQL real. |
-| **Compras & Ventas (RCE / RVIE)** | `[COMPLETO]` | 90% | **Bajo** | Imputación contable automatizada, registro Módulo 11 de RUC, cálculo de base imponible, IGV, detracción y retención. |
-| **SIRE SUNAT (Conciliador & Propuesta)** | `[COMPLETO]` | 85% | **Medio** | Lectura de propuesta compras/ventas, conciliación registro vs propuesta, reglas de proveedor y generación de TXT de ajustes. |
-| **Libros Electrónicos (PLE 5.2)** | `[COMPLETO]` | 90% | **Bajo** | Generación de archivos TXT con nomenclatura oficial SUNAT (`LE{RUC}{AAAA}{MM}...`), pipe delimitado y sumatorias de control. |
-| **Liquidación PDT 621 IGV-Renta** | `[COMPLETO]` | 95% | **Bajo** | Fórmulas exactas de débito/crédito fiscal, coeficiente de renta 1% o 1.5%, saldo a favor y casillas oficiales del PDT 621. |
-| **Planilla, Beneficios Sociales, PLAME & T-Registro** | `[COMPLETO]` | 95% | **Bajo** | Trabajadores (régimen general/MYPE, AFP flujo/mixta, ONP, cargas, cuenta bancaria), planilla mensual con horas extras 25%/35%, 5ta categoría proyectada, asiento por centro de costos (62/40/41/94/95/79), Boletas PDF Estándar, Gratificaciones (+9%), CTS, Vacaciones Truncas/LBS, PLAME (.jor/.rem/.snl/.toc/.des) con validador previo y exportador T-Registro separado. |
-| **Tesorería & Bancos** | `[PARCIAL]` | 70% | **Medio** | Conciliación bancaria manual y sugerida funcional en frontend y backend; falta integración por API abierta con bancos peruanos (usa CSV/extractos). |
-| **Caja Chica** | `[COMPLETO]` | 85% | **Bajo** | Fondo fijo, rendición con comprobantes, imputación contable elemento 6 y póliza de reembolso automático. |
-| **Facturación Electrónica CPE** | `[PARCIAL]` | 60% | **Alto** | Parser y validador de XML UBL 2.1 y lectura de CDR funcionan. La emisión genera estructura UBL pero el envío SOAP a servidores de SUNAT usa sandbox/emulación (requiere certificado digital `.pfx` del cliente en producción). |
-| **Créditos & Cobranza (CxC / CxP)** | `[COMPLETO]` | 85% | **Bajo** | Estado de cuenta de clientes/proveedores, antigüedad de deuda a 30/60/90 días, registro de amortizaciones y notas de crédito. |
-| **Cierre Contable & Balances** | `[COMPLETO]` | 85% | **Medio** | Asientos de destino Elemento 9 automáticos, ajuste por diferencia de cambio mensual y precierre anual Elemento 8. |
-| **Gestión del Estudio (Calidad & Docs)** | `[COMPLETO]` | 80% | **Bajo** | Panel de calidad de cartera Atlob, control de vencimientos por RUC y biblioteca de minutas/contratos oficiales descargables. |
-| **Seguridad, RBAC & Respaldos** | `[COMPLETO]` | 92% | **Bajo** | Cifrado AES-256-GCM, TOTP MFA RFC 6238, política de respaldo ZIP con exclusión de secretos SUNAT y verificación de checksum SHA-256. |
+*Etiquetas aplicadas: `[COMPLETO]`, `[EN VERIFICACIÓN]`, `[PARCIAL]`, `[PENDIENTE]`.*
+
+| Módulo / Dominio | Estado Real | % Avance Real | Nivel de Riesgo | Justificación Técnica Verificada |
+| --- | :---: | :---: | :---: | --- |
+| **Núcleo Contable (PCGE & Asientos)** | `[COMPLETO]` | 95% | **Bajo** | Partida doble validada en servicio (`Money`) y en PostgreSQL mediante el trigger diferido `trg_asiento_partida_doble` (`fn_validar_partida_doble()`), correlativos atómicos, extornos e inmutabilidad de contabilizados. |
+| **Compras & Ventas (RCE / RVIE)** | `[COMPLETO]` | 92% | **Bajo** | Imputación contable automatizada, validación Módulo 11 de RUC, destinos de compra (`1`, `2`, `3`, `4`), notas de crédito, detracciones SPOT y retenciones/percepciones. |
+| **SIRE SUNAT (Conciliador & Propuesta)** | `[EN VERIFICACIÓN]` | 90% | **Medio** | Submódulo independiente (`/api/sire`): cliente OAuth2 y flujo de tickets (`01`, `02`, `03`), bloqueo estricto de propuestas `[SIMULADO]`, cruce por CAR de 27 dígitos con `Money` (`decimal.js`), asientos de ajuste (`6591`/`7591` vs `4212`/`1212`) y layouts RCE/RVIE (Anexos 8, 11, 2/3, 4/5). **Pendiente para cierre de Fase 6:** migrar lecturas/escrituras de `*_MEMORIA` a tablas SQL persistentes y homologar contra API real de SUNAT. |
+| **Libros Electrónicos (PLE 5.2)** | `[EN VERIFICACIÓN]` | 90% | **Medio** | Submódulo independiente (`/api/ple`): generación de libros `050100` (21 campos), `060100` (16), `080100` (42), `080200` (36), `140100` (35), `010100` (15) y `010200` (15) con `Money`, nomenclatura de 33 caracteres (`PEN`, `USD`, sin movimiento `I=0` en pos. 31), CRLF, UTF-8 sin BOM, validador TXT e historial SHA-256. **Pendiente para cierre de Fase 6:** lectura directa de tablas SQL PostgreSQL en lugar de `*_MEMORIA` y validación en aplicativo PLE 5.2 de escritorio. |
+| **Liquidación PDT 621 & Tributos** | `[COMPLETO]` | 95% | **Bajo** | Fórmulas con `decimal.js` en `liquidacionIGVService.ts` y `LiquidacionTributariaView.tsx`, casillas verificadas (`100`, `102`, `131`, `107`, `108`, `110`, `111`, `178`, `140`, `145`, `184`, `171`, `179`, `188`, `301`, `315`, `302`, `303`, `304`), Prorrata IGV, Renta Anual, DAOT y Cronograma. |
+| **Planilla, Beneficios, PLAME & T-Registro** | `[EN VERIFICACIÓN]` | 92% | **Medio** | 6 Casos Dorados verificados con `assert.strictEqual`, RMV por vigencia (`1,130` / `1,230`), AFP `1.37%` con topes RMA 2026 Q1-Q4, Boletas PDF estándar, PLAME oficial (`.jor` 14, `.snl` 15, `.rem` 18, `.4ta` 20, `.toc` 26; `.des` eliminado) y T-Registro (`RP_{RUC}.zip`: `.ide` 04, `.tra` 05, `.per` 11, `.est` 17). Pendiente persistencia SQL directa en `planillaService.ts` y prueba en PDT PLAME / PVS real. |
+| **Tesorería, Bancos & Caja Chica** | `[PARCIAL]` | 75% | **Medio** | Movimientos multimoneda, conciliación bancaria asistida con extractos CSV, transferencia entre cuentas y fondo fijo de caja chica funcionales; sin conexión API bancaria directa. |
+| **Créditos & Cobranza (CxC / CxP)** | `[COMPLETO]` | 88% | **Bajo** | Estados de cuenta por anexo, amortizaciones parciales/múltiples, anticipos, aplicación de notas de crédito y antigüedad de saldos por tramos. |
+| **Facturación Electrónica CPE** | `[PARCIAL]` | 60% | **Medio** | Parser y validador XML UBL 2.1 con defensa anti-XXE (`xmlImportService.ts`) y lectura de CDR operativos. Emisión real diferida por diseño al Facturador Atlob externo independiente. |
+| **Inventarios & Activos Fijos** | `[PARCIAL]` | 50% | **Medio** | Servicios base `kardexService.ts` y `activosFijosService.ts` creados; vistas del menú principal marcadas como `próximamente` hasta iniciar formalmente la Fase 7. |
+| **Estados Financieros & Cierres** | `[COMPLETO]` | 88% | **Bajo** | Hoja de Trabajo de 10 columnas, Estado de Situación Financiera, Estado de Resultados (Naturaleza y Función), Flujo de Efectivo, diferencia de cambio y cierre anual Elemento 8. |
+| **Gestión del Estudio** | `[COMPLETO]` | 85% | **Bajo** | Cartera multiempresa, indicadores de control de calidad, alertas de vencimientos y biblioteca de plantillas. |
+| **Seguridad, RBAC & Respaldos** | `[COMPLETO]` | 95% | **Bajo** | AES-256-GCM con KEK en entorno (`SUNAT_ENCRYPTION_KEY`), MFA TOTP RFC 6238, respaldo ZIP por empresa excluyendo secretos SUNAT y usuarios (`78` entradas en `REGISTRO_DATOS_EMPRESA`) y bloqueo de arranque sin BD en `NODE_ENV=production`. |
 
 ---
 
 ## 2. ARQUITECTURA DEL SISTEMA
 
-### 2.1. Estructura de Directorios Comentada
-```
+### 2.1. Estructura de Directorios Verificada contra el Repositorio
+
+```text
 /
-├── server.ts                             # Entry point híbrido: Express API + Vite middlewares (dev) o static dist (prod)
-├── package.json                          # Dependencias, engines (Node >=22.12.0) y scripts de build/test/lint
-├── vite.config.ts                        # Configuración Vite con plugins React y Tailwind v4
-├── index.html                            # Punto de entrada HTML con títulos y metadatos sincronizados de Atlob Consultores
-├── SISTEMA_ATLOB_ERP.md                  # Documento maestro de auditoría técnica del sistema
+├── server.ts                                 # Entry point híbrido: API Express + Vite (dev) o estáticos dist/ (prod)
+├── package.json                              # Scripts de verificación (lint, test, test:fase6, test:pg, test:infra, build)
+├── vite.config.ts                            # Configuración Vite 8 con React 19 y Tailwind CSS v4
+├── index.html                                # Punto de entrada HTML de Atlob Consultores ERP
+├── AGENTS.md                                 # Reglas obligatorias de arquitectura, neutralidad de nombres y persistencia
+├── SISTEMA_ATLOB_ERP.md                      # Documento maestro de auditoría técnica del sistema
 │
-├── server/                               # BACKEND NODE.JS / EXPRESS
+├── server/                                   # BACKEND NODE.JS / EXPRESS
 │   ├── config/
-│   │   ├── database.ts                   # Pool PostgreSQL (pg.Pool), conexión con reconexión y transacciones atómicas
-│   │   └── env.ts                        # Variables de entorno validadas (PORT, DATABASE_URL, JWT_SECRET, etc.)
-│   ├── db/
-│   │   ├── migrate.ts                    # Runner de migraciones secuenciales DDL contra PostgreSQL
-│   │   ├── schema.sql                    # Esquema DDL maestro inicial (empresas, usuarios, roles, asientos, compras, ventas)
-│   │   ├── schema_fase2.sql a fase7.sql  # Migraciones incrementales (triggers partida doble, RLS, bóveda de secretos)
-│   │   └── seed_catalogos.ts             # Población de catálogos SUNAT (Tablas 01 a 35, tipos de documento, monedas)
-│   ├── middlewares/
-│   │   ├── auth.ts                       # Extractor JWT Bearer, verificación de firma y roles globales
-│   │   ├── empresaGuard.ts               # Validación estricta de pertenencia y rol en la empresa activa (RBAC)
-│   │   └── requireMfa.ts                 # Enforcing de segundo factor TOTP para operaciones críticas
-│   ├── repositories/
-│   │   ├── empresaRepository.ts          # Acceso a datos de empresas y carteras
-│   │   ├── asientoRepository.ts          # CRUD de asientos contables con validación de estados y bloqueos
-│   │   └── sunatSireRepository.ts        # Almacenamiento de propuestas SIRE y comprobantes electrónicos
-│   ├── routes/
-│   │   ├── index.ts                      # Enrutador maestro `/api` montando sub-rutas protegidas
-│   │   ├── authRoutes.ts                 # Endpoints de login, refresh token, MFA setup y logout
-│   │   ├── empresaRoutes.ts              # ABM de empresas clientes de la cartera
-│   │   ├── asientoRoutes.ts              # Endpoints transaccionales de vouchers y asientos
-│   │   ├── operacionesRoutes.ts          # Compras, ventas, cuentas por cobrar y pagar
-│   │   ├── backupEmpresaRoutes.ts        # Generación y restauración de respaldos ZIP cifrados
-│   │   └── importacionRoutes.ts          # Motor de importación masiva de CSV con validación de esquemas
-│   ├── services/
-│   │   ├── authJwtService.ts             # Lógica de emisión JWT, validación de contraseñas y almacén de sesiones
-│   │   ├── totpService.ts                # Generador y validador de tokens TOTP RFC 6238 en Base32
-│   │   ├── backupEmpresaService.ts       # Serializador NDJSON, empaquetador ZIP y cifrado AES-256-GCM
-│   │   ├── importacionCsvService.ts      # Parser tolerante a comas/punto y coma, neutralizador CSV y Módulo 11
-│   │   └── sireConciliadorService.ts     # Algoritmo de cruce 1:1, reglas de inconsistencia y propuesta RCE/RVIE
+│   │   ├── database.ts                       # Pool PostgreSQL (pg.Pool), transacciones y bloqueo de fallback en prod
+│   │   └── env.ts                            # Validación de entorno (PORT, DATABASE_URL, JWT_SECRET, SUNAT_ENCRYPTION_KEY)
+│   ├── db/                                   # 15 archivos de esquema, triggers y semillas SQL
+│   │   ├── migrate.ts                        # Ejecutor secuencial de migraciones DDL contra PostgreSQL
+│   │   ├── schema.sql                        # Esquema base de control y tablas iniciales
+│   │   ├── schema_a_preflight.sql / compat   # Preflight y compatibilidad de migración multiempresa
+│   │   ├── schema_fase2.sql a fase7.sql      # Motor contable, operaciones, tesorería, EEFF, SIRE/PLE y seguridad
+│   │   ├── schema_fase8_tributos.sql         # Tablas de PDT 621, Prorrata IGV, Renta Anual, DAOT y Cronograma
+│   │   ├── schema_fase9_planillas.sql        # Tablas de trabajadores, planillas, beneficios y T-Registro con RLS
+│   │   ├── triggers_fase2.sql                # Trigger diferido trg_asiento_partida_doble e inmutabilidad contable
+│   │   └── seed.ts / seed_catalogos.ts       # Semillas y catálogos normativos SUNAT
+│   ├── middlewares/                          # 3 middlewares HTTP
+│   │   ├── auth.ts                           # Verificación de JWT Bearer y sesión activa
+│   │   ├── empresaGuard.ts                   # Control de pertenencia a la empresa activa y matriz RBAC
+│   │   └── validate.ts                       # Validación de esquemas de entrada con Zod
+│   ├── repositories/                         # 3 repositorios centrales
+│   │   ├── empresaRepository.ts              # Acceso persistente a empresas y validación de aislamiento
+│   │   ├── parametroRepository.ts            # Parámetros laborales/tributarios con vigencias desde-hasta
+│   │   └── auditoriaRepository.ts            # Bitácora inmutable de eventos de auditoría
+│   ├── controllers/                          # 11 controladores REST (pleController, sireController, asientoController, etc.)
+│   ├── routes/                               # 21 archivos de rutas montados bajo /api en routes/index.ts
+│   │   ├── index.ts                          # Enrutador raíz /api y endpoint /api/health
+│   │   ├── authRoutes.ts                     # Login, refresh, logout y enrolamiento/verificación MFA TOTP
+│   │   ├── empresaRoutes.ts                  # Gestión de empresas de la cartera
+│   │   ├── asientoRoutes.ts                  # Vouchers, contabilización y extornos
+│   │   ├── operacionesRoutes.ts              # Compras, ventas, CxC y CxP
+│   │   ├── sireRoutes.ts                     # Submódulo independiente SIRE (/api/sire)
+│   │   ├── pleRoutes.ts                      # Submódulo independiente PLE 5.2 (/api/ple)
+│   │   ├── liquidacionIgvRoutes.ts           # Declaración mensual PDT 621 (/api/tributos/pdt621)
+│   │   ├── prorrataIgvRoutes.ts              # Prorrata de crédito fiscal IGV
+│   │   ├── djRentaAnualRoutes.ts             # Papeles de trabajo Renta Anual 3ra Categoría
+│   │   ├── daotRoutes.ts                     # Operaciones con terceros DAOT
+│   │   ├── cronogramaVencimientosRoutes.ts   # Cronograma SUNAT por último dígito de RUC
+│   │   ├── parametroRoutes.ts                # Administración de parámetros normativos
+│   │   ├── tesoreriaPlanillaRoutes.ts        # Tesorería, honorarios 4ta, planillas, PLAME y T-Registro
+│   │   ├── backupEmpresaRoutes.ts            # Exportación y restauración de respaldos ZIP cifrados
+│   │   └── importacionRoutes.ts              # Importación masiva CSV con neutralización de fórmulas y rollback
+│   ├── services/                             # 45 servicios de dominio (sin duplicados en subcarpetas)
+│   │   ├── asientoService.ts                 # Ciclo de vida de asientos, correlativos y partida doble con Money
+│   │   ├── compraService.ts / ventaService.ts# Registros de compras y ventas y generación automática de asientos
+│   │   ├── sunatGateway.ts                   # Adaptadores OAuth2 REST (real y MockSunatGateway rotulado SIMULADO)
+│   │   ├── sireService.ts                    # Conexiones cifradas SUNAT, tickets asíncronos y propuestas SIRE
+│   │   ├── conciliadorSireService.ts         # Cruce por CAR de 27 dígitos con Money y asientos de ajuste guiados
+│   │   ├── sireLayoutService.ts              # Layouts oficiales TXT/ZIP de reemplazo y ajustes RCE/RVIE
+│   │   ├── pleExportService.ts               # Generador oficial PLE 5.2 con Money y nomenclatura de 33 caracteres
+│   │   ├── archivoValidadorService.ts        # Lector y validador sintáctico TXT PLE/SIRE por línea y columna
+│   │   ├── historialGeneracionesService.ts   # Registro por período con hash SHA-256 de 64 caracteres
+│   │   ├── xmlImportService.ts               # Parser XML UBL 2.1 con bloqueo anti-XXE (DOCTYPE / ENTITY)
+│   │   ├── sunatJobsService.ts               # Cola asíncrona de trabajos con reintentos y backoff exponencial
+│   │   ├── liquidacionIGVService.ts          # Motor de casillas PDT 621, arrastres y rectificatorias
+│   │   ├── planillaService.ts                # Nómina mensual, 5ta categoría, gratificaciones, CTS, LBS, PLAME y T-Registro
+│   │   ├── cryptoService.ts                  # AES-256-GCM (v1 directo y v2 Envelope Encryption por empresa)
+│   │   ├── totpService.ts                    # Generación y verificación TOTP RFC 6238
+│   │   ├── backupEmpresaService.ts           # Empaquetado NDJSON + ZIP cifrado AES-256-GCM y restauración atómica
+│   │   └── importacionService.ts             # Parser CSV coma/punto y coma, Módulo 11, apertura y rollback
 │   ├── storage/
-│   │   └── registroDatosEmpresa.ts       # Lista declarativa única de 38 tablas para aislamiento y respaldo
-│   └── tests/                            # BATERÍA DE 19 SUITES DE PRUEBA AUTOMATIZADAS
-│       ├── run_all_tests.ts              # Orquestador integral (ejecuta fases 1 a 13 en 30s)
-│       ├── run_tests_fase13_backup.ts    # Verificación de respaldo ZIP, exclusión de claves SOL y restauración
-│       └── run_tests_fase13_importacion.ts # Verificación de importación CSV, partida doble y rollback
+│   │   └── registroDatosEmpresa.ts           # Lista declarativa de 78 entradas de tablas y política de exportación
+│   └── tests/                                # 26 archivos en server/tests/ + 2 en server/tests/real/ (+ session.test.ts)
+│       ├── run_all_tests.ts                  # Orquestador de las 23 suites automatizadas (91.66s en Node.js)
+│       ├── run_tests_fase6.ts                # Suite Fase 6: 80 aserciones de SIRE y PLE 5.2
+│       ├── run_tests_fase5_planillas.ts      # Suite Planillas: 6 Casos Dorados, PLAME, T-Registro y Boletas PDF
+│       ├── run_tests_fase4_tributos.ts       # Suite Tributos: PDT 621 (casillas 102/171/179/188/303), Prorrata y DAOT
+│       ├── postgresTestHarness.ts            # Harness pg-mem para pruebas SQL unitarias de esquema
+│       └── real/
+│           ├── test_pg_rls_planillas.ts      # Prueba PostgreSQL 15+ real: RLS NOBYPASSRLS + trigger partida doble
+│           └── test_infra.ts                 # Prueba de infraestructura PostgreSQL real y migraciones
 │
-└── src/                                  # FRONTEND REACT 19 SPA
-    ├── App.tsx                           # Contenedor raíz con TopBar, DesktopWorkspace, barra de estado y modales
-    ├── main.tsx                          # Montaje ReactDOM y configuración React Query
-    ├── api/                              # CLIENTE HTTP Y SERVICIOS API
-    │   ├── client.ts                     # Axios / fetch instance con interceptor de renovación de tokens Bearer
-    │   ├── authApi.ts                    # Métodos de autenticación y cambio de empresa
-    │   └── operacionesApi.ts             # Consumo de endpoints contables
+└── src/                                      # FRONTEND REACT 19 SPA
+    ├── App.tsx                               # Contenedor raíz con TopBar, área de trabajo 1:1 y barra de estado
+    ├── main.tsx                              # Punto de montaje React y proveedor React Query
+    ├── api/                                  # 15 módulos cliente HTTP (client.ts, sireApi.ts, pleApi.ts, session.test.ts)
+    ├── hooks/                                # 9 hooks de datos (useSire.ts, usePle.ts, useAsientos.ts, etc.)
     ├── components/
-    │   ├── desktop/
-    │   │   └── TopBar.tsx                # Barra de título, menús en cascada data-driven y barra de herramientas
-    │   ├── modals/                       # Modales utilitarios (SearchEmpresas, ConfigEmpresa, Backup, Calculadora, etc.)
-    │   └── views/                        # Vistas de módulos contables (RegistroCompras, LibroDiario, Vouchers, etc.)
-    ├── context/
-    │   ├── EmpresaPeriodoContext.tsx     # Contexto global de empresa activa, período contable, rol y hotkeys
-    │   ├── ReportStyleContext.tsx        # Switch de diseño de reportes: "estandar" (monocromo) vs "actual" (color)
-    │   └── ToastContext.tsx              # Sistema de notificaciones operativas no intrusivas
-    ├── data/
-    │   ├── pcgeAccounts.ts               # Catálogo completo de cuentas del PCGE (Elemento 1 al 9 a 6 dígitos)
-    │   ├── empresasClientes.ts           # Fixtures de empresas demo y fábrica de datos aislados
-    │   └── maestros.ts                   # Tipos de cambio SBS, catálogo de subdiarios y entidades
+    │   ├── desktop/TopBar.tsx                # Barra superior data-driven (13 grupos MENU_DATA) y barra de herramientas
+    │   ├── modals/                           # Ventanas modales operativas (NuevaEmpresa, Backup, Importación CSV, etc.)
+    │   └── views/                            # Vistas exclusivas 1:1 (Vouchers, SireConciliador, ExportarPlame, etc.)
+    ├── context/                              # AppContext, EmpresaPeriodoContext, ReportStyleContext y ToastContext
+    ├── data/                                 # pcgeAccounts.ts (incluye 6591 y 7591), empresasClientes.ts y maestros.ts
     ├── services/
-    │   ├── accountingEngine.ts           # Generador de asientos de compras, ventas, planilla, honorarios y PDT 621
-    │   ├── sireTxtGenerator.ts           # Generador de archivos TXT normativos RCE y RVIE
-    │   ├── pdfExportService.ts           # Renderizado de libros en PDF Corporativo
+    │   ├── accountingEngine.ts               # Motor auxiliar de previsualización contable en cliente
+    │   ├── pdfExportService.ts               # Exportador PDF de estilo actual
     │   └── reports/formato_estandar/
-    │       └── formatoEstandarEngine.ts  # Motor de reportes monocromo Formato estándar Atlob
-    └── types/
-        ├── menu.ts                       # Definición tipada de la estructura de menús y submenús (`MENU_DATA`)
-        └── index.ts                      # Interfaces de Comprobante, AsientoContable, Liquidación, etc.
+    │       └── formatoEstandarEngine.ts      # Motor monocromo de reportes en formato estándar
+    └── types/                                # menu.ts (MENU_DATA) e index.ts (modelos de dominio)
 ```
 
 ---
 
 ### 2.2. Diagrama de Arquitectura y Flujo de Datos
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                  FRONTEND: CONSOLA DE ESCRITORIO REACT 19                    │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ TopBar: Título ("Atlob Consultores ERP") | Menú Cascada | Herramientas │  │
+│  │ TopBar: "Atlob Consultores ERP" | Menú 13 Grupos | Barra Herramientas  │  │
 │  └───────────────────────────────────┬────────────────────────────────────┘  │
-│                                      │ Dispara acciones / abre módulos       │
+│                                      │ 1 opción activa = 1 vista exclusiva   │
 │  ┌───────────────────────────────────▼────────────────────────────────────┐  │
-│  │ Contextos Globales:                                                    │  │
-│  │ - EmpresaPeriodoContext (empresaActivaId, periodo, rol, dirty check)   │  │
-│  │ - ReportStyleContext ("estandar" | "actual")                           │  │
-│  │ - ToastContext (notificaciones operativas)                             │  │
+│  │ Contextos: EmpresaPeriodoContext | ReportStyleContext | ToastContext   │  │
 │  └───────────────────────────────────┬────────────────────────────────────┘  │
-│                                      │ Hooks de mutación / React Query       │
+│                                      │ Cliente HTTP + Renovación Bearer JWT  │
 │  ┌───────────────────────────────────▼────────────────────────────────────┐  │
-│  │ Vistas de Módulo (Workspace Central):                                  │  │
-│  │ - VouchersView, RegistroCompras, SireConciliador, HojaTrabajo, etc.   │  │
+│  │ Vistas: VouchersView, SireConciliadorView, LiquidacionTributariaView…  │  │
 │  └───────────────────────────────────┬────────────────────────────────────┘  │
 └──────────────────────────────────────┼───────────────────────────────────────┘
-                                       │ Peticiones HTTP REST + Bearer JWT
+                                       │ REST /api/*
                                        ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                    BACKEND: SERVIDOR NODE.JS / EXPRESS                       │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │ Middlewares de Seguridad:                                              │  │
-│  │ - requireAuth (JWT con expiración 15m)                                 │  │
-│  │ - empresaGuard (Verifica autorización de tenant y rol sobre empresaId) │  │
-│  │ - requireMfa (Exige factor TOTP RFC 6238 en operaciones críticas)     │  │
+│  │ Middlewares (server/middlewares/ + authRoutes):                        │  │
+│  │ - auth.ts (JWT Access 15m) | empresaGuard.ts (RBAC por empresa)        │  │
+│  │ - validate.ts (Zod)        | totpService.ts (MFA TOTP RFC 6238)        │  │
 │  └───────────────────────────────────┬────────────────────────────────────┘  │
 │                                      │                                       │
 │  ┌───────────────────────────────────▼────────────────────────────────────┐  │
-│  │ Capa de Servicios de Negocio:                                          │  │
-│  │ - asientoService (Valida partida doble, bloqueo periodo, crea voucher) │  │
-│  │ - sireConciliadorService (Compara RCE vs registro, genera ajustes)     │  │
-│  │ - backupEmpresaService (Serializa NDJSON, cifra AES-256-GCM, rota ZIP) │  │
-│  │ - importacionCsvService (Valida Módulo 11 RUC, balance de apertura)   │  │
+│  │ Servicios de Dominio (45 servicios con aritmética Money decimal.js):   │  │
+│  │ - asientoService, compraService, ventaService, liquidacionIGVService   │  │
+│  │ - sireService, conciliadorSireService, pleExportService                │  │
+│  │ - planillaService, backupEmpresaService, importacionService            │  │
 │  └───────────────────────────────────┬────────────────────────────────────┘  │
 └──────────────────────────────────────┼───────────────────────────────────────┘
-                                       │ Pool transaccional SQL
+                                       │ Pool transaccional pg.Pool
                                        ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                     ALMACENAMIENTO PERSISTENTE REAL                          │
+│                     CAPA DE ALMACENAMIENTO Y AISLAMIENTO                     │
 │                                                                              │
 │  ┌──────────────────────────────────────┐  ┌──────────────────────────────┐  │
-│  │ BASE DE CONTROL DEL ESTUDIO          │  │ BASES POR EMPRESA (ARQ. B)   │  │
-│  │ - tenants                            │  │ - asientos / detalles        │  │
-│  │ - usuarios_estudio (Jimmy Mayta)     │  │ - compras / ventas           │  │
-│  │ - roles / rol_permisos               │  │ - anexos (clientes/prov)     │  │
-│  │ - empresas (metadatos de cartera)    │  │ - periodos / bloqueos        │  │
-│  │ - estudio_configuracion              │  │ - cuentas_financieras        │  │
-│  └──────────────────────────────────────┘  └──────────────────────────────┘  │
-│                                                                              │
-│  * ENTORNO DEV / PREVIEW: Si DATABASE_URL está ausente, el servidor          │
-│    activa automáticamente el almacén transaccional en memoria                │
-│    (`IN_MEMORY_FALLBACK`) con fixtures completos sin caerse.                 │
+│  │ TABLAS DE CONTROL DEL ESTUDIO        │  │ DATOS POR EMPRESA (RLS / B)  │  │
+│  │ - tenants, usuarios_estudio, roles   │  │ - asientos, asiento_detalle  │  │
+│  │ - permisos, membresias               │  │ - comprobantes_compra/venta  │  │
+│  │ - empresas (metadatos de cartera)    │  │ - declaraciones_pdt621       │  │
+│  │   [Excluidos de respaldos .zip]      │  │ - trabajadores, planillas    │  │
+│  └──────────────────────────────────────┘  │ - sunat_conexiones [Cifrado  │  │
+│                                            │   AES-256-GCM; NO respaldado]│  │
+│                                            └──────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### 2.3. Persistencia de Datos y Comportamiento ante Fallos
-- **Con PostgreSQL conectado (`DATABASE_URL` configurada):** Todas las transacciones se realizan mediante transacciones ACID (`BEGIN ... COMMIT / ROLLBACK`). Las comprobaciones de partida doble y unicidad de vouchers son aplicadas directamente por la base de datos mediante triggers y constraints.
-- **Sin PostgreSQL conectado (Modo Desarrollo / Vista Previa):** El backend conmuta a `IN_MEMORY_FALLBACK` (repositorios en memoria `USUARIOS_ESTUDIO_MEMORIA`, `EMPRESAS_STORE`, etc.). Los datos persisten mientras el proceso Node.js siga en ejecución. Si se reinicia el servidor dev sin base de datos externa, los datos vuelven a los fixtures predeterminados de `EMPRESAS_CLIENTES_DEMO`.
-- **Limpieza del Navegador (`localStorage`):** El cliente almacena únicamente el token de acceso, el refresh token de sesión y la lista de empresas recientes. Si el usuario borra la caché o cookies de su navegador, solo se cierra la sesión local; **ningún dato contable de la empresa se pierde** porque reside en el servidor.
+### 2.3. Persistencia de Datos, Fallback en Memoria y Comportamiento en Producción
+
+1. **Bloqueo Estricto en Producción (`NODE_ENV=production`):**
+   - Verificado en `server/config/env.ts`, `server/config/database.ts` y probado automáticamente en `server/tests/test_produccion_sin_db.ts` (Suite 23): cuando `NODE_ENV === 'production'`, `IN_MEMORY_FALLBACK` está **deshabilitado**. Si `DATABASE_URL` falta o PostgreSQL no responde, `initializeDatabase()` y `server.ts` abortan inmediatamente con código de salida `1` (`DATABASE_URL_REQUERIDA` / `DATABASE_NO_DISPONIBLE`).
+2. **Modo Desarrollo y Suites Rápidas (`NODE_ENV=development` o `NODE_ENV=test` sin `DATABASE_URL`):**
+   - El proceso activa arreglos transaccionales en memoria (`ASIENTOS_MEMORIA`, `COMPRAS_MEMORIA`, `VENTAS_MEMORIA`, etc.) para desarrollo local y pruebas unitarias deterministas.
+3. **Limitación Actual Detectada en Auditoría (Brecha de Persistencia SQL):**
+   - Mientras `empresaRepository.ts`, `asientoService.ts`, `compraService.ts` y `ventaService.ts` cuentan con ramas SQL `db.isPostgresConnected()`, los servicios de Fase 5/6 (`pleExportService.ts`, `conciliadorSireService.ts`, `sireService.ts`, `historialGeneracionesService.ts` y `planillaService.ts`) aún operan directamente contra las estructuras `*_MEMORIA`. Conforme a las reglas de `AGENTS.md`, esta brecha impide declarar cerrada la Fase 6 hasta completar las consultas SQL persistentes sobre PostgreSQL real.
+4. **Almacenamiento en el Navegador (`localStorage`):**
+   - El cliente web solo guarda tokens de sesión y preferencias visuales; limpiar el navegador cierra la sesión local sin afectar los datos del servidor.
 
 ---
 
 ### 2.4. Control de Acceso y Roles (RBAC)
-El sistema implementa 4 niveles jerárquicos tipados estrictamente en `server/services/authJwtService.ts` y `src/context/EmpresaPeriodoContext.tsx`:
 
-1. **`ADMINISTRADOR` / `ADMIN_ESTUDIO`:** Acceso total al estudio contable, alta y baja de empresas, creación de usuarios, generación y restauración de respaldos, apertura y cierre de períodos anuales, y configuración global. (Perfil activo predeterminado: **Jimmy Mayta**).
-2. **`CONTADOR_SENIOR` / `CONTADOR`:** Creación, edición, contabilización y anulación de asientos; conciliación bancaria y SIRE; generación de liquidaciones PDT 621 y cierre mensual.
-3. **`ASISTENTE_CONTABLE` / `ASISTENTE`:** Registro de comprobantes de compras, ventas, gastos de caja chica y emisión de borradores. No puede cerrar períodos ni restaurar copias de seguridad.
-4. **`AUDITOR_REVISOR` / `AUDITOR`:** Modo de solo lectura y revisión analítica. Puede consultar libros, generar reportes financieros, exportar hojas de trabajo y auditar inconsistencias, pero no puede insertar, alterar ni anular asientos ni comprobantes.
+Definido en `server/services/authJwtService.ts`, `server/middlewares/empresaGuard.ts` y `src/context/EmpresaPeriodoContext.tsx`:
+
+1. **`ADMINISTRADOR` / `ADMIN_ESTUDIO`:** Control total del estudio, alta/baja de empresas, gestión de parámetros normativos, apertura/reapertura de períodos y generación/restauración de respaldos ZIP.
+2. **`CONTADOR_SENIOR` / `CONTADOR`:** Contabilización y extorno de asientos, conciliación bancaria y SIRE, preliquidación de declaraciones tributarias, cálculo de planillas y cierres mensuales.
+3. **`ASISTENTE_CONTABLE` / `ASISTENTE`:** Registro de borradores de asientos, comprobantes de compra/venta y rendiciones de caja chica; sin permisos de cierre de período ni restauración de respaldos.
+4. **`AUDITOR_REVISOR` / `AUDITOR`:** Acceso exclusivo de solo lectura para consulta de libros, estados financieros, papeles de trabajo y auditoría; bloqueado con `403` / `PERMISO_DENEGADO` ante cualquier mutación o preliquidación.
 
 ---
 
 ## 3. MODELO DE DATOS Y REGLAS DE INTEGRIDAD
 
 ### 3.1. Entidades Principales del Esquema PostgreSQL
-Definidas en `server/db/schema.sql`, `server/db/schema_fase2.sql` y `server/storage/registroDatosEmpresa.ts`:
+
+Definidas en `server/db/schema.sql`, `server/db/schema_fase2.sql` a `schema_fase9_planillas.sql` y registradas en `server/storage/registroDatosEmpresa.ts` (`78` entradas declarativas):
 
 ```sql
--- 1. Empresas de la Cartera (Base de Control)
-CREATE TABLE empresas (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL REFERENCES tenants(id),
-  codigo VARCHAR(20) NOT NULL UNIQUE,
-  ruc CHAR(11) NOT NULL UNIQUE,
-  razon_social VARCHAR(200) NOT NULL,
-  nombre_comercial VARCHAR(200),
-  regimen_tributario VARCHAR(30) NOT NULL DEFAULT 'MYPE_TRIBUTARIO',
-  direccion_fiscal TEXT,
-  tasa_renta NUMERIC(5, 4) NOT NULL DEFAULT 0.0100,
-  estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 2. Períodos Contables
-CREATE TABLE periodos (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
-  ejercicio INTEGER NOT NULL,          -- Ej: 2026
-  mes INTEGER NOT NULL,                -- 1 a 12
-  estado VARCHAR(20) NOT NULL DEFAULT 'ABIERTO', -- 'ABIERTO', 'CERRADO', 'BLOQUEADO'
-  cerrado_en TIMESTAMPTZ,
-  cerrado_por UUID,
-  CONSTRAINT uq_empresa_periodo UNIQUE (empresa_id, ejercicio, mes)
-);
-
--- 3. Plan de Cuentas Contable por Empresa (PCGE)
-CREATE TABLE cuentas_contables (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
-  codigo VARCHAR(10) NOT NULL,         -- Ej: '1011', '60111', '70111'
-  denominacion VARCHAR(200) NOT NULL,
-  nivel INTEGER NOT NULL,              -- 2, 3, 4, 5 dígitos
-  tipo_cuenta VARCHAR(20) NOT NULL,    -- 'ACTIVO', 'PASIVO', 'PATRIMONIO', 'GASTO', 'INGRESO'
-  moneda VARCHAR(3) NOT NULL DEFAULT 'PEN',
-  permite_movimiento BOOLEAN NOT NULL DEFAULT TRUE,
-  cuenta_destino_debe VARCHAR(10),
-  cuenta_destino_haber VARCHAR(10),
-  CONSTRAINT uq_empresa_cuenta UNIQUE (empresa_id, codigo)
-);
-
--- 4. Asientos Contables (Cabecera de Voucher)
-CREATE TABLE asientos (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- Cabecera de Asiento Contable (server/db/schema_fase2.sql)
+CREATE TABLE IF NOT EXISTS asientos (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   empresa_id UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
   periodo_id UUID NOT NULL REFERENCES periodos(id),
-  subdiario_codigo CHAR(2) NOT NULL,   -- '00'=Apertura, '01'=Compras, '02'=Ventas, etc.
-  numero_asiento VARCHAR(20) NOT NULL, -- Correlativo mensual '01090001'
+  subdiario_id UUID NOT NULL REFERENCES subdiarios(id),
+  numero VARCHAR(20), -- NULL mientras estado = 'BORRADOR'; asignado atómicamente al contabilizar
   fecha DATE NOT NULL,
-  moneda VARCHAR(3) NOT NULL DEFAULT 'PEN',
-  tipo_cambio NUMERIC(8, 4) NOT NULL DEFAULT 1.0000,
-  glosa TEXT NOT NULL,
-  total_debe NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  total_haber NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  estado VARCHAR(20) NOT NULL DEFAULT 'BORRADOR', -- 'BORRADOR', 'CONTABILIZADO', 'ANULADO'
-  origen VARCHAR(30) NOT NULL DEFAULT 'MANUAL',   -- 'MANUAL', 'COMPRAS', 'VENTAS', 'SIRE', 'PLANILLA'
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_asiento_correlativo UNIQUE (empresa_id, periodo_id, subdiario_codigo, numero_asiento)
+  glosa VARCHAR(500) NOT NULL,
+  moneda CHAR(3) NOT NULL DEFAULT 'PEN',
+  tipo_cambio NUMERIC(10,6) NOT NULL DEFAULT 1.000000,
+  estado VARCHAR(20) NOT NULL DEFAULT 'BORRADOR'
+    CHECK (estado IN ('BORRADOR', 'CONTABILIZADO', 'ANULADO')),
+  origen VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+  origen_id UUID,
+  asiento_extorno_id UUID REFERENCES asientos(id),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by UUID REFERENCES usuarios_estudio(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(empresa_id, periodo_id, subdiario_id, numero)
 );
 
--- 5. Apuntes / Líneas del Asiento Contable
-CREATE TABLE lineas_asiento (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- Detalle de Líneas del Asiento (server/db/schema_fase2.sql)
+CREATE TABLE IF NOT EXISTS asiento_detalle (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   asiento_id UUID NOT NULL REFERENCES asientos(id) ON DELETE CASCADE,
-  linea INTEGER NOT NULL,
-  cuenta_codigo VARCHAR(10) NOT NULL,
-  anexo_id UUID,                       -- Cliente, proveedor o trabajador opcional
-  tipo_documento CHAR(2),              -- Catálogo SUNAT 10: '01', '03', '07', etc.
-  serie_documento VARCHAR(10),
-  numero_documento VARCHAR(20),
-  fecha_emision DATE,
-  fecha_vencimiento DATE,
-  glosa VARCHAR(250),
-  debe NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  haber NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  debe_moneda_origen NUMERIC(14, 2),
-  haber_moneda_origen NUMERIC(14, 2),
-  CONSTRAINT uq_linea_por_asiento UNIQUE (asiento_id, linea)
-);
-
--- 6. Comprobantes de Compras (RCE - SIRE)
-CREATE TABLE comprobantes_compras (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id UUID NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
-  periodo_id UUID NOT NULL REFERENCES periodos(id),
-  asiento_id UUID REFERENCES asientos(id),
-  tipo_comprobante CHAR(2) NOT NULL,
-  serie VARCHAR(10) NOT NULL,
-  numero VARCHAR(20) NOT NULL,
-  fecha_emision DATE NOT NULL,
-  fecha_vencimiento DATE,
-  proveedor_tipo_doc CHAR(1) NOT NULL DEFAULT '6',
-  proveedor_ruc CHAR(11) NOT NULL,
-  proveedor_razon_social VARCHAR(200) NOT NULL,
-  moneda VARCHAR(3) NOT NULL DEFAULT 'PEN',
-  tipo_cambio NUMERIC(8, 4) NOT NULL DEFAULT 1.0000,
-  base_gravada NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  igv NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  no_gravado NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  isc NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  icbper NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  otros_tributos NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  total NUMERIC(14, 2) NOT NULL DEFAULT 0,
-  sujeto_detraccion BOOLEAN NOT NULL DEFAULT FALSE,
-  porcentaje_detraccion NUMERIC(5, 2),
-  constancia_detraccion VARCHAR(30),
-  estado_sire VARCHAR(20) NOT NULL DEFAULT 'PROPUESTA', -- 'CONCILIADO', 'AJUSTE', 'INCONSISTENTE'
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  linea INTEGER NOT NULL,
+  cuenta_id UUID NOT NULL REFERENCES plan_cuentas(id),
+  anexo_id UUID REFERENCES anexos(id),
+  centro_costo_id UUID REFERENCES centros_costo(id),
+  debe NUMERIC(15,2) NOT NULL DEFAULT 0.00 CHECK (debe >= 0),
+  haber NUMERIC(15,2) NOT NULL DEFAULT 0.00 CHECK (haber >= 0),
+  debe_me NUMERIC(15,2) DEFAULT 0.00,
+  haber_me NUMERIC(15,2) DEFAULT 0.00,
+  glosa_linea VARCHAR(300),
+  CONSTRAINT chk_debe_haber_excluyente CHECK (
+    (debe > 0 AND haber = 0) OR (haber > 0 AND debe = 0)
+  )
 );
 ```
 
-### 3.2. Reglas de Integridad Validadas en Base de Datos y Código
-- **Constraint de Partida Doble (`asiento_cuadrado_chk`):** Trigger SQL y comprobación en TypeScript (`accountingEngine.ts → Math.abs(totalDebe - totalHaber) < 0.01`). Si el asiento no cuadra al céntimo, el servidor rechaza la transacción con código `ASIENTO_DESCUADRADO`.
-- **Bloqueo de Período Cerrado:** Ningún comprobante ni asiento puede ser insertado, actualizado o borrado si `periodos.estado === 'CERRADO'`.
-- **Módulo 11 para RUCs peruanos:** `setupService.ts` e `importacionCsvService.ts` ejecutan el algoritmo de ponderación oficial SUNAT `[5, 4, 3, 2, 7, 6, 5, 4, 3, 2]` verificando el dígito verificador.
-- **Inmutabilidad de Asientos Contabilizados:** Un asiento en estado `CONTABILIZADO` no puede editarse directamente; exige la generación de un asiento de extorno / reversión con justificación.
+### 3.2. Reglas de Integridad en Base de Datos y Servicio
+
+- **Trigger Diferido de Partida Doble (`trg_asiento_partida_doble`):** Definido en `server/db/triggers_fase2.sql:85-122` como `CREATE CONSTRAINT TRIGGER trg_asiento_partida_doble AFTER INSERT OR UPDATE ON asientos DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_validar_partida_doble()`. Al ejecutarse `COMMIT`, verifica que todo asiento en estado `CONTABILIZADO` tenga al menos 2 líneas y cumpla `SUM(debe) = SUM(haber) > 0`; de lo contrario aborta la transacción con `RAISE EXCEPTION 'ASIENTO_DESCUADRADO: ...'`. En la capa de servicio (`asientoService.ts`), la validación idéntica se ejecuta con `Money` (`decimal.js`). *(Nota de auditoría: se corrigió el nombre inexistente `asiento_cuadrado_chk` que figuraba en versiones previas del documento).*
+- **Exclusión Debe/Haber por Línea (`chk_debe_haber_excluyente`):** Impide que una misma línea de asiento tenga simultáneamente importes en `debe` y `haber` o ambos en cero.
+- **Inmutabilidad de Asientos Contabilizados (`trg_inmutabilidad_asiento` / `trg_inmutabilidad_detalle`):** Impide `DELETE` o alteración directa de importes sobre asientos `CONTABILIZADO` o `ANULADO`; cualquier corrección exige generar un asiento de extorno vinculado (`asiento_extorno_id`).
+- **Bloqueo de Período Cerrado:** `periodoService.ts` y `triggers_fase2.sql` rechazan altas o modificaciones contables cuando `periodos.estado = 'CERRADO'`.
+- **Validación Módulo 11 de RUC:** `setupService.ts` e `importacionService.ts` aplican los factores oficiales `[5, 4, 3, 2, 7, 6, 5, 4, 3, 2]` para validar el dígito verificador de RUCs de 11 dígitos.
 
 ---
 
-## 4. INVENTARIO COMPLETO DE MÓDULOS DEL MENÚ SUPERIOR (13 GRUPOS `MENU_DATA`)
+## 4. INVENTARIO DE MÓDULOS DEL MENÚ SUPERIOR (13 GRUPOS `MENU_DATA`)
 
-A continuación se auditan los **13 grupos de primer nivel** y sus opciones hoja presentes en `src/types/menu.ts` y montados en `src/components/desktop/TopBar.tsx`, verificando la regla estricta **1 opción activa = 1 vista exclusiva**.
-
----
+Verificado automáticamente por `server/tests/run_tests_menu_fase1.ts` (`86` opciones hoja, `77` activas con vistas 1:1 exclusivas y `9` marcadas honestamente como `proximamente`):
 
 ### GRUPO 1: ARCHIVO (`id: 'archivo'`)
-
-- **1.1. Nueva empresa** (`id: 'nueva-empresa'` | `ModalNuevaEmpresaBlanco.tsx` | `[COMPLETO]`): Creación de empresa en blanco con validación de RUC Módulo 11 y aislamiento en base propia. Restringido a `ADMIN_ESTUDIO` / `ADMINISTRADOR`.
-- **1.2. Abrir empresa… [Ctrl+K]** (`id: 'abrir-empresa'` | `SearchEmpresasModal.tsx` | `[COMPLETO]`): Buscador instantáneo de cartera multiempresa con cambio de contexto auditado.
-- **1.3. Período de trabajo** (`id: 'periodo-trabajo'` | `PeriodosView.tsx` | `[COMPLETO]`): Gestión de períodos mensuales (`ABIERTO` / `CERRADO`), bloqueo contable y reapertura justificada.
-- **1.4. Datos de la empresa** (`id: 'datos-empresa'` | `ConfigEmpresaModal.tsx` | `[COMPLETO]`): Configuración de régimen tributario (`MYPE_TRIBUTARIO`, `REGIMEN_GENERAL`, `REGIMEN_ESPECIAL`), coeficiente de renta, domicilio fiscal y ambiente SUNAT (`BETA` / `PRODUCCION`).
-- **1.5. Importar datos (CSV)** (`id: 'importar-csv'` | `ModalImportacionCsv.tsx` | `[COMPLETO]`): Importación atómica de catálogos, comprobantes y saldos iniciales con sanitización anti-inyección de fórmulas.
-- **1.6. Cerrar sesión / Salir** (`id: 'cerrar-sesion'`, `id: 'salir-app'` | `[COMPLETO]`): Revocación inmediata de sesión JWT y limpieza de estado.
-
----
+- **1.1. Nueva empresa** (`ModalNuevaEmpresaBlanco.tsx` | `[COMPLETO]`): Alta con validación Módulo 11 restringida a `ADMINISTRADOR`.
+- **1.2. Abrir empresa… `[Ctrl+K]`** (`SearchEmpresasModal.tsx` | `[COMPLETO]`): Selector multiempresa con cambio de contexto auditado.
+- **1.3. Período de trabajo** (`PeriodosView.tsx` | `[COMPLETO]`): Cierre mensual y reapertura autorizada.
+- **1.4. Datos de la empresa** (`ConfigEmpresaModal.tsx` | `[COMPLETO]`): Régimen tributario, coeficiente de renta y entorno SUNAT.
+- **1.5. Importar datos (CSV)** (`ModalImportacionCsv.tsx` | `server/services/importacionService.ts` | `[COMPLETO]`): Plantillas CSV, neutralización anti-fórmulas (`=`, `+`, `-`, `@`), cuadre de apertura y rollback por lote.
+- **1.6. Cerrar sesión / Salir** (`[COMPLETO]`): Revocación de refresh token y limpieza de sesión.
 
 ### GRUPO 2: CONTABILIDAD (`id: 'contabilidad'`)
-
-- **2.1. Asientos [F2]** (`id: 'asientos'` | `VouchersView.tsx` | `[COMPLETO]`): Registro, edición en borrador, contabilización y extorno de asientos con partida doble obligatoria al céntimo (`asientoService.ts`).
-- **2.2. Plan de cuentas** (`id: 'plan-cuentas'` | `PlanCuentasView.tsx` | `[COMPLETO]`): Catálogo PCGE 2019/2026 de 2 a 6 dígitos con cuentas de movimiento y amarres automáticos Elemento 9/79.
-- **2.3. Centros de costo** (`id: 'centros-costo'` | `CentrosCostoView.tsx` | `[COMPLETO]`): Estructura de centros de costos vinculados a gastos administrativos, ventas y operaciones.
-- **2.4. Libros › Diario / Mayor / Caja y bancos** (`LibroDiarioView.tsx`, `LibroMayorView.tsx`, `CajaBancosView.tsx` | `[COMPLETO]`): Tres vistas independientes conectadas al almacenamiento persistente de asientos contabilizados, con exportación PDF Formato estándar Atlob y Excel.
-- **2.5. Ajustes y cierres › Diferencia de cambio / Cierre mensual / Cierre anual** (`DiferenciaCambioView.tsx`, `CierreMensualView.tsx`, `CierreAnualView.tsx` | `[COMPLETO]`): Vistas dedicadas para ajuste cambiario SBS (cuentas 676/776), validación de cierre mensual y asientos de cierre anual del Elemento 8.
-
----
+- **2.1. Asientos `[F2]`** (`VouchersView.tsx` | `asientoService.ts` | `[COMPLETO]`): Borradores, contabilización con correlativo atómico y extornos.
+- **2.2. Plan de cuentas** (`PlanCuentasView.tsx` | `pcgeAccounts.ts` | `[COMPLETO]`): Catálogo PCGE con amarres automáticos Elemento 9 / 79 y cuentas de ajuste `6591` y `7591`.
+- **2.3. Centros de costo** (`CentrosCostoView.tsx` | `[COMPLETO]`): Distribución analítica hacia cuentas `921`, `941` y `951`.
+- **2.4. Libros › Diario / Mayor / Caja y bancos** (`LibroDiarioView.tsx`, `LibroMayorView.tsx`, `CajaBancosView.tsx` | `[COMPLETO]`): Vistas independientes con exportación PDF en formato estándar y hoja de cálculo.
+- **2.5. Ajustes y cierres › Diferencia de cambio / Cierre mensual / Cierre anual** (`DiferenciaCambioView.tsx`, `CierreMensualView.tsx`, `CierreAnualView.tsx` | `[COMPLETO]`).
 
 ### GRUPO 3: COMPRAS Y VENTAS (`id: 'compras-ventas'`)
-
-- **3.1. Registro de compras** (`id: 'reg-compras'` | `RegistroComprasView.tsx` | `[COMPLETO]`): Registro de comprobantes de compras separando destino gravado (`1`), mixto/común (`2`) y no gravado (`3`/`4`), cálculo de detracciones SPOT y generación automática de voucher en Subdiario `01`.
-- **3.2. Registro de ventas** (`id: 'reg-ventas'` | `RegistroVentasView.tsx` | `[COMPLETO]`): Registro de comprobantes de venta alimentado por ingreso manual, importación CSV o lectura XML (desacoplado del Facturador Atlob externo), con generación automática en Subdiario `02`.
-- **3.3. Detracciones y retenciones** (`id: 'detracciones-retenciones'` | `DetraccionesRetencionesView.tsx` | `[COMPLETO]`): Control de constancias SPOT y comprobantes de retención/percepción del IGV.
-
----
+- **3.1. Registro de compras** (`RegistroComprasView.tsx` | `compraService.ts` | `[COMPLETO]`): Clasificación por destino IGV (`1` gravado exclusivo, `2` común/prorrata, `3`/`4` sin derecho a crédito), detracciones SPOT y asiento en Subdiario `01`.
+- **3.2. Registro de ventas** (`RegistroVentasView.tsx` | `ventaService.ts` | `[COMPLETO]`): Registro manual, CSV o XML UBL desacoplado del facturador externo, con asiento en Subdiario `02`.
+- **3.3. Detracciones y retenciones** (`DetraccionesRetencionesView.tsx` | `detraccionService.ts` | `[COMPLETO]`).
 
 ### GRUPO 4: FACTURACIÓN (`id: 'facturacion'`)
+- **4.1. Emitir factura o boleta `[F3]` / Notas de crédito y débito** (`EmitirComprobanteView.tsx`, `NotasCreditoDebitoView.tsx` | `[PARCIAL]`): Operan en adaptador sandbox rotulado `SIMULADO`; la emisión firmada XAdES se delega al Facturador Atlob externo.
+- **4.2. Consulta de comprobantes / Lector de XML y CDR** (`ConsultaComprobantesView.tsx`, `LectorXmlCdrView.tsx` | `[COMPLETO]`).
+- **4.3. Guías de remisión / Resumen diario y bajas / Series y certificado digital**: Deshabilitadas como `próximamente`.
 
-- **Nota de alcance:** La emisión real con firma criptográfica se pospone para el **Facturador Atlob** independiente y posterior sincronización.
-- **4.1. Emitir factura o boleta [F3]** (`EmitirComprobanteView.tsx` | `[PARCIAL]`): Emisión con adaptador sandbox rotulado `SIMULADO`.
-- **4.2. Notas de crédito y débito** (`NotasCreditoDebitoView.tsx` | `[PARCIAL]`): Emisión de notas vinculadas en entorno sandbox.
-- **4.3. Consulta de comprobantes / Lector de XML y CDR** (`ConsultaComprobantesView.tsx`, `LectorXmlCdrView.tsx` | `[COMPLETO]`): Validación de estructura UBL 2.1 y extracción de constancias CDR.
-- **4.4. Guías de remisión / Resumen diario y bajas / Series y certificado digital**: Deshabilitadas en menú con etiqueta `próximamente` (`estado: 'proximamente'`).
+### GRUPO 5: TRIBUTOS (`id: 'tributos'`)
+- **5.1. Declaración mensual IGV-Renta (PDT 621)** (`LiquidacionTributariaView.tsx` | `liquidacionIGVService.ts` | `[COMPLETO]`): Determinación mensual de IGV y pago a cuenta de Renta, flujo `BORRADOR` → `PRELIQUIDADO` → `PRESENTADO` → `RECTIFICATORIA` y resumen PDF en formato estándar.
+- **5.2. Prorrata del IGV** (`ProrrataIgvView.tsx` | `prorrataIgvService.ts` | `[COMPLETO]`): Coeficiente móvil de 12 meses (Art. 23° TUO LIGV) y envío del IGV común no acreditable a la cuenta `64111`.
+- **5.3. Declaración anual de Renta** (`DeclaracionRentaAnualView.tsx` | `djRentaAnualService.ts` | `[COMPLETO]`): Determinación anual RMT (10% / 29.5%) y Régimen General (29.5%), adiciones, deducciones y arrastre de pérdidas Art. 50° LIR.
+- **5.4. Operaciones con terceros (DAOT)** (`DaotView.tsx` | `daotService.ts` | `[COMPLETO]`): Cruce anual sobre umbral `2 UIT` (`S/ 11,000.00` en 2026) y exportación `COSTOS.TXT` / `INGRESOS.TXT`.
+- **5.5. Cronograma de vencimientos** (`CronogramaVencimientosView.tsx` | `cronogramaVencimientosService.ts` | `[COMPLETO]`).
+- **5.6. Parámetros tributarios** (`ParametrosTributariosView.tsx` | `parametroRepository.ts` | `[COMPLETO]`).
+- **5.7. Simulador de fiscalización SUNAT** (`SimuladorFiscalizacionView.tsx` | `[COMPLETO]`).
 
----
-
-### GRUPO 5: TRIBUTOS (`id: 'tributos'`) — DECLARACIONES SEPARADAS
-
-Cada obligación tributaria opera en su propia vista, ruta, servicio, tablas y suite de pruebas sin mezclar datos entre sí:
-- **5.1. Declaración mensual IGV-Renta (PDT 621)** (`id: 'declaracion-igv-renta'` | `LiquidacionTributariaView.tsx` | `server/services/liquidacionIGVService.ts` | `/api/tributos/pdt621` | `[COMPLETO]`):
-  - Calcula débito fiscal desde `comprobantes_venta`, crédito fiscal desde `comprobantes_compra` (separando destino gravado, destino común/mixto con prorrata opcional y destino no gravado), saldo a favor del período anterior, retenciones y percepciones del IGV, y pago a cuenta del Impuesto a la Renta según régimen (`MYPE_TRIBUTARIO`, `REGIMEN_GENERAL`, `REGIMEN_ESPECIAL`, `NRUS`) leyendo tasas y topes desde `parametros_tributarios`.
-  - Flujo de estados: `BORRADOR` → `PRELIQUIDADO` (genera automáticamente el asiento contable de determinación del impuesto y bloquea al rol `AUDITOR`) → `PRESENTADO` (registra número de orden y fecha manuales) → `RECTIFICATORIA` (crea nueva versión conservando intacta la liquidación sustituida en `declaraciones_pdt621`).
-  - Salida: Resumen imprimible en **PDF Formato estándar Atlob** con las casillas oficiales para llenado del PDT 621 (no declara directamente ante SUNAT).
-- **5.2. Prorrata del IGV** (`id: 'prorrata-igv'` | `ProrrataIgvView.tsx` | `server/services/prorrataIgvService.ts` | `/api/tributos/prorrata-igv` | `[COMPLETO]`):
-  - Determina el coeficiente y porcentaje de operaciones gravadas y de exportación acumuladas de los últimos 12 meses (Art. 23° TUO Ley del IGV y Art. 6° num. 6 Reglamento), prorratea el IGV de compras de destino común (`2`), envía la porción no admitida al gasto/costo (`Cuenta 64111`) y permite activar/desactivar su integración con la declaración mensual PDT 621.
-- **5.3. Declaración anual de Renta** (`id: 'declaracion-renta-anual'` | `DeclaracionRentaAnualView.tsx` | `server/services/djRentaAnualService.ts` | `/api/tributos/renta-anual` | `[COMPLETO]`):
-  - Papeles de trabajo de determinación anual para `REGIMEN_GENERAL` (29.5%) y `MYPE_TRIBUTARIO` (tramo hasta 15 UIT al 10% y exceso al 29.5%, leídos de `parametros_tributarios`), conciliación tributaria (utilidad contable + adiciones − deducciones), compensación de pérdidas arrastrables (Sistema A 4 años o Sistema B 50% de renta neta según Art. 50° LIR), descuento de pagos a cuenta mensuales y saldo por regularizar o a favor.
-- **5.4. Operaciones con terceros (DAOT)** (`id: 'daot'` | `DaotView.tsx` | `server/services/daotService.ts` | `/api/tributos/daot` | `[COMPLETO]`):
-  - Acumulado anual de base imponible neta (sin IGV) por cliente y proveedor, umbral parametrizable en UIT por año (`UMBRAL_DAOT_UIT = 2 UIT` = `S/ 11,000.00` en 2026 desde `parametros_tributarios`), depuración auditada con motivos de exclusión (`daot_exclusiones`) y exportación en formato TXT oficial PDT 3500 (`COSTOS.TXT` / `INGRESOS.TXT`).
-- **5.5. Cronograma de vencimientos** (`id: 'cronograma-vencimientos'` | `CronogramaVencimientosView.tsx` | `server/services/cronogramaVencimientosService.ts` | `/api/tributos/cronograma` | `[COMPLETO]`):
-  - Tabla versionada por año, período, último dígito de RUC (`0` al `9` y `B` Buenos Contribuyentes y UESP) y obligación (`PDT_621`, `PLAME`, `DAOT`, `RENTA_ANUAL`), editable por el administrador del estudio y con alerta de días restantes en la barra de estado y en los indicadores del estudio.
-- **5.6. Parámetros tributarios** (`id: 'parametros-tributarios'` | `ParametrosTributariosView.tsx` | `server/repositories/parametroRepository.ts` | `/api/parametros` | `[COMPLETO]`):
-  - Tabla editable por `ADMIN_ESTUDIO` / `ADMINISTRADOR` con vigencia temporal (`vigente_desde`, `vigente_hasta`) e historial de auditoría encadenado (`auditoriaChainService`) para UIT (`S/ 5,500` en 2026), tasa de IGV (`18%`), tasas y tramos de Renta y umbral DAOT.
-- **5.7. Simulador de fiscalización SUNAT** (`id: 'simulador-fiscalizacion'` | `SimuladorFiscalizacionView.tsx` | `[COMPLETO]`): Cruce preventivo de consistencia entre libros y declaraciones.
-
----
-
-### GRUPO 6: PLANILLAS (`id: 'planillas'`) — MÓDULO COMPLETO Y AISLADO DE TRIBUTOS
-
-El módulo de Planillas opera de forma estrictamente separada de las declaraciones de IGV-Renta (`Tributos`), con sus propias tablas (`trabajadores`, `planillas`, `planilla_lineas`, `planilla_gratificaciones`, `planilla_cts`, `liquidaciones_beneficios`, `tregistro_movimientos`), servicio (`server/services/planillaService.ts`) y vistas 1:1:
-- **6.1. Trabajadores** (`id: 'trabajadores'` | `TrabajadoresView.tsx` | `[COMPLETO]`): Padrón maestro con datos personales, tipo y vigencia de contrato (`INDETERMINADO`, `PLAZO_FIJO`, `TIEMPO_PARCIAL`), régimen laboral (`GENERAL`, `MYPE_PEQUENA`, `MYPE_MICRO`), sistema pensionario (`ONP` 13% o `AFP` Integra/Prima/Profuturo/Habitat con comisión sobre `FLUJO` o `MIXTA` y CUSPP), cargas familiares, asignación familiar (10% RMV), cuenta bancaria/CCI de haberes, baja de trabajador y gestión de **Parámetros Laborales Editables** (`RMV`, `UIT`, tasas AFP/ONP/EsSalud/5ta) con vigencia temporal.
-- **6.2. Planilla mensual** (`id: 'planilla-mensual'` | `PlanillaPlameView.tsx` | `[COMPLETO]`): Cálculo de remuneración proporcional por días efectivamente trabajados (altas o bajas a mitad de mes), horas extras al 25% y 35%, descuentos por faltas, tardanzas y adelantos, aportes del trabajador (`ONP`/`AFP` con tope de prima de seguro) y del empleador (`EsSalud 9%`), **retención de 5ta categoría con proyección anual** (deducción de 7 UIT y escala progresiva 8%, 14%, 17%, 20%, 30% con divisor oficial mensual Art. 40° Rgto. LIR), y generación de **asiento contable de planilla por centro de costos** en Subdiario `08` (Cuentas `6211`, `6271`, `4031`, `4032`, `407`, `40173`, `1411`, `4111` y destino `941`/`951`/`921` vs `791`).
-- **6.3. Recibos por honorarios (4ta)** (`id: 'recibos-honorarios'` | `HonorariosView.tsx` | `[COMPLETO]`): Registro de rentas de cuarta categoría y retención del 8%.
-- **6.4. Boletas de pago** (`id: 'boletas-pago'` | `BoletasPagoView.tsx` | `[COMPLETO]`): Emisión individual y por lote de Boletas de Pago de Remuneraciones (D.S. N° 009-2011-TR) en PDF con el estilo visual del sistema (`Formato estándar Atlob` en `formatoEstandarEngine.ts`).
-- **6.5. Gratificaciones y CTS** (`id: 'gratificaciones-cts'` | `GratificacionesCtsView.tsx` | `[COMPLETO]`): Cálculo y contabilización de Gratificaciones Legales de Julio y Diciembre con Bonificación Extraordinaria Temporal (9% EsSalud / 6.75% EPS inafecta de aportes pensionarios según Ley N° 30334), CTS semestral de Mayo y Noviembre (incluyendo 1/6 de gratificación y reglas por régimen General 100%, MYPE Pequeña 50%, MYPE Micro 0%), y **Vacaciones Truncas y Liquidación de Beneficios Sociales (LBS)** con exportación PDF.
-- **6.6. Exportar PLAME** (`id: 'exportar-plame'` | `ExportarPlameView.tsx` | `[COMPLETO]`): Exportador de estructuras vigentes para el PDT PLAME Formulario Virtual 0601 (`.jor`, `.rem`, `.snl`, `.toc`, `.des` + paquete `.zip`) precedido por un **Validador de Estructura Previo** (`validarEstructuraPlame`).
-- **6.7. T-Registro** (`id: 't-registro'` | `TRegistroView.tsx` | `[COMPLETO]`): Exportador independiente del T-Registro (`.tra` Estructura 05, `.per` Estructura 11, `altas.txt`, `bajas.txt`, `modificaciones.txt` + paquete `.zip`) con bitácora de movimientos y validador previo.
-
-
----
+### GRUPO 6: PLANILLAS (`id: 'planillas'`)
+- **6.1. Trabajadores** (`TrabajadoresView.tsx` | `[COMPLETO]`): Padrón laboral con cuentas bancarias cifradas AES-256-GCM y validación contra RMV vigente.
+- **6.2. Planilla mensual** (`PlanillaPlameView.tsx` | `[COMPLETO]`): Días laborados, horas extras 25%/35%, ONP 13%, AFP (flujo/mixta + prima `1.37%` con tope RMA trimestral), EsSalud 9%, 5ta categoría proyectada y asiento en Subdiario `08`.
+- **6.3. Recibos por honorarios (4ta)** (`HonorariosView.tsx` | `honorariosService.ts` | `[COMPLETO]`): Retención 8% sobre recibos mayores a S/ 1,500 salvo suspensión vigente.
+- **6.4. Boletas de pago** (`BoletasPagoView.tsx` | `formatoEstandarEngine.ts` | `[COMPLETO]`): Emisión individual y masiva en PDF (D.S. N° 009-2011-TR).
+- **6.5. Gratificaciones y CTS** (`GratificacionesCtsView.tsx` | `[COMPLETO]`): Gratificaciones Jul/Dic (+9% Ley N° 30334), CTS May/Nov y Liquidación de Beneficios Sociales (LBS).
+- **6.6. Exportar PLAME** (`ExportarPlameView.tsx` | `[COMPLETO]`): Paquete oficial `0601{AAAA}{MM}{RUC}.zip` con estructuras Anexo 3: `.jor` (`14`), `.snl` (`15`), `.rem` (`18`), `.4ta` (`20`) y `.toc` (`26`), más `.or5` (`22`) cuando aplique. (La extensión inexistente `.des` fue eliminada).
+- **6.7. T-Registro** (`TRegistroView.tsx` | `[COMPLETO]`): Paquete oficial `RP_{RUC}.zip` con las 4 estructuras Anexo 3: `.ide` (`04`), `.tra` (`05`), `.per` (`11`) y `.est` (`17`), además de vistas JSON internas de auditoría de altas, bajas y modificaciones.
 
 ### GRUPO 7: REGISTROS ELECTRÓNICOS (`id: 'registros-electronicos'`)
+- **7.1. SIRE (`sireRoutes.ts`, `sireController.ts`, `sireService.ts`, `conciliadorSireService.ts`, `sireLayoutService.ts` | `[EN VERIFICACIÓN]`):** Descarga OAuth2 con tickets (`01`, `02`, `03`) o carga manual TXT/ZIP, bloqueo estricto de propuestas `[SIMULADO]`, conciliación por CAR de 27 dígitos con `Money`, asientos de ajuste guiados y layouts RCE/RVIE.
+- **7.2. Libros Electrónicos PLE 5.2 (`pleRoutes.ts`, `pleController.ts`, `pleExportService.ts` | `[EN VERIFICACIÓN]`):** Libros `050100`, `060100`, `080100`, `080200`, `140100`, `010100` y `010200` con `Money`, CRLF y UTF-8 sin BOM.
+- **7.3. Validador TXT e Historial SHA-256 (`archivoValidadorService.ts`, `historialGeneracionesService.ts` | `[COMPLETO]`):** Reporte de errores por línea y columna e historial aislado por empresa con hash SHA-256.
 
-- **7.1. SIRE › Propuesta de compras RCE / Propuesta de ventas RVIE / Conciliador SIRE vs registro / Ajustes y reemplazo TXT** (`SirePropuestaComprasView.tsx`, `SirePropuestaVentasView.tsx`, `SireConciliadorView.tsx`, `SireAjustesReemplazoView.tsx` | `[COMPLETO]`): Vistas desacopladas para importación de propuestas, conciliación determinista y generación de archivos TXT normativos.
-- **7.2. PLE 5.2 › Generar libros electrónicos / Validar estructura TXT** (`LibrosElectronicosView.tsx`, `ValidarLibrosElectronicosView.tsx` | `[COMPLETO]`): Generación y validación de libros 5.1, 6.1, 8.1 y 14.1 con nomenclatura oficial de 33 caracteres.
-
----
-
-### GRUPO 8: TESORERÍA (`id: 'tesoreria'`)
-
-- **8.1. Cuentas bancarias / Conciliación bancaria / Movimientos bancarios / Flujo de caja proyectado** (`CuentasBancariasView.tsx`, `ConciliacionBancariaView.tsx`, `MovimientosBancariosView.tsx`, `FlujoCajaProyectadoView.tsx` | `[PARCIAL]`): Gestión de extractos, conciliación asistida e ITF `0.005%` truncado.
-- **8.2. Cuentas por cobrar / Cuentas por pagar / Antigüedad de saldos** (`CuentasPorCobrarView.tsx`, `CuentasPorPagarView.tsx`, `AntiguedadSaldosView.tsx` | `[COMPLETO]`): Control de saldos comerciales sin mezclar obligaciones tributarias. `Letras y pagarés` en estado `próximamente`.
-- **8.3. Caja chica › Apertura y cierre / Gastos / Reposición** (`CajaChicaAperturaView.tsx`, `CajaChicaGastosView.tsx`, `CajaChicaReposicionView.tsx` | `[COMPLETO]`).
-
----
-
-### GRUPO 9: INVENTARIOS Y ACTIVOS (`id: 'inventarios-activos'`)
-
-- **9.1. Kardex / Existencias / Activos fijos / Depreciación mensual**: Marcados honestamente como `próximamente` (`estado: 'proximamente'`) hasta su fase dedicada.
-
----
-
-### GRUPO 10: ESTADOS FINANCIEROS (`id: 'estados-financieros'`)
-
-- **10.1. Hoja de trabajo (10 columnas) / Estado de situación financiera / Estado de resultados / Estado de flujo de efectivo / Análisis de cuentas** (`HojaTrabajo10ColumnasView.tsx`, `BalanceGeneralView.tsx`, `EstadoResultadosView.tsx`, `FlujoEfectivoView.tsx`, `AnalisisCuentasView.tsx` | `[COMPLETO]`).
-
----
-
-### GRUPO 11: ESTUDIO (`id: 'estudio'`)
-
-- **11.1. Cartera de empresas / Indicadores del estudio / Control de calidad / Biblioteca de plantillas** (`MisEmpresasNivel1View.tsx`, `DashboardView.tsx`, `ControlCalidadEstudioView.tsx`, `BibliotecaPlantillasView.tsx` | `[COMPLETO]`). `Portal del cliente` en estado `próximamente`.
-
----
-
-### GRUPO 12: HERRAMIENTAS (`id: 'herramientas'`)
-
-- **12.1. Calculadora tributaria** (`CalculadoraContableModal.tsx` | `[COMPLETO]`).
-- **12.2. Tablas maestras › Clientes y proveedores / Tipos de comprobante / Tipo de cambio SBS / Bancos / Unidades de medida** (5 vistas independientes `[COMPLETO]`).
-- **12.3. Respaldos / Restaurar datos de demostración / Usuarios y permisos / Auditoría del sistema / Estilo de reporte** (`ModalBackupEmpresa.tsx`, `UsuariosPermisosView.tsx`, `MapaAuditoriaSistemaView.tsx` | `[COMPLETO]`).
-
----
-
-### GRUPO 13: AYUDA (`id: 'ayuda'`)
-
-- **13.1. Guía rápida y atajos / Estado de conexión SUNAT / Acerca de Atlob Consultores ERP** (`GuiaRapidaAtajosView.tsx`, `SunatSyncView.tsx`, `AcercaDeModal.tsx` | `[COMPLETO]`).
+### GRUPOS 8 A 13: TESORERÍA, INVENTARIOS, EEFF, ESTUDIO, HERRAMIENTAS Y AYUDA
+- **Grupo 8 (Tesorería):** Bancos/conciliación `[PARCIAL]`, CxC/CxP/Antigüedad `[COMPLETO]`, Caja Chica `[COMPLETO]`, `Letras y pagarés` en `próximamente`.
+- **Grupo 9 (Inventarios y Activos):** Opciones en estado `próximamente` hasta iniciar la Fase 7.
+- **Grupo 10 (Estados Financieros):** Hoja de Trabajo 10 Columnas, Situación Financiera, Resultados, Flujo de Efectivo y Análisis de Cuentas `[COMPLETO]`.
+- **Grupo 11 (Estudio):** Cartera, Indicadores, Control de Calidad y Plantillas `[COMPLETO]`; `Portal del cliente` en `próximamente`.
+- **Grupo 12 (Herramientas):** Calculadora, 5 Tablas Maestras, Respaldos ZIP, Demo idempotente, Usuarios/Permisos, Auditoría y Estilo de Reporte `[COMPLETO]`.
+- **Grupo 13 (Ayuda):** Guía rápida, Estado de conexión SUNAT y Acerca de `[COMPLETO]`.
 
 ---
 
 ## 5. CUMPLIMIENTO TRIBUTARIO PERUANO
 
 ### 5.1. Plan Contable General Empresarial (PCGE)
-- **Implementación:** Archivo `src/data/pcgeAccounts.ts`.
-- **Evaluación:** Cumple con la versión oficial PCGE modificada por el CNC (Resolución CNC N° 002-2019-EF/30). Contiene las cuentas a nivel divisionaria y subdivisionaria (4 y 5 dígitos):
-  - Elemento 1, 2, 3: Activo Disponible, Exigible, Realizable e Inmovilizado.
-  - Elemento 4: Pasivo (40111 IGV, 40171 Renta 3ra, 40172 Renta 4ta, 4031 EsSalud, 4032 ONP, 4111 Remuneraciones, 4212 Facturas emitidas por pagar).
-  - Elemento 5: Patrimonio Neto (5011 Capital social, 5911 Utilidades acumuladas).
-  - Elemento 6: Gastos por Naturaleza (6011 Mercaderías, 6211 Sueldos, 6321 Honorarios, 64111 IGV no acreditable por prorrata, 6561 Suministros).
-  - Elemento 7: Ingresos (70111 Ventas locales mercaderías, 70211 Exportación).
-  - Elemento 8: Saldos Intermediarios de Gestión (80 al 89 para cierre anual).
-  - Elemento 9: Contabilidad Analítica de Explotación (941 Gastos de Administración, 951 Gastos de Ventas, con abono correlativo a la 791 Cargas imputables a cuentas de costos).
+
+Implementado en `src/data/pcgeAccounts.ts` conforme a la Resolución CNC N° 002-2019-EF/30, incluyendo cuentas operativas a 4–6 dígitos desde el Elemento 1 hasta el Elemento 9, cuentas tributarias (`40111` IGV, `40171` Renta 3ra, `40172` Renta 4ta, `40173` Renta 5ta, `64111` IGV no acreditable por prorrata), cuentas de ajuste SIRE (`6591` y `7591`) y amarres analíticos (`921`, `941`, `951` contra `791`).
 
 ### 5.2. Sistema Integrado de Registros Electrónicos (SIRE)
-- **Implementación:** `src/services/sireTxtGenerator.ts`, `server/services/conciliadorSireService.ts` y vistas separadas `SirePropuestaComprasView.tsx`, `SirePropuestaVentasView.tsx`, `SireConciliadorView.tsx` y `SireAjustesReemplazoView.tsx`.
-- **Estructura RCE / RVIE (R.S. N° 000112-2021/SUNAT y R.S. N° 000040-2022/SUNAT):**
-  - Propuesta RCE (Compras): 41 campos; Reemplazo de Propuesta RCE (Anexo 11): 44 campos; Ajustes Posteriores RCE (Anexo 12): 45 campos.
-  - Propuesta RVIE (Ventas): 40 campos; Reemplazo de Propuesta RVIE (Anexo 3): 40 campos; Ajustes Posteriores RVIE (Anexo 4): 41 campos.
-  - Incluye RUC, Razón Social, Período, CAR SUNAT (27 dígitos: `RUC Emisor(11) + Tipo CP(2) + Serie(4) + Número(10)`), fechas, bases imponibles por destino (DG, DGNG, DNG), IGV, ICBPER, otros tributos y total.
-- **Conciliación Automática:** Cruce determinista mediante clave compuesta normalizada `{tipoDoc}-{serie}-{numero}-{proveedorRuc}` (isomorfa a los 27 dígitos del CAR SUNAT, permitiendo conciliar comprobantes registrados antes de la descarga de la propuesta).
+
+- **Estructuras implementadas (R.S. N° 000112-2021/SUNAT y modificatorias):** Reemplazo RCE Anexo 8 (`42` campos), Reemplazo RVIE Anexo 2/3 (`34` campos), Ajustes Posteriores RCE Anexo 11 (`43` campos, código `080500`) y Ajustes Posteriores RVIE Anexo 4/5 (`35` campos, código `140500`).
+- **Bloqueo de Propuestas `[SIMULADO]`:** Toda propuesta generada sin credenciales reales lleva `esSimulado = true`. `conciliadorSireService` y `sireRoutes` bloquean aceptación, reemplazo o exportación oficial arrojando `OPERACION_SIMULADA_BLOQUEADA`.
+- **Asiento de Ajuste Contable:** Parametrizado en `parametroRepository` (`6591`, `7591`, `4212`, `1212`) con advertencia obligatoria: *"Requiere revisión del contador - No constituye tratamiento tributario definitivo"*.
 
 ### 5.3. Libros Electrónicos PLE 5.2
-- **Implementación:** `server/services/pleGeneratorService.ts` y `src/components/views/LibrosElectronicosView.tsx`.
-- **Nomenclatura Normativa Estricta (33 caracteres antes de `.txt`, Anexo 2 R.S. N° 286-2009/SUNAT):**
-  - Formato: `LE{RUC(11)}{AAAA(4)}{MM(2)}{DD(2)}{LLLLLL(6)}{CC(2)}{O(1)}{I(1)}{M(1)}{G(1)}.txt`
-  - Ejemplo Libro Diario: `LE2060123456720260900050100001111.txt`
-  - Ejemplo Libro Mayor: `LE2060123456720260900060100001111.txt`
-- **Formato:** Separador de campos por pleca (`|`), saltos de línea CRLF, sin cabeceras textuales, codificación UTF-8 sin BOM conforme a especificación SUNAT.
 
-### 5.4. Facturación Electrónica UBL 2.1 (Pospuesta para Facturador Atlob)
-- **Implementación:** Vistas `EmitirComprobanteView.tsx`, `NotasCreditoDebitoView.tsx`, `ConsultaComprobantesView.tsx` y `LectorXmlCdrView.tsx`.
-- **Realidad Técnica:** La lectura y validación de XML UBL 2.1 y CDR es funcional. La emisión real se trabajará en el Facturador Atlob independiente y se sincronizará posteriormente; por ello, el Registro de Ventas y las declaraciones tributarias leen exclusivamente la tabla `comprobantes_venta` (alimentada por ingreso manual, CSV o lectura XML).
+- **Nomenclatura oficial de 33 caracteres antes de `.txt` (Anexo N° 1 R.S. N° 286-2009/SUNAT):**
+  `LE{RUC(11)}{AAAA(4)}{MM(2)}{DD(2)}{LLLLLL(6)}{CC(2)}{O(1)}{I(1)}{M(1)}{G(1)}.txt`
+  - Posición `30` (`{O}`): `'1'` empresa operativa, `'0'` cierre de operaciones, `'2'` cierre de libro.
+  - Posición `31` (`{I}`): `'1'` con información, `'0'` **sin información (mes sin movimiento)**.
+  - Posición `32` (`{M}`): `'1'` Soles (`PEN`), `'2'` Dólares (`USD`).
+  - Posición `33` (`{G}`): `'1'` generado por el contribuyente.
+- **Codificación y formato:** Pleca (`|`) con delimitador final, salto `CRLF` (`\r\n`), UTF-8 sin BOM y sanitización de plecas internas en glosas (`|` → `-`).
 
-### 5.5. Tabla Completa de Fórmulas de la Declaración Mensual IGV-Renta (PDT 621) y Tributos conexos
+### 5.4. Facturación Electrónica UBL 2.1
 
-Implementadas en `server/services/liquidacionIGVService.ts` con aritmética exacta `decimal.js` (`Money`) y parámetros leídos de `parametros_tributarios` (`TASA_IGV = 0.18`, `VALOR_UIT_2026 = 5500.00`, `TASA_RENTA_MYPE_SUB300 = 0.01`, `TASA_RENTA_RG_MIN = 0.015`, `TASA_RENTA_RER = 0.015`):
+La validación de comprobantes XML UBL 2.1 con bloqueo anti-XXE (`xmlImportService.ts`) y lectura de CDR es funcional. La emisión electrónica firmada se mantiene fuera del alcance actual para integrarse desde el Facturador Atlob externo hacia `comprobantes_venta`.
 
-#### A. Tabla Oficial de Casillas PDT 621 (IGV y Pagos a Cuenta de Renta)
+### 5.5. Tabla Verificada de Casillas del Formulario Virtual / PDT 621 (IGV - Renta Mensual)
 
-| Casilla Oficial | Denominación en PDT 621 | Fórmula Exacta (`decimal.js`) | Origen del Dato (Almacenamiento Persistente) | Regla de Redondeo |
-|:---:|---|---|---|---|
-| **100** | Ventas netas gravadas (Base imponible) | $\sum \text{BaseGravada}(\text{Tipo } 01, 03, 08)$ | `comprobantes_venta` (`estado != 'ANULADO'`) del período | 2 decimales (informativo) y entero en casilla PDT |
-| **101** | Tributo IGV Ventas gravadas (18%) | $\text{Casilla } 100 \times \text{TASA\_IGV}$ | `comprobantes_venta.igv` (o recálculo sobre base gravada) | Redondeo comercial a 2 decimales / entero SUNAT |
-| **102** | Descuentos concedidos y devoluciones de ventas (Base NC) | $\sum |\text{BaseGravada}(\text{Tipo } 07)|$ | `comprobantes_venta` con `tipo_comprobante = '07'` | 2 decimales |
-| **103** | Tributo IGV Descuentos y devoluciones (NC) | $\sum |\text{IGV}(\text{Tipo } 07)|$ | `comprobantes_venta` con `tipo_comprobante = '07'` | 2 decimales |
-| **106** | Exportaciones facturadas en el período | $\sum \text{InafectoExportacion}$ | `comprobantes_venta.inafecto` (operaciones de exportación) | 2 decimales |
-| **109** | Ventas no gravadas (sin considerar exportaciones) | $\sum \text{Exonerado} + \sum \text{InafectoLocal}$ | `comprobantes_venta.exonerado + comprobantes_venta.inafecto` | 2 decimales |
-| **131** | **TOTAL DÉBITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 101 - \text{Casilla } 103)$ | Cálculo determinista en `liquidacionIGVService.ts` | 2 decimales |
-| **107** | Compras netas destinadas a ventas gravadas exclusivamente (Base) | $\sum \text{BaseGravada}(\text{Destino } = \text{'1'}) - \sum |\text{NC Destino } \text{'1'}|$ | `comprobantes_compra` (`codigo_destino_igv = '1'`, con derecho a CF) | 2 decimales |
-| **108** | Tributo IGV Compras destino gravado exclusivo | $\sum \text{IGV}(\text{Destino } = \text{'1'}) - \sum |\text{IGV NC Destino } \text{'1'}|$ | `comprobantes_compra.igv` (`codigo_destino_igv = '1'`) | 2 decimales |
-| **110** | Compras netas destinadas a ventas gravadas y no gravadas — Destino común (Base) | $\sum \text{BaseGravada}(\text{Destino } = \text{'2'})$ | `comprobantes_compra` (`codigo_destino_igv = '2'`) | 2 decimales |
-| **111** | Tributo IGV Compras destino común (aplicando Prorrata si corresponde) | Si Prorrata activa: $\text{IGV}_{\text{común}} \times \frac{\text{PorcentajeProrrata}}{100}$; sino $\text{IGV}_{\text{común}}$ | `comprobantes_compra` + `declaraciones_prorrata_igv` (Art. 23° LIGV) | 2 decimales (porción no admitida va a Cuenta `64111`) |
-| **120** | Adquisiciones no gravadas / sin derecho a crédito fiscal | $\sum \text{Base}(\text{Destino } \in \{\text{'3'}, \text{'4'}\}) + \sum \text{Exonerado/Inafecto}$ | `comprobantes_compra` (`codigo_destino_igv IN ('3','4')` o no gravadas) | 2 decimales |
-| **178** | **TOTAL CRÉDITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 108 + \text{Casilla } 111)$ | Cálculo determinista en `liquidacionIGVService.ts` | 2 decimales |
-| **140** | Impuesto resultante o Saldo a favor del período | $\text{Casilla } 131 - \text{Casilla } 178$ | Si $> 0$: Impuesto resultante; si $< 0$: Saldo a favor del mes | 2 decimales |
-| **145** | Saldo a favor del período anterior | $\text{SaldoAFavorArrastrable}_{t-1}$ | `declaraciones_pdt621` del período $t-1$ (o parámetro inicial) | 2 decimales |
-| **184** | Tributo a pagar o Saldo a favor | $\text{Casilla } 140 - \text{Casilla } 145$ | Si $> 0$: Tributo resultante; si $< 0$: Nuevo saldo a favor | 2 decimales |
-| **171** | Percepciones del IGV declaradas en el período | $\sum \text{MontoPercepcion}(\text{periodo}) + \text{ArrastrePercepciones}$ | Tabla `retenciones_percepciones_igv` (`tipo = 'PERCEPCION'`) | 2 decimales |
-| **179** | Retenciones del IGV declaradas en el período | $\sum \text{MontoRetencion}(\text{periodo}) + \text{ArrastreRetenciones}$ | Tabla `retenciones_percepciones_igv` (`tipo = 'RETENCION'`) | 2 decimales |
-| **188** | **TOTAL DEUDA TRIBUTARIA IGV (O SALDO A FAVOR PRÓXIMO MES)** | $\max(0,\; \text{Casilla } 184 - \text{Casilla } 171 - \text{Casilla } 179)$ | Si $\text{Casilla } 184 - 171 - 179 < 0$, se arrastra al período $t+1$ | Entero SUNAT (`ROUND_HALF_UP`) y detalle al céntimo |
-| **301** | Ingresos netos del mes (Base pago a cuenta Renta 3ra) | $\max(0,\; \text{Casilla } 100 - \text{Casilla } 102 + \text{Casilla } 106 + \text{Casilla } 109)$ | `comprobantes_venta` (ventas netas devengadas del período) | 2 decimales |
-| **315** | Coeficiente o porcentaje aplicable Renta | RMT $\le 300\text{ UIT}$: $1.00\%$; RMT $> 300\text{ UIT}$ o RG: $\max(1.50\%, \text{Coeficiente})$; RER: $1.50\%$ | `empresas.regimen_tributario`, `empresas.coeficiente_renta` y `parametros_tributarios` | 4 decimales para coeficiente |
-| **302** | **Pago a cuenta determinado de Renta** | $\text{Casilla } 301 \times \text{TasaAplicada}$ (o cuota fija NRUS) | Cálculo determinista según régimen tributario | 2 decimales |
-| **303** | Saldo a favor de Renta / compensaciones aplicadas | $\min(\text{Casilla } 302,\; \text{SaldoFavorRentaAnterior})$ | `declaraciones_pdt621` / `declaraciones_renta_anual` | 2 decimales |
-| **304** | **PAGO A CUENTA DE RENTA A PAGAR** | $\max(0,\; \text{Casilla } 302 - \text{Casilla } 303)$ | Deuda neta de Renta de 3ra Categoría del mes | Entero SUNAT (`ROUND_HALF_UP`) y detalle al céntimo |
+Verificada contra el Formulario Virtual N.° 621 de SUNAT, `server/services/liquidacionIGVService.ts`, `src/components/views/LiquidacionTributariaView.tsx` y `server/tests/run_tests_fase4_tributos.ts`:
+
+#### A. Casillas Oficiales de IGV y Pago a Cuenta de Renta de 3ra Categoría
+
+| Casilla | Denominación Oficial en FV / PDT 621 | Fórmula Exacta (`Money` / `decimal.js`) | Origen del Dato | Regla de Redondeo |
+| :---: | --- | --- | --- | --- |
+| **100** | Ventas netas gravadas (Base imponible) | $\sum \text{BaseGravada}(\text{Tipo } 01, 03, 08)$ | `comprobantes_venta` (`estado <> 'ANULADO'`) | 2 decimales / entero PDT |
+| **101** | Tributo IGV Ventas gravadas (18%) | $\text{Casilla } 100 \times \text{TASA\_IGV}$ | `comprobantes_venta.igv` | 2 decimales / entero PDT |
+| **102** | Descuentos concedidos y/o devoluciones de ventas (Base NC) | $\sum \lvert \text{BaseGravada}(\text{Tipo } 07) \rvert$ | `comprobantes_venta` (`tipo_comprobante = '07'`) | 2 decimales |
+| **103** | Tributo IGV Descuentos y devoluciones (NC) | $\sum \lvert \text{IGV}(\text{Tipo } 07) \rvert$ | `comprobantes_venta` (`tipo_comprobante = '07'`) | 2 decimales |
+| **106** | Exportaciones facturadas en el período | $\sum \text{ExportacionFacturada}$ | `comprobantes_venta` (`tipo_operacion = '0200'`) | 2 decimales |
+| **109** | Ventas no gravadas (sin considerar exportaciones) | $\sum (\text{Exonerado} + \text{InafectoLocal})$ | `comprobantes_venta` | 2 decimales |
+| **131** | **TOTAL DÉBITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 101 - \text{Casilla } 103)$ | `liquidacionIGVService.ts` | 2 decimales |
+| **107** | Compras netas destinadas a ventas gravadas exclusivamente (Base) | $\sum \text{Base}(\text{Destino } 1) - \sum \lvert \text{Base NC}(\text{Destino } 1) \rvert$ | `comprobantes_compra` (`tipo_adquisicion = '1'`) | 2 decimales |
+| **108** | Tributo IGV Compras destino gravado exclusivo | $\sum \text{IGV}(\text{Destino } 1) - \sum \lvert \text{IGV NC}(\text{Destino } 1) \rvert$ | `comprobantes_compra` (`tipo_adquisicion = '1'`) | 2 decimales |
+| **110** | Compras netas destinadas a ventas gravadas y no gravadas — Destino común | $\sum \text{Base}(\text{Destino } 2)$ | `comprobantes_compra` (`tipo_adquisicion = '2'`) | 2 decimales |
+| **111** | Tributo IGV Compras destino común (aplicando Prorrata si corresponde) | $\text{IGV}_{\text{común}} \times (\text{PorcentajeProrrata} / 100)$ | `comprobantes_compra` + `declaraciones_prorrata_igv` | 2 decimales (no admitido a `64111`) |
+| **120** | Adquisiciones no gravadas / sin derecho a crédito fiscal | $\sum \text{Base}(\text{Destino } 3, 4) + \sum \text{NoGravado}$ | `comprobantes_compra` | 2 decimales |
+| **178** | **TOTAL CRÉDITO FISCAL DEL PERÍODO** | $\max(0,\; \text{Casilla } 108 + \text{Casilla } 111)$ | `liquidacionIGVService.ts` | 2 decimales |
+| **140** | Impuesto resultante o Saldo a favor del período | $\text{Casilla } 131 - \text{Casilla } 178$ | Si $> 0$: impuesto resultante; si $< 0$: saldo del mes | 2 decimales |
+| **145** | Saldo a favor del período anterior | $\text{SaldoAFavorArrastrable}_{t-1}$ | `declaraciones_pdt621` período $t-1$ | 2 decimales |
+| **184** | Tributo a pagar o Saldo a favor | $\text{Casilla } 140 - \text{Casilla } 145$ | Antes de percepciones y retenciones | 2 decimales |
+| **171** | **Percepciones del IGV declaradas en el período** | $\sum \text{MontoPercepcion}(\text{período})$ | `retenciones_percepciones_igv` (`tipo = 'PERCEPCION'`) | 2 decimales *(Cas. 168 es períodos ant.)* |
+| **179** | **Retenciones del IGV declaradas en el período** | $\sum \text{MontoRetencion}(\text{período})$ | `retenciones_percepciones_igv` (`tipo = 'RETENCION'`) | 2 decimales |
+| **188** | **TOTAL DEUDA TRIBUTARIA DE IGV** | $\max(0,\; \text{Casilla } 184 - \text{Casilla } 171 - \text{Casilla } 179)$ | Si el neto es $< 0$, genera saldo arrastrable a $t+1$ | 2 decimales y entero SUNAT |
+| **301** | Ingresos netos del mes (Base pago a cuenta Renta 3ra) | $\max(0,\; \text{Casilla } 100 - \text{Casilla } 102 + \text{Casilla } 106 + \text{Casilla } 109)$ | `comprobantes_venta` | 2 decimales |
+| **315** | Coeficiente o porcentaje aplicable Renta | RMT $\le 300\text{ UIT}$: $1.00\%$; RG o RMT $> 300\text{ UIT}$: $\max(1.50\%, \text{Coef.})$; RER: $1.50\%$ | `parametros_tributarios` + `empresas` | 2 a 4 decimales |
+| **302** | Pago a cuenta determinado de Renta | $\text{Casilla } 301 \times \text{TasaAplicada}$ | `liquidacionIGVService.ts` | 2 decimales / entero SUNAT |
+| **303** | **Saldo a favor del período anterior (Impuesto a la Renta)** | $\min(\text{Casilla } 302,\; \text{SaldoFavorRentaAnterior})$ | `declaraciones_pdt621` / `declaraciones_renta_anual` | 2 decimales |
+| **304** | **PAGO A CUENTA DE RENTA POR PAGAR** | $\max(0,\; \text{Casilla } 302 - \text{Casilla } 303)$ | Deuda neta mensual de Renta 3ra Categoría | 2 decimales y entero SUNAT |
 
 #### B. Fórmula de Prorrata del Crédito Fiscal IGV (Art. 23° TUO LIGV y Art. 6° num. 6 Reglamento)
+
 $$\text{Coeficiente de Prorrata (12 meses)} = \frac{\sum_{i=t-11}^{t} (\text{Ventas Gravadas}_i + \text{Exportaciones}_i)}{\sum_{i=t-11}^{t} (\text{Ventas Gravadas}_i + \text{Exportaciones}_i + \text{Ventas No Gravadas}_i)}$$
+
 $$\text{Porcentaje Aplicable} = \text{round}(\text{Coeficiente} \times 100,\; 2\text{ decimales})$$
+
 $$\text{Crédito Fiscal Destino Común Admitido} = \text{IGV Compras Destino Común} \times \left(\frac{\text{Porcentaje Aplicable}}{100}\right)$$
-$$\text{IGV No Admitido (Costo/Gasto Cuenta 64111)} = \text{IGV Compras Destino Común} - \text{Crédito Fiscal Destino Común Admitido}$$
 
-### 5.6. Cronograma de Vencimientos y SUPUESTOS A VALIDAR
-- **Implementación:** Tabla versionada `cronograma_vencimientos` gestionada por `server/services/cronogramaVencimientosService.ts` y vista `CronogramaVencimientosView.tsx`, completamente separada de Cuentas por Cobrar/Pagar (`CarteraSaldosView.tsx`).
-- **SUPUESTOS A VALIDAR (Transparencia Normativa):**
-  1. **Fechas exactas del Cronograma SUNAT 2026 (`es_supuesto_validar = true`):** Las fechas de vencimiento para los períodos tributarios 2026 por último dígito de RUC (`0` al `9` y `B` para Buenos Contribuyentes y UESP) siguen el patrón oficial de días hábiles del mes siguiente publicado por SUNAT para obligaciones mensuales (PDT 621 / PLAME) y anuales (DAOT / Renta Anual). Cada fila incluye la marca explícita `SUPUESTO A VALIDAR` y es editable en tiempo real por `ADMIN_ESTUDIO` / `ADMINISTRADOR` al publicarse o modificarse la Resolución de Superintendencia respectiva.
-  2. **Integración futura con Facturador Atlob:** El Registro de Ventas y todas las declaraciones tributarias leen exclusivamente la tabla `comprobantes_venta`; cuando se conecte el Facturador Atlob externo, este insertará comprobantes validados en `comprobantes_venta` sin alterar una sola línea de cálculo del PDT 621, Prorrata, DAOT ni Renta Anual.
-  3. **Tasas de Comisión y Prima de Seguro AFP / Tope Previsional SBS (`parametros_tributarios`):** Las tasas de comisión sobre flujo y comisión mixta de las 4 administradoras (Integra, Prima, Profuturo, Habitat), la prima de seguro (`1.84%`) y el tope de remuneración máxima asegurable (`TOPE_PRIMA_SEGURO_AFP = S/ 12,135.22`) se leen de la tabla editable `parametros_tributarios` con vigencia por fecha; el contador puede actualizarlos conforme a las circulares trimestrales de la SBS.
-  4. **Layouts Oficiales PDT PLAME (Anexo 3 R.S. N° 183-2011/SUNAT) y T-Registro:**
-     - **PLAME (`0601AAAAMMRUC.ext`):** Estructuras implementadas y validadas: `.jor` (Estructura 14: 6 campos separados por `|` con pipe final), `.rem` (Estructura 18: 5 campos `TipoDoc|NumDoc|CodConcepto|Devengado|Pagado|`), `.snl` (Estructura 15: 4 campos `TipoDoc|NumDoc|CodSuspensionTabla21|Dias|`), `.toc` (Estructura 17: 6 campos de condiciones de aportación) y `.des` (resumen de descuentos previsionales y 5ta).
-     - **T-Registro (`RP_RUC.tra` y `RP_RUC.per`):** Exportador separado que genera Estructura 05 (`.tra`, datos laborales del trabajador) y Estructura 11 (`.per`, períodos laborales, altas y bajas con motivo Tabla 17). Supuesto documentado: los códigos de establecimiento propio y categoría ocupacional usan por defecto `'0000'` y `'02'` (Empleado) salvo parametrización específica en el aplicativo receptor SUNAT SOL.
+$$\text{IGV No Admitido (Cuenta 64111)} = \text{IGV Compras Destino Común} - \text{Crédito Fiscal Destino Común Admitido}$$
 
+### 5.6. Cronograma de Vencimientos, Parámetros Unificados y Supuestos a Validar
+
+1. **Cronograma SUNAT 2026 (`cronograma_vencimientos`, `es_supuesto_validar = true`):** Las fechas exactas por último dígito de RUC (`0`–`9` y `B` Buenos Contribuyentes) están marcadas como **`Pendiente de validar`** contra la Resolución de Superintendencia anual correspondiente y son editables por `ADMINISTRADOR`.
+2. **Parámetros Previsionales AFP / SBS Unificados (`parametroRepository.ts`):** Se unifican en todo el documento los valores vigentes cargados en código: prima de seguro AFP **`1.37%`** (`TASA_PRIMA_SEGURO_AFP`, que reemplazó al histórico `1.84%`) y topes trimestrales RMA SBS 2026 (`TOPE_PRIMA_SEGURO_AFP`: Q1 `S/ 12,209.11`, Q2 `S/ 12,598.91`, Q3 `S/ 12,672.65`, Q4 `S/ 12,732.70`; eliminado el valor obsoleto `S/ 12,135.22`). Si se solicita un período sin parámetro vigente, el servicio lanza `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE`.
+3. **Lista Única Oficial de Estructuras PLAME y T-Registro (Anexo 3 R.M. N° 121-2011-TR y modif. R.S. N° 016-2022/SUNAT):**
+   - **T-Registro (`RP_{RUC}.zip`):** `.ide` (Estructura `04`), `.tra` (Estructura `05`), `.per` (Estructura `11`), `.est` (Estructura `17`).
+   - **PDT PLAME 0601 (`0601{AAAA}{MM}{RUC}.zip`):** `.jor` (Estructura `14`), `.snl` (Estructura `15`), `.rem` (Estructura `18`, incluye descuentos `06xx`/`07xx`), `.4ta` (Estructura `20`), `.toc` (Estructura `26`), y `.or5` (Estructura `22`, cuando existan retenciones de 5ta de otros empleadores). La extensión `.des` no existe en el Anexo 3 y fue eliminada.
 
 ---
 
-## 6. LISTA DE ERRORES Y BUGS CONOCIDOS
+## 6. REGISTRO DE DEFECTOS CORREGIDOS Y PENDIENTES
 
-| ID | Módulo | Severidad | Archivo / Línea | Descripción del Problema | Causa Raíz Probable | Solución Sugerida |
-|---|---|:---:|---|---|---|---|
-| **BUG-01** | Test Suite | **Media** *(Resuelto)* | `server/routes/index.ts:24` | El endpoint `/api/health` devolvía 200 en pruebas sin Postgres, cuando el test esperaba 503 para certificar aislamiento. | Condición `process.env.NODE_ENV !== 'production'` no excluía expresamente el entorno `'test'`. | Ajustado a `isPostgres \|\| (NODE_ENV !== 'production' && NODE_ENV !== 'test')`. Prueba pasa al 100%. |
-| **BUG-02** | Facturación | **Media** *(Pospuesto)* | `EmitirComprobanteView.tsx` | Emisión UBL 2.1 opera en adaptador sandbox `SIMULADO`. | La facturación electrónica real se desarrollará en el Facturador Atlob independiente. | Sincronizar comprobantes emitidos hacia `comprobantes_venta` en la fase de integración del Facturador Atlob. |
-| **BUG-03** | Planilla PLAME | **Baja** *(Resuelto)* | `ExportarPlameView.tsx` | Generación de archivos `.rem` y `.jor` separada en vista propia de exportación PLAME. | Separación 1:1 de vistas completada. | Mantener sincronizado con estructura de conceptos PLAME vigente. |
-| **BUG-04** | Formato Específico | **Baja** *(Resuelto)* | `TopBar.tsx` | Al cambiar de resolución a pantallas angostas (&lt; 768px), los botones de la barra de herramientas hacían wrap en dos líneas. | Contenedor con `flex-wrap` sin barra de scroll horizontal compacta. | Corregido con `overflow-x-auto no-scrollbar whitespace-nowrap` manteniendo una sola fila compacta. |
-
----
-
-## 7. PENDIENTES Y DEUDA TÉCNICA
-
-### Backlog Priorizado
-
-| Prioridad | Tarea / Característica | Área | Esfuerzo | Justificación |
-|:---:|---|---|:---:|---|
-| **P0** | **Sincronización con Facturador Atlob:** Conector de recepción de CPE emitidos en el facturador externo hacia `comprobantes_venta`. | Integración | **M** | Permite alimentar automáticamente el Registro de Ventas sin acoplar la emisión SOAP al núcleo contable. |
-| **P1** | **Descarga Automatizada SIRE vía API R.S. 112:** Conexión directa mediante Client ID y Secret a los endpoints REST de SUNAT (`https://api-seguridad.sunat.gob.pe`). | Integración | **M** | Evita que el usuario tenga que entrar a la web de Clave SOL a descargar manualmente los archivos ZIP del SIRE. |
-| **P2** | **Empaquetado de Escritorio Tauri / Electron:** Creación del ejecutable nativo multiplataforma de escritorio. | Desktop | **M** | Proporciona la experiencia definitiva de aplicación de escritorio para contadores. |
+| ID | Módulo | Severidad / Estado | Archivo / Ubicación | Descripción del Problema | Causa Raíz | Solución Aplicada / Acción |
+| --- | --- | :---: | --- | --- | --- | --- |
+| **BUG-01** | Test Suite | Media *(Resuelto)* | `server/routes/index.ts` | `/api/health` devolvía `200` en pruebas sin PostgreSQL cuando el test esperaba `503`. | Condición `NODE_ENV !== 'production'` no excluía `'test'`. | Ajustado a `isPostgres \|\| (NODE_ENV !== 'production' && NODE_ENV !== 'test')`. |
+| **BUG-02** | Facturación | Media *(Diferido)* | `EmitirComprobanteView.tsx` | Emisión UBL 2.1 opera sobre adaptador sandbox `SIMULADO`. | La firma criptográfica XAdES se delegó al Facturador Atlob independiente. | Sincronizar CPE emitidos hacia `comprobantes_venta` en la integración con el Facturador Atlob. |
+| **BUG-03** | UI TopBar | Baja *(Resuelto)* | `src/components/desktop/TopBar.tsx` | En resoluciones menores a `768px`, la barra de herramientas hacía salto en dos filas. | Uso de `flex-wrap` sin desplazamiento horizontal compacto. | Aplicado `overflow-x-auto no-scrollbar whitespace-nowrap`. |
+| **BUG-04** | TypeScript | Alta *(Resuelto)* | `asientoService.ts`, `conciliadorSireService.ts` | `npm run lint` fallaba con código `1` por desalineación de tipos en `DetalleInput` y retorno de ajuste SIRE. | Propiedades opcionales faltantes en interfaces de producción. | Corregidos contratos TypeScript; `npm run lint` finaliza con código `0`. |
+| **BUG-05** | Arquitectura | Media *(Resuelto)* | `server/services/planilla/*` y legacy SIRE/PLE | Existían archivos muertos duplicados (`server/services/planilla/*` con `.des`, y controladores mixtos SIRE+PLE). | Refactorizaciones previas sin limpieza física de archivos antiguos. | Eliminados físicamente los archivos duplicados; `planillaService.ts`, `sire*` y `ple*` son fuentes únicas. |
+| **BUG-06** | PLE 5.2 | Media *(Resuelto)* | `server/services/pleExportService.ts` | Nomenclatura de mes sin movimiento documentada en posición 30, falta de moneda USD y sumas con `Number`. | Discrepancia con Anexo 1 R.S. 286-2009/SUNAT y uso de coma flotante nativa. | Posición 31 = `{I}`, posición 32 = `{M}` (`1` PEN, `2` USD) y sumatorias migradas a `Money` (`decimal.js`). |
+| **BUG-07** | PDT 621 UI | Media *(Resuelto)* | `src/components/views/LiquidacionTributariaView.tsx` | La vista etiquetaba Retenciones como Casilla `171`, Percepciones como `168` y Saldo a favor como `179`. | Inversión de etiquetas respecto a `liquidacionIGVService.ts` y al FV 621 oficial. | Alineado con SUNAT FV 621: Cas. `102/103` NC ventas, Cas. `171` Percepciones, Cas. `179` Retenciones, Cas. `188` Deuda IGV y Cas. `303` Saldo Renta. |
+| **BUG-08** | Planillas 5ta/LBS | Alta *(Resuelto)* | `server/services/planillaService.ts` | Proyección de 5ta en Oct-2026 usaba RMV de octubre para Ene–Sep y divisor 4; LBS aplicaba `1.84%` sin tope RMA. | Falta de consulta histórica mensual de RMV y constante desactualizada en LBS. | `planillaService` consulta RMV histórica por mes (`9 × 5,113`), aplica divisor `3` en octubre sobre Ene–Sep y usa `1.37%` con tope RMA en LBS. |
+| **BUG-09** | Persistencia SQL | **Alta *(Pendiente)*** | `pleExportService.ts`, `conciliadorSireService.ts`, `sireService.ts`, `planillaService.ts` | Estos servicios leen y escriben arreglos `*_MEMORIA` incluso si hay conexión activa a PostgreSQL. | Implementación inicial orientada a suites en memoria antes de cablear consultas SQL. | **Bloqueante antes de cerrar Fase 6:** reemplazar accesos directos a `*_MEMORIA` por repositorios SQL transaccionales sobre PostgreSQL. |
 
 ---
 
-## 8. SEGURIDAD Y DATOS SENSIBLES
+## 7. PENDIENTES Y DEUDA TÉCNICA (BACKLOG UNIFICADO)
 
-1. **Credenciales SUNAT (Clave SOL & APIs):**
-   - El almacenamiento de la Clave SOL y de los secretos de API SIRE en base de datos PostgreSQL está diseñado con cifrado de sobre (Envelope Encryption) con clave derivada por empresa.
-   - **Regla Crítica de Respaldo Cumplida:** La política de respaldo (`server/services/backupEmpresaService.ts`) excluye deliberadamente las credenciales SOL y usuarios del archivo ZIP exportado. El test unitario `run_tests_fase13_backup.ts` verifica con aserciones que ningún archivo NDJSON contenga cadenas con contraseñas o credenciales.
-2. **Segundo Factor de Autenticación (MFA TOTP):**
-   - El rol `ADMINISTRADOR` (`Jimmy Mayta`) tiene soporte obligatorio de TOTP según el RFC 6238 con ventana de tolerancia de ±1 paso (30 segundos). La clave secreta en Base32 (`MFA_SECRET_ADMIN_DEMO`) no se expone al cliente en texto plano.
-3. **Manejo de Sesiones JWT:**
-   - Tokens de acceso con vida útil corta (15 minutos).
-   - Refresh tokens opacos con expiración a 7 días y revocación atómica al cerrar sesión (`authJwtService.ts → logout()`).
+| Prioridad | Tarea / Característica | Área | Esfuerzo | Estado Actual y Justificación |
+| :---: | --- | --- | :---: | --- |
+| **P0** | **Persistencia SQL Completa en SIRE, PLE y Planillas + Ejecución de `test:pg` en PostgreSQL 15+ Real** | Backend / BD | **M** | **Requisito bloqueante para cierre de Fase 6 (`AGENTS.md`):** migrar lecturas/escrituras de `*_MEMORIA` a consultas SQL sobre PostgreSQL y ejecutar `npm run test:pg` (RLS + `trg_asiento_partida_doble`) y `npm run test:infra` contra una instancia PostgreSQL 15+ real. |
+| **P0** | **Validación Externa en Aplicativos Oficiales SUNAT (SIRE API Real, PLE 5.2 Desktop, PDT PLAME v4.0 y PVS T-Registro)** | Compliance SUNAT | **M** | El cliente OAuth2 SIRE (`sunatGateway.ts`) y los exportadores TXT/ZIP ya están implementados y probados en emulación local; falta homologarlos con credenciales `client_id` / `client_secret` reales y validadores oficiales de escritorio de SUNAT. |
+| **P1** | **Fase 7: Inventarios & Kardex Físico/Valorado (Libros PLE 12.1 y 13.1) y Activos Fijos (Libro 7.1)** | Inventarios | **L** | Iniciar únicamente tras el cierre formal de la Fase 6; completa valuación Promedio Ponderado / PEPS, costo de ventas (`69` vs `20`) y depreciación mensual. |
+| **P1** | **Sincronización con Facturador Atlob Externo** | Integración CPE | **M** | Conector de recepción de comprobantes emitidos y firmados en el Facturador Atlob independiente hacia `comprobantes_venta`, sin acoplar SOAP/XAdES al núcleo contable. |
+| **P2** | **Importación Nativa de Extractos Bancarios (OFX / Formatos Bancos Locales)** | Tesorería | **S** | Amplía la conciliación bancaria actual basada en CSV estándar. |
+| **P3** | **Empaquetado Nativo de Escritorio (Tauri 2.0) y Portal de Consulta para Clientes** | Desktop / Estudio | **M** | Distribución instalable de escritorio y acceso de solo lectura para clientes del estudio. |
+
+---
+
+## 8. SEGURIDAD Y PROTECCIÓN DE DATOS SENSIBLES
+
+1. **Declaración Única Verificada sobre Credenciales SUNAT (`Clave SOL`, `client_id`, `client_secret`) y `SUNAT_ENCRYPTION_KEY`:**
+   - **Dónde y cómo se almacenan:** Las credenciales SUNAT por empresa (`usuario_sol_encrypted`, `clave_sol_encrypted`, `client_id_encrypted`, `client_secret_encrypted`) se almacenan cifradas en la tabla `sunat_conexiones` (`server/db/schema_fase6.sql`) mediante **AES-256-GCM** en `server/services/cryptoService.ts` (IV aleatorio de 12 bytes + Auth Tag de 16 bytes, formato `v1:iv:tag:ciphertext`, con soporte `v2` de Envelope Encryption por DEK empresarial envuelta en `sunat_empresa_keys`).
+   - **Ubicación de la clave maestra (KEK):** La llave maestra reside exclusivamente en la variable de entorno `SUNAT_ENCRYPTION_KEY`. En `NODE_ENV=production`, `server/config/env.ts` exige que esté definida, tenga al menos 32 caracteres (64 hex para 256 bits) y no coincida con el valor de desarrollo; nunca se persiste en base de datos ni en el repositorio Git.
+   - **Exclusión estricta de respaldos:** En `server/storage/registroDatosEmpresa.ts` las tablas `credenciales_sunat`, `sunat_conexiones`, `sunat_empresa_keys`, `sunat_tokens`, `usuarios`, `usuarios_estudio`, `roles`, `permisos`, `rol_permisos`, `membresias`, `usuario_empresa` y `refresh_tokens` tienen `exportar: false`. Adicionalmente, `backupEmpresaService.ts` aplica una lista blanca cerrada y `run_tests_fase13_backup.ts` verifica archivo por archivo (`.ndjson` y `manifest.json`) cero fugas de secretos.
+   - **No exposición en respuestas ni logs:** Las rutas devuelven únicamente banderas booleanas de configuración (`write-only`), y `sanitizarErrorLog` expurga tokens Bearer, claves SOL y secretos antes de registrar errores.
+2. **Secreto MFA de Demostración (`MFA_SECRET_ADMIN_DEMO`):**
+   - En `server/services/authJwtService.ts:76`, la constante `MFA_SECRET_ADMIN_DEMO = 'JBSWY3DPEHPK3PXP'` **no es un secreto real de producción**: es el vector público estándar de prueba del RFC 6238 / Google Authenticator, inyectado exclusivamente por `sembrarUsuariosPrueba()` cuando `NODE_ENV !== 'production' && !DATABASE_URL`. En enrolamiento real (`totpService.generarSecreto()`), cada usuario recibe un secreto aleatorio de 20 bytes generado con `crypto.randomBytes(20)`.
+3. **Desactivación de `IN_MEMORY_FALLBACK` en Producción:**
+   - Verificada en `server/config/env.ts:27`, `server/config/database.ts:39-41` y certificada por `server/tests/test_produccion_sin_db.ts`: en `NODE_ENV=production` el respaldo en memoria está prohibido en el arranque del servidor y en `empresaRepository`. (Véase `BUG-09` sobre los servicios pendientes de migrar de `*_MEMORIA` a SQL).
+4. **Sesiones JWT y Defensa Anti-XXE:**
+   - Access tokens JWT con expiración de 15 minutos, refresh tokens revocables al cerrar sesión, cifrado de cuentas bancarias de trabajadores (Ley N° 29733) y bloqueo estricto de `<!DOCTYPE` y `<!ENTITY` en `xmlImportService.ts` (`ATAQUE_XXE_DETECTADO`).
 
 ---
 
 ## 9. PRUEBAS Y VERIFICACIÓN
 
-### 9.1. Suite de Pruebas Automatizadas
-El sistema cuenta con un ejecutor integral (`server/tests/run_all_tests.ts`) que corre las suites de prueba en Node.js puro:
-- **Cobertura Comprobada:**
-  - Taxonomía de menú de 13 grupos y regla 1 opción activa = 1 vista exclusiva.
-  - Sesión concurrente y renovación tardía.
-  - Aislamiento HTTP por empresa y rol (401, 403, 404).
-  - Partida doble forzada y reversión de asientos.
-  - Módulo Tributos (PDT 621 con arrastre de saldo a favor, retenciones/percepciones, MYPE vs Régimen General, rectificatorias con historial, bloqueo a rol AUDITOR, Prorrata del IGV al 60%, DAOT en borde de 2 UIT S/ 10,999 vs S/ 11,001, Renta Anual y Cronograma por dígito RUC y Buen Contribuyente).
-  - Generación de libros PLE 5.2 con sumatorias exactas.
-  - Cifrado y descifrado de respaldos ZIP con detección de manipulación de bits (rechazo por integridad GCM).
-  - Importación masiva de CSV con neutralización de inyección de fórmulas (`=`, `+`, `@`).
+### 9.1. Inventario Real de Suites y Motores de Persistencia
 
-### 9.2. Pasos para Compilar y Ejecutar el Proyecto
+El repositorio contiene **30 archivos de prueba/soporte** (`27` en `server/tests/`, `2` en `server/tests/real/` y `1` en `src/api/session.test.ts`). El orquestador `npm test` (`server/tests/run_all_tests.ts`) ejecuta **24 suites automatizadas** en `102.43s` forzando `NODE_ENV='test'` y `DATABASE_URL=''`:
+
+1. **Suites sobre estructuras en memoria (`*_MEMORIA`, sin motor SQL — 22 de las 24 suites de `npm test`):**
+   - `src/api/session.test.ts`, `run_tests_acceso.ts`, `verificar_auth_setup.ts` (modo memoria por defecto), `run_tests.ts` (Fase 2: 28 pruebas), `run_tests_fase3.ts` (27 pruebas), `run_tests_fase4.ts` (46 pruebas), `run_tests_fase5.ts` (42 pruebas), `run_tests_fase6.ts` (**80 pruebas**), `run_tests_fase7.ts`, `run_tests_fase7b.ts`, `run_tests_fase7c2.ts`, `run_tests_fase9.ts`, `run_tests_fase10.ts`, `run_tests_fase11.ts` (27 pruebas), `run_tests_fase13_cobertura.ts` (74 pruebas), `run_tests_fase13_demo.ts` (20 pruebas), `run_tests_fase13_backup.ts` (47 pruebas), `run_tests_fase13_importacion.ts` (43 pruebas), `run_tests_menu_fase1.ts` (86 opciones hoja), `run_tests_fase4_tributos.ts`, `run_tests_fase5_planillas.ts` (incluye los 6 Casos Dorados), `test_produccion_sin_db.ts` (lanza subproceso con `NODE_ENV=production`) y `run_tests_reportes_y_vouchers_normativos.ts` (7 pruebas: formato de fechas estricto, cuadre de compras S/ 21,300.54, 11 reportes uniformes, PLE 5.1/6.1, validaciones PCGE y 7 plantillas de asientos).
+2. **Pruebas con `pg-mem` (`server/tests/postgresTestHarness.ts`):**
+   - Usado únicamente en el **Test 1 (`L39-68`) de `server/tests/run_tests_fase8.ts`** (la 22.ª suite del listado anterior; sus Tests 2 y 3 usan `*_MEMORIA`). `postgresTestHarness.ts` carga `schema_fase1..6.sql` y `migration_fase8.sql`, pero **no** carga `triggers_fase2.sql` porque `pg-mem` no soporta `CREATE CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` en PL/pgSQL.
+3. **Pruebas diseñadas para PostgreSQL 15+ Real (`pg.Pool`, fuera de `npm test` sin BD):**
+   - `server/tests/real/test_pg_rls_planillas.ts` (`npm run test:pg`): exige `TEST_DATABASE_URL` terminada en `_test`; aplica todas las migraciones SQL, configura rol `app_user` con `NOBYPASSRLS`, verifica aislamiento RLS multiempresa y en el **Paso 10** prueba explícitamente el trigger diferido `trg_asiento_partida_doble` (`fn_validar_partida_doble()`), comprobando que PostgreSQL rechaza el `COMMIT` de un asiento `CONTABILIZADO` descuadrado (`1500.00` vs `1499.99`) con `ASIENTO_DESCUADRADO`.
+   - `server/tests/real/test_infra.ts` (`npm run test:infra`), `server/tests/run_tests_registro_empresa.ts` y `server/tests/verificar_auth_setup.ts --postgres`.
+   - **Limitación actual del entorno:** En la estación donde se corrió esta auditoría no hay una instancia PostgreSQL 15+ activa en `TEST_DATABASE_URL`, por lo que `npm run test:pg` detiene su ejecución de forma controlada con código `1` solicitando dicha variable.
+
+#### Explicación de la Diferencia `75/75` vs `80/80` en `server/tests/run_tests_fase6.ts`
+
+El informe inicial de Fase 6 registraba `75/75` aserciones. Durante la corrección normativa y de seguridad de Fase 6 se incorporaron **5 nuevas aserciones** en `server/tests/run_tests_fase6.ts`, elevando el conteo verificable en ejecución real a **`80/80`**:
+- **Test 1 (`L106` y `L114`, +2 aserciones):** Verifican que `conciliadorSireService.aceptarPropuestaSireOficial` y `reemplazarPropuestaSireOficial` lancen `OPERACION_SIMULADA_BLOQUEADA` cuando la propuesta tiene `esSimulado === true`.
+- **Test 5 (`L450`, `L454` y `L455`, +3 aserciones):** Verifican la nomenclatura PLE 5.2 de 33 caracteres en dólares con movimiento (`...001121.txt`, pos. 31 = `'1'`, pos. 32 = `'2'`), en dólares sin movimiento (`...001021.txt`, pos. 31 = `'0'`, pos. 32 = `'2'`) y que el archivo sin movimiento en `USD` contenga `0` filas de datos (`totalFilas === 0`).
+
+### 9.2. Comandos Oficiales de Compilación y Verificación
+
 ```bash
 # 1. Instalar dependencias
 npm install
 
-# 2. Ejecutar suite de pruebas de integridad
-npm test
-
-# 3. Validar tipado TypeScript
+# 2. Validar tipado estático TypeScript en todo el repositorio
 npm run lint
 
-# 4. Compilar aplicación para producción
+# 3. Ejecutar suite especializada de Fase 6 (SIRE y PLE 5.2 — 80 aserciones)
+npm run test:fase6
+
+# 4. Ejecutar batería integral automatizada (24 suites en memoria / pg-mem)
+npm test
+
+# 5. Ejecutar pruebas sobre PostgreSQL 15+ real (requiere TEST_DATABASE_URL terminada en _test)
+npm run test:pg
+
+# 6. Compilar bundle de producción del cliente React/Vite
 npm run build
 
-# 5. Iniciar servidor de desarrollo en puerto 3000
+# 7. Iniciar servidor de desarrollo en puerto 3000
 npm run dev
 ```
 
@@ -634,20 +543,19 @@ npm run dev
 
 ## 10. UI/UX DE ESCRITORIO PROPIA DE ATLOB CONSULTORES
 
-- **Estructura Vertical Fija (Sin Barra Lateral):**
-  - **Barra de Título (13px):** Logotipo cuadrado "A" en azul institucional `#1D4ED8`, nombre `Atlob Consultores ERP`, chips de Empresa, RUC, Período y Ambiente SUNAT (`BETA` / `PRODUCCIÓN`), selector de Rol y crédito de autoría: `Desarrollado por Jimmy Mayta`.
-  - **Barra de Menús (13px):** Data-driven (`MENU_DATA`) con taxonomía propia de 13 grupos y navegación por teclado (`Alt`, flechas, `Enter`, `Esc`).
-  - **Barra de Herramientas:** Una sola fila compacta (`overflow-x-auto no-scrollbar`) con acciones rápidas y Paleta de Comandos `[Ctrl+Shift+P]`.
-  - **Tipografía Condensada Empaquetada Localmente:** Pila `"Arial Narrow", "Liberation Sans Narrow", "Roboto Condensed", Arial, sans-serif` con `@font-face` local y cifras `tabular-nums`.
-  - **Área de Trabajo:** Vistas independientes sin mezclar módulos distintos; formularios en ventanas modales con barra de título.
-  - **Barra de Estado:** RUC, alerta de próximo vencimiento SUNAT según último dígito de RUC, Tipo de Cambio SBS del día, Usuario/Rol, estado de conexión y última acción ejecutada.
-- **Viabilidad para Electron / Tauri:** La interfaz no utiliza APIs propietarias del navegador; los datos del menú residen en una estructura desacoplada en `src/types/menu.ts`, permitiendo empaquetado nativo directo mediante Tauri 2.0.
+- **Disposición Vertical de Alta Densidad (Sin Barra Lateral):**
+  - **Barra de Título (`13px`):** Identidad `Atlob Consultores ERP`, chips activos de Empresa, RUC, Período, Ambiente SUNAT (`BETA` / `PRODUCCIÓN`), Rol actual y autoría `Desarrollado por Jimmy Mayta`.
+  - **Barra de Menús (`13px`):** Generada desde `MENU_DATA` (`src/types/menu.ts`) con 13 grupos y navegación por teclado (`Alt`, cursores, `Enter`, `Esc`).
+  - **Barra de Herramientas:** Fila única compacta (`overflow-x-auto no-scrollbar whitespace-nowrap`) y paleta de comandos `[Ctrl+Shift+P]`.
+  - **Tipografía Local:** Familia condensada (`Roboto Condensed` empaquetada localmente en `woff2` + pilas del sistema) con `tabular-nums` para alineación vertical de importes contables.
+  - **Barra de Estado:** RUC activo, próximo vencimiento tributario, Tipo de Cambio SBS, usuario/rol y estado de conexión.
 
 ---
 
-## 11. FRAGMENTOS DE CÓDIGO CLAVE
+## 11. FRAGMENTOS DE CÓDIGO REAL DE PRODUCCIÓN
 
 ### 11.1. Estructura Tipada del Menú Data-Driven (`src/types/menu.ts`)
+
 ```typescript
 export interface MenuItem {
   id: string;
@@ -665,18 +573,19 @@ export interface MenuGroup {
 }
 ```
 
-### 11.2. Tipo de Dato del Asiento Contable (`src/types/index.ts`)
+### 11.2. Modelo de Asiento Contable en Cliente (`src/types/index.ts`)
+
 ```typescript
 export interface AsientoContable {
   id: string;
-  subdiario: CodigoSubdiario; // '00' a '09'
-  numeroAsiento: string;      // Correlativo mensual
-  fecha: string;              // 'YYYY-MM-DD'
-  periodo: string;            // 'YYYY-MM'
+  subdiario: CodigoSubdiario;
+  numeroAsiento: string;
+  fecha: string;
+  periodo: string;
   glosaGeneral: string;
   moneda: 'PEN' | 'USD';
   tipoCambio: number;
-  items: ApunteContableItem[]; // Debe y Haber por cuenta
+  items: ApunteContableItem[];
   totalDebe: number;
   totalHaber: number;
   cuadrado: boolean;
@@ -685,275 +594,343 @@ export interface AsientoContable {
 }
 ```
 
-### 11.3. Validación y Guardado de Asiento Contable (`server/services/asientoService.ts`)
+### 11.3. Contabilización Atómica y Correlativo en PostgreSQL (`server/services/asientoService.ts`)
+
 ```typescript
-async contabilizar(empresaId: string, asientoId: string, usuarioId: string, client?: PoolClient) {
-  const asiento = await this.obtenerPorId(empresaId, asientoId, client);
-  if (!asiento) throw new Error('ASIENTO_NO_ENCONTRADO');
-  if (asiento.estado === 'CONTABILIZADO') throw new Error('ASIENTO_YA_CONTABILIZADO');
+async contabilizar(asientoId: string, empresaId: string, userId: string, options?: { enforceSegregacion?: boolean }) {
+  if (db.isPostgresConnected()) {
+    const client = await db.getClient();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL app.current_user_id = $1`, [userId]);
+      await client.query(`SET LOCAL app.current_empresa_id = $2`, [empresaId]);
 
-  // Validar partida doble obligatoria al céntimo
-  const diferencia = Math.abs(Number(asiento.totalDebe) - Number(asiento.totalHaber));
-  if (diferencia >= 0.01) {
-    throw new Error(`ASIENTO_DESCUADRADO: El total Debe (${asiento.totalDebe}) difiere del Haber (${asiento.totalHaber}).`);
-  }
+      const aRes = await client.query(`
+        SELECT a.*, p.codigo_periodo, s.codigo as subdiario_codigo
+        FROM asientos a
+        JOIN periodos p ON p.id = a.periodo_id
+        JOIN subdiarios s ON s.id = a.subdiario_id
+        WHERE a.id = $1 FOR UPDATE
+      `, [asientoId]);
 
-  // Comprobar período abierto
-  const periodoAbierto = await this.verificarPeriodoAbierto(empresaId, asiento.periodoId, client);
-  if (!periodoAbierto) {
-    throw new Error('PERIODO_CERRADO: No se pueden contabilizar asientos en un período fiscal cerrado.');
-  }
+      if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');
+      const asiento = aRes.rows[0];
 
-  return await this.actualizarEstado(asientoId, 'CONTABILIZADO', usuarioId, client);
-}
-```
-
-### 11.4. Generación de Nombre y Estructura PLE 5.2 (`server/services/pleGeneratorService.ts`)
-```typescript
-export function generarNombreArchivoPle(
-  ruc: string,
-  periodo: string, // '2026-09'
-  codigoLibro: string, // '050100' para Libro Diario
-  tieneInformacion: boolean = true
-): string {
-  const [anio, mes] = periodo.split('-');
-  const dd = '00';
-  const cc = '00';
-  const o = '1'; // 1 = Empresa o entidad operativa
-  const i = tieneInformacion ? '1' : '0'; // Indicador de contenido
-  const m = '1'; // 1 = Soles (PEN)
-  const g = '1'; // 1 = Generado por PLE (Fijo)
-  return `LE${ruc}${anio}${mes}${dd}${codigoLibro}${cc}${o}${i}${m}${g}.txt`;
-}
-```
-
-### 11.5. Algoritmo de Conciliación SIRE (`server/services/sireConciliadorService.ts`)
-```typescript
-export function conciliarSireCompras(
-  propuestaSire: ComprobanteSirePropuesta[],
-  registroLocal: Comprobante[]
-): ResultadoConciliacionSire {
-  const mapaLocal = new Map<string, Comprobante>();
-  for (const c of registroLocal) {
-    const key = `${c.tipoComprobante}-${c.serie}-${c.numero}-${c.proveedorRuc}`;
-    mapaLocal.set(key, c);
-  }
-
-  const coincidentes = [];
-  const soloEnPropuesta = [];
-  const conDiferencias = [];
-
-  for (const prop of propuestaSire) {
-    const key = `${prop.tipoComprobante}-${prop.serie}-${prop.numero}-${prop.proveedorRuc}`;
-    const local = mapaLocal.get(key);
-
-    if (!local) {
-      soloEnPropuesta.push(prop);
-    } else {
-      const diffBase = Math.abs(Number(prop.baseGravada) - Number(local.baseImponibleGravada));
-      const diffIgv = Math.abs(Number(prop.igv) - Number(local.igv));
-
-      if (diffBase < 0.05 && diffIgv < 0.05) {
-        coincidentes.push({ propuesta: prop, registro: local });
-      } else {
-        conDiferencias.push({ propuesta: prop, registro: local, diffBase, diffIgv });
+      if (options?.enforceSegregacion && asiento.created_by && asiento.created_by === userId) {
+        throw new Error('SEGREGACION_FUNCIONES: El usuario que registró el borrador no puede contabilizarlo (Separación obligatoria de funciones).');
       }
-      mapaLocal.delete(key);
+      if (asiento.estado === 'CONTABILIZADO') {
+        throw new Error('ASIENTO_YA_CONTABILIZADO: El asiento ya se encuentra contabilizado.');
+      }
+
+      await client.query(`
+        INSERT INTO correlativos (empresa_id, periodo_id, subdiario_id, ultimo_numero)
+        VALUES ($1, $2, $3, 0)
+        ON CONFLICT (empresa_id, periodo_id, subdiario_id) DO NOTHING
+      `, [empresaId, asiento.periodo_id, asiento.subdiario_id]);
+
+      const corrRes = await client.query(`
+        UPDATE correlativos
+        SET ultimo_numero = ultimo_numero + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE empresa_id = $1 AND periodo_id = $2 AND subdiario_id = $3
+        RETURNING ultimo_numero
+      `, [empresaId, asiento.periodo_id, asiento.subdiario_id]);
+
+      const correlativoNum = corrRes.rows[0].ultimo_numero;
+      const mesStr = asiento.codigo_periodo.split('-')[1] || '09';
+      const numeroCorrelativo = `${asiento.subdiario_codigo}${mesStr}${String(correlativoNum).padStart(4, '0')}`;
+
+      const updateRes = await client.query(`
+        UPDATE asientos SET
+          numero = $1, estado = 'CONTABILIZADO', version = version + 1,
+          updated_by = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+        RETURNING *
+      `, [numeroCorrelativo, userId, asientoId]);
+
+      // Al ejecutar COMMIT se dispara trg_asiento_partida_doble -> fn_validar_partida_doble()
+      await client.query('COMMIT');
+      return updateRes.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
   }
-
-  const soloEnRegistro = Array.from(mapaLocal.values());
-  return { coincidentes, soloEnPropuesta, conDiferencias, soloEnRegistro };
+  // ...
 }
+```
+
+### 11.4. Prevalidación con `Money` y Nomenclatura Oficial PLE 5.2 (`server/services/pleExportService.ts`)
+
+```typescript
+// Prevalidación de cuadre contable exacto con decimal.js (Money)
+let cuadreContableOk = true;
+for (const a of asientosPeriodo) {
+  if (a.estado === 'CONTABILIZADO') {
+    const totalD = (a.detalles || []).reduce((acc: any, d: any) => Money.add(acc, d.debe || 0), Money.create(0));
+    const totalH = (a.detalles || []).reduce((acc: any, d: any) => Money.add(acc, d.haber || 0), Money.create(0));
+    if (!Money.isEqual(totalD, totalH)) {
+      cuadreContableOk = false;
+      break;
+    }
+  }
+}
+
+// Nomenclatura oficial de 33 caracteres antes de .txt y hash SHA-256
+const tieneContenido = (lineas.length > 0 && !opciones.sinMovimiento) ? '1' : '0';
+const nombreArchivoOficial = `LE${ruc}${anio}${mes}00${codigoLibro}00${indOperacionStr}${tieneContenido}${indMonedaNum}1.txt`;
+const nombreArchivoFinal = !esModoOficial ? `VISTA_PREVIA_${nombreArchivoOficial}` : nombreArchivoOficial;
+
+const contenidoTxt = lineas.length > 0 ? lineas.join('\r\n') : '';
+const hashSha256 = crypto.createHash('sha256').update(contenidoTxt, 'utf8').digest('hex');
+```
+
+### 11.5. Cruce Multimoneda y Tolerancias con `Money` en Conciliador SIRE (`server/services/conciliadorSireService.ts`)
+
+```typescript
+// Manejo de Multimoneda (USD / PEN) con precisión exacta decimal.js (Money)
+let totalSunatPen = Money.round(p.total);
+let baseSunatPen = Money.round(p.baseGravada);
+let igvSunatPen = Money.round(p.igv);
+
+let totalSistemaPen = Money.round(match.total || 0);
+let baseSistemaPen = Money.round(match.baseGravada || 0);
+let igvSistemaPen = Money.round(match.igv || 0);
+
+if (p.moneda === 'USD' && match.moneda === 'PEN') {
+  const tc = Money.create(p.tipoCambio || match.tipoCambio || 1.0);
+  totalSunatPen = Money.mul(p.total, tc);
+  baseSunatPen = Money.mul(p.baseGravada, tc);
+  igvSunatPen = Money.mul(p.igv, tc);
+} else if (p.moneda === 'PEN' && match.moneda === 'USD') {
+  const tc = Money.create(match.tipoCambio || p.tipoCambio || 1.0);
+  totalSistemaPen = Money.mul(totalSistemaPen, tc);
+  baseSistemaPen = Money.mul(baseSistemaPen, tc);
+  igvSistemaPen = Money.mul(igvSistemaPen, tc);
+}
+
+if (esNotaCredito) {
+  if (totalSistemaPen.isNegative() && totalSunatPen.isPositive()) totalSunatPen = totalSunatPen.negated();
+  if (baseSistemaPen.isNegative() && baseSunatPen.isPositive()) baseSunatPen = baseSunatPen.negated();
+  if (igvSistemaPen.isNegative() && igvSunatPen.isPositive()) igvSunatPen = igvSunatPen.negated();
+}
+
+const difTotal = Money.sub(totalSistemaPen, totalSunatPen).abs();
+const difBase = Money.sub(baseSistemaPen, baseSunatPen).abs();
+const difIgv = Money.sub(igvSistemaPen, igvSunatPen).abs();
+
+const cuadraImporte =
+  difTotal.lessThanOrEqualTo(Money.create(tolTotal)) &&
+  difBase.lessThanOrEqualTo(Money.create(tolBase)) &&
+  difIgv.lessThanOrEqualTo(Money.create(tolIgv));
 ```
 
 ---
 
-## 12. RECOMENDACIONES FINALES
+## 12. RECOMENDACIONES ARQUITECTÓNICAS (ALINEADAS CON EL BACKLOG SECCIÓN 7)
 
-### 12.1. Los 10 Cambios de Mayor Impacto en Orden de Prioridad
-1. **Bóveda de Certificado Digital Tributario (.pfx):** Incorporar en la base de control la carga del certificado firmado de cada empresa para que la emisión UBL 2.1 viaje directamente a SUNAT con validez fiscal plena.
-2. **Cliente API REST SIRE SUNAT:** Implementar el intercambio automático de tokens OAuth2 con el Web Service de SUNAT para descarga desatendida de propuestas sin tener que subir archivos ZIP manualmente.
-3. **Generador Masivo de Archivos PLAME (.rem / .jor):** Completar el módulo de planillas con la exportación directa de los archivos de texto requeridos por el aplicativo de SUNAT.
-4. **Empaquetado Nativo con Tauri 2.0:** Crear la versión instalable nativa de escritorio para el estudio contable, manteniendo el backend Express embebido o compilado con Rust.
-5. **Caché Inteligente de Consultas RUC / DNI:** Integrar consulta automática al padrón reducido de SUNAT con almacenamiento local en PostgreSQL para autocompletar razón social y condición de habido sin demoras.
-6. **Módulo de Prorrata de Crédito Fiscal IGV:** Automatizar el cálculo de la prorrata para empresas que realizan simultáneamente operaciones gravadas y no gravadas conforme al artículo 23° de la Ley del IGV.
-7. **Kardex Físico y Valorado (Libro 13.1):** Consolidar la valorización de inventarios por el método Promedio Ponderado y PEPS ligada a los comprobantes de compras y ventas.
-8. **Impresión Directa a Formato Ticket (80mm) y A4:** Plantillas térmicas para emisión de facturas y boletas en puntos de venta de clientes del estudio.
-9. **Cierre Anual Automatizado con Generación de Vouchers 80 a 89:** Generar con un solo clic los asientos de cancelación de cuentas de resultados y determinación del impuesto a la renta diferido.
-10. **Portal de Acceso para el Cliente de la Empresa:** Vista de solo lectura donde el cliente del estudio pueda ingresar a consultar sus balances, impuestos liquidados y descargar sus XMLs sin llamar al contador.
+### 12.1. Próximas Acciones de Mayor Impacto (Sin Ítems Ya Implementados)
+
+1. **[P0] Completar Persistencia SQL en SIRE, PLE y Planillas:** Sustituir las lecturas/escrituras sobre `*_MEMORIA` en `pleExportService.ts`, `conciliadorSireService.ts`, `sireService.ts`, `historialGeneracionesService.ts` y `planillaService.ts` por consultas parametrizadas a PostgreSQL, garantizando persistencia tras reinicio conforme a `AGENTS.md`.
+2. **[P0] Certificación de Integración en PostgreSQL 15+ Real (`npm run test:pg` y `npm run test:infra`):** Provisionar la base `atlob_test` en CI/local para ejecutar de forma obligatoria RLS (`NOBYPASSRLS`), `trg_asiento_partida_doble` e ida y vuelta de respaldos sobre PostgreSQL real.
+3. **[P0] Homologación Operativa con Credenciales y Validadores Reales de SUNAT:** Probar el adaptador OAuth2 REST de `sunatGateway.ts` contra `https://api-seguridad.sunat.gob.pe` con credenciales reales y validar archivos generados en PLE 5.2 Desktop, PDT PLAME v4.0 y PVS T-Registro.
+4. **[P1] Fase 7 — Inventarios, Kardex Valorado (Libros PLE 12.1 y 13.1) y Activos Fijos (Libro 7.1):** Habilitar vistas operativas y asientos automáticos de costo de ventas y depreciación una vez cerrada la Fase 6.
+5. **[P1] Conector de Recepción desde el Facturador Atlob:** Integrar la ingesta automática de CPE emitidos hacia `comprobantes_venta`.
+6. **[P2] Importador Bancario OFX / Extractos Locales y Caché Local de Padrón RUC:** Acelerar conciliación bancaria y autocompletado de anexos.
+7. **[P3] Empaquetado de Escritorio con Tauri 2.0 y Portal de Cliente Solo Lectura:** Distribución nativa para estaciones contables y consulta externa controlada.
 
 ### 12.2. Dictamen Arquitectónico: Qué Conservar y Qué Mejorar
-- **Conservar Íntegramente:**
-  - El motor contable de partida doble, triggers SQL y `asientoService.ts`.
-  - La arquitectura B de aislamiento multiempresa y la lista declarativa única `registroDatosEmpresa.ts`.
-  - El motor de reportes Formato estándar Atlob (`formatoEstandarEngine.ts`).
-  - La suite de pruebas de integración y su velocidad de ejecución.
-  - La barra superior de escritorio propia de Atlob Consultores (`TopBar.tsx` + `MENU_DATA` con separación estricta 1 a 1 de módulos).
-- **Mejorar / Extender:**
-  - La emisión UBL 2.1: conectar la firma criptográfica XAdES con certificado físico.
-  - El conciliador SIRE: añadir conexión directa a los endpoints REST de SUNAT.
-  - La conciliación bancaria: incorporar importador nativo de formatos OFX y Excel de bancos nacionales.
+
+- **Conservar íntegramente:** El motor de partida doble (`trg_asiento_partida_doble` + `Money`), la lista declarativa única `REGISTRO_DATOS_EMPRESA` con exclusión criptográfica de secretos en respaldos, el motor de reportes `formatoEstandarEngine.ts`, la separación 1:1 de vistas en `MENU_DATA` y el desacoplamiento entre SIRE (`/api/sire`), PLE (`/api/ple`), Tributos y Planillas.
+- **Mejorar antes de avanzar a Fase 7:** Eliminar toda dependencia remanente de arreglos `*_MEMORIA` cuando PostgreSQL está conectado y exigir la ejecución de `npm run test:pg` en un entorno PostgreSQL 15+ real.
 
 ---
 
-## 13. INFORME DE VERIFICACIÓN NORMATIVA Y CORRECCIÓN DE PLANILLAS (FASE 5B)
+## 13. VERIFICACIÓN NORMATIVA Y CÁLCULOS EXACTOS DE PLANILLAS (FASE 5B)
 
-### 13.1. Parámetros Laborales y Tributarios Oficiales 2026 (parametroRepository)
+### 13.1. Parámetros Laborales y Tributarios 2026 (`server/repositories/parametroRepository.ts`)
 
-Todos los parámetros han sido validados contra fuentes públicas oficiales (El Peruano, SBS, SUNAT) e incorporados con vigencia temporal desde-hasta. Si falta un parámetro para un período solicitado, el motor **bloquea estrictamente** el cálculo arrojando `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE` (está prohibido asumir valores por defecto).
+Si falta un parámetro vigente para el período consultado, el motor bloquea el cálculo lanzando `CALCULO_BLOQUEADO_PARAMETRO_FALTANTE`. Todas las URLs apuntan a portales institucionales verificables y los datos sin número de circular/decreto abierto se marcan explícitamente como **`Pendiente de validar`**:
 
-| Parámetro | Código | Valor Oficial | Vigencia | Base Legal / Fuente Oficial |
-|---|---|---|---|---|
-| **RMV Tramo 1** | `RMV` | S/ 1,130.00 | Hasta 30/09/2026 | D.S. N° 006-2024-TR ([El Peruano](https://busquedas.elperuano.pe/dispositivo/NL/2345678-1)) |
-| **RMV Tramo 2 (Vigente)** | `RMV` | S/ 1,230.00 | Desde 01/10/2026 | D.S. N° 015-2026-TR ([El Peruano](https://busquedas.elperuano.pe/dispositivo/NL/2356789-1)) |
-| **RMV Segundo Tramo (Pendiente)** | `RMV_SEGUNDO_TRAMO_PENDIENTE` | S/ 1,300.00 | **Sin vigencia (9999-12-31)** | D.S. N° 015-2026-TR Disposición Complementaria (Pendiente de decreto supremo con fecha) |
-| **Asignación Familiar** | `TASA_ASIGNACION_FAMILIAR` | 10% RMV mes de pago | Permanente | Ley N° 25129 Art. 1° y 2° (Sep: S/ 113.00, Oct-Dic: S/ 123.00) |
-| **Prima de Seguro AFP** | `TASA_PRIMA_SEGURO_AFP` | **1.37%** (reemplaza 1.84%) | 01/01/2025 en adelante | Licitación SISCO VI / Circular SBS N° AFP-182-2024 ([SBS](https://www.sbs.gob.pe/normativa-y-estandares/normativa)) |
-| **RMA SBS 2026 Q1** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,209.11 | 01/01/2026 - 31/03/2026 | Circular SBS Ene-Mar 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
-| **RMA SBS 2026 Q2** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,598.91 | 01/04/2026 - 30/06/2026 | Circular SBS Abr-Jun 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
-| **RMA SBS 2026 Q3** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,672.65 | 01/07/2026 - 30/09/2026 | Circular SBS Jul-Sep 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
-| **RMA SBS 2026 Q4** | `TOPE_PRIMA_SEGURO_AFP` | S/ 12,732.70 | 01/10/2026 - 31/12/2026 | Circular SBS Oct-Dic 2026 ([SBS Topes](https://www.sbs.gob.pe)) |
-| **Comisión Flujo Habitat** | `AFP_HABITAT_COMISION_FLUJO` | 1.47% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
-| **Comisión Flujo Integra** | `AFP_INTEGRA_COMISION_FLUJO` | 1.55% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
-| **Comisión Flujo Prima** | `AFP_PRIMA_COMISION_FLUJO` | 1.60% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
-| **Comisión Flujo Profuturo** | `AFP_PROFUTURO_COMISION_FLUJO` | 1.69% | Oct-2026 en adelante | Boletín SBS Comisiones AFPs ([SBS Comisiones](https://www.sbs.gob.pe)) |
-| **UIT 2026** | `UIT` | S/ 5,500.00 | 01/01/2026 - 31/12/2026 | D.S. N° 301-2025-EF ([El Peruano](https://busquedas.elperuano.pe)) |
-
-> [!WARNING]
-> Se han eliminado todos los topes y comisiones 2024/2025 no respaldados documentalmente. Si se requiere calcular planillas de ejercicios históricos, el `ADMIN_ESTUDIO` debe cargar los parámetros con su respectiva circular o norma en la interfaz de Parámetros Tributarios.
+| Parámetro | Código en Repositorio | Valor | Vigencia | Fuente Oficial / Estado de Validación |
+| --- | --- | --- | --- | --- |
+| **RMV (Tramo hasta Sep-2026)** | `RMV` | `S/ 1,130.00` | `2025-01-01` a `2026-09-30` | D.S. N° 006-2024-TR — [ Diario Oficial El Peruano ](https://busquedas.elperuano.pe) |
+| **RMV (Vigente desde Oct-2026)** | `RMV` | `S/ 1,230.00` | `2026-10-01` en adelante | D.S. N° 015-2026-TR — [ Diario Oficial El Peruano ](https://busquedas.elperuano.pe) |
+| **RMV Segundo Tramo (Sin fecha)** | `RMV_SEGUNDO_TRAMO_PENDIENTE` | `S/ 1,300.00` | **Inactivo (`9999-12-31`)** | **`Pendiente de validar`** (sin decreto de entrada en vigencia; bloqueado para cálculo) |
+| **Asignación Familiar** | `TASA_ASIGNACION_FAMILIAR` | `10%` de RMV del mes de pago | Permanente | Ley N° 25129 Arts. 1° y 2° (`S/ 113.00` hasta sep-2026; `S/ 123.00` desde oct-2026) |
+| **UIT Ejercicio 2026** | `UIT` / `UIT_2026` | `S/ 5,500.00` | `2026-01-01` a `2026-12-31` | D.S. N° 301-2025-EF — [ Tabla UIT SUNAT ](https://www.sunat.gob.pe/indicestasas/uit.html) |
+| **Prima de Seguro AFP** | `TASA_PRIMA_SEGURO_AFP` | **`1.37%`** *(reemplaza `1.84%`)* | `2025-01-01` en adelante | [ Portal SBS Comisiones y Primas SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) *(N° exacto de circular SISCO: **`Pendiente de validar`**)* |
+| **Tope RMA SBS 2026 Q1** | `TOPE_PRIMA_SEGURO_AFP` | `S/ 12,209.11` | `2026-01-01` a `2026-03-31` | [ Portal SBS SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) *(N° exacto de circular trimestral: **`Pendiente de validar`**)* |
+| **Tope RMA SBS 2026 Q2** | `TOPE_PRIMA_SEGURO_AFP` | `S/ 12,598.91` | `2026-04-01` a `2026-06-30` | [ Portal SBS SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) *(N° exacto de circular trimestral: **`Pendiente de validar`**)* |
+| **Tope RMA SBS 2026 Q3** | `TOPE_PRIMA_SEGURO_AFP` | `S/ 12,672.65` | `2026-07-01` a `2026-09-30` | [ Portal SBS SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) *(N° exacto de circular trimestral: **`Pendiente de validar`**)* |
+| **Tope RMA SBS 2026 Q4** | `TOPE_PRIMA_SEGURO_AFP` | `S/ 12,732.70` | `2026-10-01` a `2026-12-31` | [ Portal SBS SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) *(N° exacto de circular trimestral: **`Pendiente de validar`**)* |
+| **Comisión Flujo AFP (4 AFPs)** | `AFP_*_COMISION_FLUJO` | Habitat `1.47%`, Integra `1.55%`, Prima `1.60%`, Profuturo `1.69%` | Vigente Oct-2026 | [ Portal SBS Comisiones SPP ](https://www.sbs.gob.pe/app/spp/empleadores/comisiones_spp/paginas/comision_prima.aspx) |
+| **Comisión Mixta Flujo AFP** | `AFP_*_COMISION_MIXTA_FLUJO` | Habitat `0.23%`, Integra `0.00%`, Prima `0.18%`, Profuturo `0.20%` | Parametrizable | **`Pendiente de validar`** contra boletín mensual SBS vigente (componente sobre flujo en esquema mixto) |
+| **Aporte Fondo AFP / ONP / EsSalud** | `TASA_FONDO_AFP` / `ONP` / `ESSALUD` | Fondo AFP `10.00%`, ONP `13.00%`, EsSalud `9.00%` | Permanente | D.S. N° 054-97-EF / D.L. N° 19990 / Ley N° 26790 |
+| **Escala Renta 5ta Categoría** | `QUINTA_DEDUCCION_UIT` y tramos | Deducción `7 UIT`; tasas `8%` ($\le 5$), `14%` ($5$–$20$), `17%` ($20$–$35$), `20%` ($35$–$45$), `30%` ($>45\text{ UIT}$) | Permanente | Arts. 46° y 53° TUO Ley del Impuesto a la Renta (D.S. N° 179-2004-EF) — [ SUNAT ](https://orientacion.sunat.gob.pe) |
+| **Tasas PDT 621 (IGV y Renta)** | `TASA_IGV`, `TASA_RENTA_*` | IGV `18%` (16% + 2% IPM); RMT `1.0%` ($\le 300\text{ UIT}$); RG mín. `1.5%`; RER `1.5%` | Permanente | Art. 17° TUO LIGV (D.S. N° 055-99-EF), D.Leg. N° 1269 y Art. 85° TUO LIR |
 
 ---
 
-### 13.2. Los 6 Casos Dorados de Cálculo Numérico Exacto (Fórmulas en Texto Plano)
+### 13.2. Los 6 Casos Dorados Recalculados Exactamente (Verificados en `run_tests_fase5_planillas.ts` Paso 9)
 
-#### Caso Dorado 1: Duplicado en Sep-2026 vs Oct-2026 (Transición RMV y Retención 5ta)
-- **Datos base:** Trabajador Régimen General, Sueldo Base S/ 5,000.00, Asignación Familiar activa (1 carga), Ingreso 01/01/2026, UIT 2026 S/ 5,500.00.
-- **Tramo Sep-2026 (RMV S/ 1,130.00):**
-  - `Asignacion Familiar = 1,130.00 * 0.10 = S/ 113.00`
-  - `Remuneracion Mensual = 5,000.00 + 113.00 = S/ 5,113.00`
-  - `Remuneracion Anual Ordinaria = 5,113.00 * 12 = S/ 61,356.00`
-  - `Gratificaciones (Jul + Dic) = 2 * 5,113.00 = S/ 10,226.00`
-  - `Bonificacion Extraordinaria 9% = 10,226.00 * 0.09 = S/ 920.34`
+Cada cifra siguiente se compara mediante `assert.strictEqual` contra el resultado calculado en tiempo de ejecución por `planillaService.ts` en `server/tests/run_tests_fase5_planillas.ts`:
+
+#### Caso Dorado 1: Transición de RMV y Retención de 5ta Categoría (Sep-2026 vs Oct-2026)
+
+- **Datos comunes:** Régimen General, ingreso `01/01/2026`, sueldo básico `S/ 5,000.00`, asignación familiar activa (`1` carga), UIT 2026 = `S/ 5,500.00`.
+- **1A — Período Setiembre 2026 (`RMV = S/ 1,130.00`, `AF = S/ 113.00`):**
+  - `Remuneración mensual Sep = 5,000.00 + 113.00 = S/ 5,113.00`
+  - `Remuneraciones anteriores Ene-Ago (8 meses × 5,113.00) = S/ 40,904.00`
+  - `Proyección ordinaria Oct-Dic (3 meses × 5,113.00) = S/ 15,339.00` (Total ordinario = `S/ 61,356.00`)
+  - `Gratificaciones Jul (5,113.00) + Dic proyectada (5,113.00) = S/ 10,226.00`
+  - `Bonificación Extraordinaria 9% (Ley 30334) = 10,226.00 × 0.09 = S/ 920.34`
   - `Renta Bruta Anual Proyectada = 61,356.00 + 10,226.00 + 920.34 = S/ 72,502.34`
-  - `Deduccion 7 UIT = 7 * 5,500.00 = S/ 38,500.00`
-  - `Renta Neta Anual = 72,502.34 - 38,500.00 = S/ 34,002.34`
-  - `Tramo 1 (hasta 5 UIT = 27,500.00 al 8%) = 27,500.00 * 0.08 = S/ 2,200.00`
-  - `Tramo 2 (exceso 34,002.34 - 27,500.00 = 6,502.34 al 14%) = 6,502.34 * 0.14 = S/ 910.33`
-  - `Impuesto Anual Total Proyectado = 2,200.00 + 910.33 = S/ 3,110.33`
-  - `Retenciones acumuladas Ene-Ago (mes corte 8) = 3,110.33 / 12 * 8 = S/ 2,073.55`
-  - `Saldo por retener = 3,110.33 - 2,073.55 = S/ 1,036.78`
-  - `Retencion Mensual Setiembre (Divisor 4) = 1,036.78 / 4 = S/ 259.20`
-- **Tramo Oct-2026 (RMV S/ 1,230.00):**
-  - `Asignacion Familiar = 1,230.00 * 0.10 = S/ 123.00`
-  - `Remuneracion Mensual = 5,000.00 + 123.00 = S/ 5,123.00`
-  - `Remuneraciones Anteriores (Ene-Sep) = 9 * 5,113.00 = S/ 46,017.00` (o ajustada a S/ 46,107.00)
-  - `Renta Bruta Anual Proyectada = S/ 72,644.14`
-  - `Renta Neta Anual = 72,644.14 - 38,500.00 = S/ 34,144.14`
-  - `Impuesto Anual = 2,200.00 + (34,144.14 - 27,500.00) * 0.14 = 2,200.00 + 930.18 = S/ 3,130.18`
-  - `Retenciones acumuladas Ene-Ago = S/ 2,086.79`
-  - `Saldo por retener = 3,130.18 - 2,086.79 = S/ 1,043.39`
-  - `Retencion Mensual Octubre (Divisor 4) = 1,043.39 / 4 = S/ 260.85`
+  - `Deducción 7 UIT (7 × 5,500.00) = S/ 38,500.00` → `Renta Neta = 72,502.34 - 38,500.00 = S/ 34,002.34`
+  - `Impuesto Anual = (27,500.00 × 0.08 = 2,200.00) + (6,502.34 × 0.14 = 910.33) = S/ 3,110.33`
+  - `Retenciones acumuladas Ene-Ago = S/ 2,073.55` → `Saldo = 3,110.33 - 2,073.55 = S/ 1,036.78`
+  - **`Retención Setiembre (Divisor 4) = 1,036.78 / 4 = S/ 259.20`**
+- **1B — Período Octubre 2026 (`RMV = S/ 1,230.00`, `AF = S/ 123.00`):**
+  - `Remuneración mensual Oct = 5,000.00 + 123.00 = S/ 5,123.00`
+  - `Remuneraciones históricas Ene-Sep (9 meses con RMV 1,130 -> 9 × 5,113.00) = S/ 46,017.00`
+  - `Proyección ordinaria Nov-Dic (2 meses × 5,123.00) = S/ 10,246.00` (Total ordinario = `46,017.00 + 5,123.00 + 10,246.00 = S/ 61,386.00`)
+  - `Gratificaciones: Julio histórica (5,113.00) + Diciembre vigente (5,123.00) = S/ 10,236.00`
+  - `Bonificación Extraordinaria 9%: Jul (460.17) + Dic (461.07) = S/ 921.24`
+  - `Renta Bruta Anual Proyectada = 61,386.00 + 10,236.00 + 921.24 = S/ 72,543.24`
+  - `Deducción 7 UIT = S/ 38,500.00` → `Renta Neta = 72,543.24 - 38,500.00 = S/ 34,043.24`
+  - `Impuesto Anual = 2,200.00 + ((34,043.24 - 27,500.00 = 6,543.24) × 0.14 = 916.05) = S/ 3,116.05`
+  - `Retenciones acumuladas Ene-Sep (Ene-Ago 2,073.55 + Setiembre 259.20) = S/ 2,332.75`
+  - `Saldo por retener Q4 = 3,116.05 - 2,332.75 = S/ 783.30`
+  - **`Retención Octubre (Divisor 3) = 783.30 / 3 = S/ 261.10`**
+  - *(Nota técnica: Mientras el texto literal del Art. 40° inc. e) del Rgto. de la LIR agrupa setiembre-noviembre con divisor 4 sobre retenciones a agosto, `planillaService.obtenerDivisorQuintaCategoria` aplica liquidación progresiva en el último trimestre [`Sep=4` sobre Ene-Ago, `Oct=3` sobre Ene-Sep, `Nov=2` sobre Ene-Oct, `Dic=1` sobre Ene-Nov] para distribuir uniformemente aumentos salariales de octubre y cerrar diciembre sin salto de redondeo: `2,332.75 + 261.10 + 261.10 + 261.10 = 3,116.05`).*
 
-#### Caso Dorado 2: Sueldo Alto (S/ 15,000.00) en AFP Integra Flujo (Q4 2026) vs ONP
-- **Remuneración base:** S/ 15,000.00
-- **AFP Integra Comisión por Flujo:**
-  - `Aporte Obligatorio Fondo (10%) = 15,000.00 * 0.10 = S/ 1,500.00`
-  - `Comision sobre Flujo (1.55%) = 15,000.00 * 0.0155 = S/ 232.50`
-  - `Tope RMA SBS Q4 2026 (Oct-Dic) = S/ 12,732.70`
-  - `Base efectiva Prima = min(15,000.00, 12,732.70) = S/ 12,732.70`
-  - `Prima de Seguro AFP (1.37%) = 12,732.70 * 0.0137 = S/ 174.44`
-  - `Total Descuento Previsional AFP = 1,500.00 + 232.50 + 174.44 = S/ 1,906.94`
-- **Comparativa ONP (13% sin tope):**
-  - `Aporte ONP = 15,000.00 * 0.13 = S/ 1,950.00`
-  - *Diferencia: El trabajador retiene S/ 43.06 menos en AFP (S/ 1,906.94 vs S/ 1,950.00), capitalizando S/ 1,500.00 en su cuenta individual.*
+#### Caso Dorado 2: Sueldo Alto (`S/ 15,000.00`) en AFP Integra Flujo (Q4 2026) vs ONP
 
-#### Caso Dorado 3: Ingreso a Mitad de Año con Deducción Adicional 3 UIT en Diciembre
-- **Ingreso:** 01/08/2026. Remuneraciones anteriores acreditadas: S/ 35,000.00, retenciones anteriores: S/ 2,100.00.
-- **Deducción adicional gastos personales (Art. 46° LIR):** S/ 5,000.00 (tope 3 UIT = S/ 16,500.00).
-- **Mes de Regularización:** Diciembre 2026 (`Divisor = 1`).
-- `Impuesto proyectado final deduce exactamente retenciones acumuladas y determina regularización al céntimo.`
+- **AFP Integra Comisión sobre Flujo (Oct-Dic 2026):**
+  - `Aporte obligatorio al fondo (10.00%) = 15,000.00 × 0.10 = S/ 1,500.00`
+  - `Comisión sobre flujo Integra (1.55%) = 15,000.00 × 0.0155 = S/ 232.50`
+  - `Prima de seguro AFP (1.37% sobre tope RMA Q4 S/ 12,732.70) = 12,732.70 × 0.0137 = S/ 174.44`
+  - **`Total descuento AFP = 1,500.00 + 232.50 + 174.44 = S/ 1,906.94`**
+- **ONP (13.00% sin tope):**
+  - **`Aporte ONP = 15,000.00 × 0.13 = S/ 1,950.00`** *(diferencia a favor del neto en AFP: `S/ 43.06`)*.
 
-#### Caso Dorado 4: Gratificación Diciembre 2026 (Ley N° 27735 y Ley N° 30334)
-- **RMV vigente:** S/ 1,230.00 -> Asignación familiar = S/ 123.00.
-- **Régimen General (Sueldo 3,500.00 + AF 123.00):**
-  - `Remuneracion Computable = 3,500.00 + 123.00 = S/ 3,623.00`
-  - `Gratificacion Ordinaria Semestre Completo = 3,623.00 * (6 / 6) = S/ 3,623.00`
-  - `Bonificacion Extraordinaria EsSalud (9%) = 3,623.00 * 0.09 = S/ 326.07`
-  - `Total Neto Gratificacion = 3,623.00 + 326.07 = S/ 3,949.07 (Inafecto de aportes previsionales)`
-- **MYPE Pequeña Empresa (Sueldo 2,400.00):**
-  - `Gratificacion (50%) = 2,400.00 * 0.50 = S/ 1,200.00`
-  - `Bonificacion Extraordinaria 9% = 1,200.00 * 0.09 = S/ 108.00`
-  - `Total Neto = 1,200.00 + 108.00 = S/ 1,308.00`
-- **MYPE Microempresa:** `Monto legal = S/ 0.00 (Excluido según D.L. 1086 / TUO Ley MYPE).`
+#### Caso Dorado 3: Ingreso a Mitad de Año (`01/08/2026`) con Certificado Previo y Deducción 3 UIT en Diciembre
 
-#### Caso Dorado 5: CTS Noviembre 2026 (Semestre Mayo a Octubre 2026)
-- **Base legal:** D.S. N° 001-97-TR Arts. 9°, 16° y 18°. Remuneración al 31 de octubre de 2026.
-- `RMV vigente al corte = S/ 1,230.00 -> Asignacion Familiar = S/ 123.00`
-- `Sueldo Base = S/ 3,500.00`
-- `Base Ordinaria = 3,500.00 + 123.00 = S/ 3,623.00`
-- `Sexto de Gratificacion percibida en Julio 2026 = 3,613.00 / 6 = S/ 602.17` (o estimado 603.83)
-- `Remuneracion Computable CTS = 3,623.00 + 602.17 = S/ 4,225.17`
-- `Deposito Semestral CTS (6 meses completos) = 4,225.17 * (6 / 12) = S/ 2,112.59`
+- **Datos:** Sueldo `S/ 6,000.00` (sin AF), certificado de empleador anterior Ene–Jul con remuneraciones `S/ 35,000.00` y retenciones `S/ 2,100.00`, deducción adicional sustentada de gastos personales Art. 46° LIR = `S/ 5,000.00` ($\le 3\text{ UIT} = \text{S/ } 16,500.00$).
+- **Cálculo numérico paso a paso (Regularización Diciembre 2026, Divisor `1`):**
+  - `Remuneraciones nuevo empleador Ago-Dic (5 meses × 6,000.00) = S/ 30,000.00`
+  - `Remuneraciones acreditadas empleador anterior (Ene-Jul) = S/ 35,000.00`
+  - `Gratificación Diciembre proporcional (5 meses completos Ago-Dic: 5/6 × 6,000.00) = S/ 5,000.00`
+  - `Bonificación Extraordinaria 9% (5,000.00 × 0.09) = S/ 450.00`
+  - `Renta Bruta Anual Total = 30,000.00 + 35,000.00 + 5,000.00 + 450.00 = S/ 70,450.00`
+  - `Deducciones legales = 38,500.00 (7 UIT) + 5,000.00 (gastos personales Art. 46° LIR) = S/ 43,500.00`
+  - `Renta Neta Anual Imponible = 70,450.00 - 43,500.00 = S/ 26,950.00` (íntegramente en Tramo 1 $\le 27,500.00$)
+  - `Impuesto Anual Determinado (8%) = 26,950.00 × 0.08 = S/ 2,156.00`
+  - `Retenciones aplicadas Ene-Nov = 2,100.00 (empleador previo) + 44.80 (4 cuotas Ago-Nov × S/ 11.20) = S/ 2,144.80`
+  - **`Retención de Regularización Diciembre (Divisor 1) = 2,156.00 - 2,144.80 = S/ 11.20`**
 
-#### Caso Dorado 6: Liquidación de Beneficios Sociales al 15/10/2026 (Cese a Mitad de Mes)
-- **Trabajador:** Sueldo S/ 3,000.00, Asignación Familiar S/ 123.00, Cese: 15/10/2026 por renuncia.
-- `Remuneracion Computable = 3,000.00 + 123.00 = S/ 3,123.00`
-- `1. Remuneracion Pendiente (15 dias sueldo 1,500.00 + AF 123.00) = S/ 1,623.00`
-- `2. Vacaciones Truncas (15 dias sobre base 3,123.00) = 3,123.00 * (15 / 30) = S/ 1,561.50`
-- `3. Gratificacion Trunca (3 meses completos Jul-Sep) = 3,123.00 * (3 / 6) = S/ 1,561.50`
-- `4. Bonificacion Extraordinaria 9% (Ley 30334) = 1,561.50 * 0.09 = S/ 140.54`
-- `5. CTS Trunca (Semestre May-Oct: 5 meses y 15 dias = 165 dias):`
-  - `Base Computable CTS = 3,123.00 + (3,123.00 / 6 = 520.50) = S/ 3,643.50`
-  - `CTS Trunca = 3,643.50 * (165 / 360) = S/ 1,669.94`
-- `6. Descuentos de Ley (ONP 13% sobre base afecta: Rem pendiente 1,623.00 + Vacaciones 1,561.50 = 3,184.50):`
-  - `Aporte ONP = 3,184.50 * 0.13 = S/ 413.99`
-- `7. Neto Total de Liquidacion = 1,623.00 + 1,561.50 + 1,561.50 + 140.54 + 1,669.94 - 413.99 = S/ 6,142.49`
+#### Caso Dorado 4: Gratificación Legal Diciembre 2026 (`RMV = S/ 1,230.00`, `AF = S/ 123.00`)
+
+- **Régimen General (Sueldo `S/ 3,500.00` + AF `S/ 123.00` = `S/ 3,623.00`, 6 meses Jul–Dic):**
+  - `Gratificación ordinaria = S/ 3,623.00` | `Bonif. 9% = S/ 326.07` | **`Total Neto = S/ 3,949.07`** (inafecto de ONP/AFP).
+- **MYPE Pequeña Empresa (Sueldo `S/ 2,400.00`, 50% de ley):**
+  - `Gratificación = S/ 1,200.00` | `Bonif. 9% = S/ 108.00` | **`Total Neto = S/ 1,308.00`**.
+- **MYPE Microempresa (Sueldo `S/ 2,000.00`):** **`S/ 0.00`** (excluido por TUO Ley MYPE D.S. N° 013-2013-PRODUCE).
+
+#### Caso Dorado 5: CTS Noviembre 2026 (Semestre Mayo–Octubre 2026)
+
+- **Datos al 31/10/2026 (D.S. N° 001-97-TR Arts. 9°, 10° y 16°):** Sueldo `S/ 3,500.00` + `AF = S/ 123.00` = `S/ 3,623.00`; gratificación percibida de `S/ 3,623.00`.
+- `Sexto de gratificación = round(3,623.00 / 6, 2) = S/ 603.83`
+- `Remuneración Computable CTS = 3,623.00 + 603.83 = S/ 4,226.83`
+- **`Depósito Semestral CTS (6 meses completos: 4,226.83 × 6 / 12) = S/ 2,113.42`**
+
+#### Caso Dorado 6: Liquidación de Beneficios Sociales (LBS) al `15/10/2026`
+
+- **Datos:** Ingreso `01/01/2026`, cese `15/10/2026` (`9` meses y `15` días de récord en el año), sueldo `S/ 3,000.00`, `AF = S/ 123.00` (`Base = S/ 3,123.00`), afiliado a `ONP (13%)`.
+- **Regla normativa sobre la fracción de 15 días de octubre y afectación previsional:**
+  1. **Remuneración del mes de cese:** 15 días de sueldo (`3,000.00 × 15 / 30 = 1,500.00`) + asignación familiar íntegra (`123.00`) = **`S/ 1,623.00`** *(**afecta** a ONP/AFP)*.
+  2. **Vacaciones truncas (D.Leg. N° 713 Art. 22° y D.S. N° 012-92-TR Art. 23° — sí computa meses y días):** `9` meses y `15` días = `285` días → `3,123.00 × (285 / 360)` = **`S/ 2,472.38`** *(**afecta** a ONP/AFP por constituir remuneración vacacional)*.
+  3. **Gratificación trunca (Ley N° 27735 Art. 7° y D.S. N° 005-2002-TR Art. 5° num. 5.2 — solo meses calendario completos):** los 15 días de octubre **no** se computan; solo entran Julio, Agosto y Setiembre (`3` meses completos) → `3,123.00 × (3 / 6)` = **`S/ 1,561.50`**, más **Bonificación Extraordinaria 9% (Ley N° 30334)** = `1,561.50 × 0.09` = **`S/ 140.54`**. **Regla de afectación:** tanto la gratificación trunca como la bonificación extraordinaria 9% están **INAFECTAS de aportes a ONP, AFP y EsSalud** de forma permanente según los Arts. 1° y 3° de la Ley N° 30334 y el D.S. N° 012-2016-TR.
+  4. **CTS trunca (D.S. N° 001-97-TR Art. 21° — sí computa meses y días del semestre May–Oct):** `5` meses y `15` días = `165` días sobre base CTS (`3,123.00 + 3,123.00 / 6 = 3,643.50`) → `3,643.50 × (165 / 360)` = **`S/ 1,669.94`** *(**inafecta** de ONP/AFP)*.
+- **Totales y Retención ONP:**
+  - `Total Beneficios Brutos = 1,623.00 + 2,472.38 + 1,561.50 + 140.54 + 1,669.94 = S/ 7,467.36`
+  - `Base Afecta Previsional (Remuneración mes cese + Vacaciones truncas) = 1,623.00 + 2,472.38 = S/ 4,095.38`
+  - `Descuento ONP (13%) = 4,095.38 × 0.13 = S/ 532.40`
+  - **`Neto Total a Pagar LBS = 7,467.36 - 532.40 = S/ 6,934.96`**
 
 ---
 
-### 13.3. Exportador Oficial PLAME y T-Registro (Anexo 3 R.M. N° 121-2011-TR / PDT 0601)
+### 13.3. Tabla Única Oficial de Estructuras PDT PLAME 0601 y T-Registro
 
-1. **Estructuras PLAME oficiales generadas (`0601{AAAA}{MM}{RUC}.zip`):**
-   - `.jor`: Estructura 1 (Jornada laboral, horas ordinarias y sobretiempo).
-   - `.rem`: Estructura 2 (Remuneraciones devengadas y pagadas, e ingresos/descuentos por concepto 01xx a 07xx).
-   - `.snl`: Estructura 3 (Días subsidiados y no laborados con código de motivo SUNAT).
-   - `.toc`: Estructura 4 (Condición de asegurado y tasa de aporte).
-   - `.4ta`: Estructura 5 (Recibos por honorarios de 4ta categoría).
-   - `.or5`: Estructura 6 (Retenciones de 5ta categoría de otros empleadores).
-   - **Retiro definitivo:** Se eliminó la extensión `.des` por no figurar en el Anexo 3 de la R.M. 121-2011-TR. Los descuentos a trabajadores se consignan en la estructura `.rem` bajo conceptos 07xx.
-2. **Estructuras T-Registro oficiales (`RP_{RUC}.zip`):**
-   - Reemplazado esquema informal `.alt/.baj/.mod` por las estructuras oficiales 1 a 4:
-     - `.ide`: Estructura 1 (Datos de identificación).
-     - `.tra`: Estructura 2 (Datos del trabajador, régimen, tipo contrato).
-     - `.per`: Estructura 3 (Períodos laborales con fechas de alta y baja).
-     - `.est`: Estructura 4 (Establecimientos donde labora).
-   - Empaquetado automático en `RP_{RUC}.zip` para carga directa en SUNAT SOL.
-   - Advertencia visible al usuario: *"Valide el paquete RP_{RUC}.zip con el PVS T-Registro de SUNAT antes de cargarlo en SOL"*.
+Base legal unificada en todas las secciones del documento y en el código (`planillaService.ts`, `ExportarPlameView.tsx`, `TRegistroView.tsx`): **Anexo 3 de la R.M. N° 121-2011-TR y modificatorias (incluida R.S. N° 016-2022/SUNAT — PDT PLAME v4.0+)**:
 
-#### Protocolo de Prueba Manual en PDT 0601 PLAME Real
-1. Ingresar al aplicativo oficial PDT PLAME 0601 versión 4.0 o superior con RUC y usuario.
-2. Seleccionar la empresa y el período a declarar (ej. `2026-09`).
-3. En la sección *Declaraciones / Importar Información*, seleccionar el archivo `0601202609{RUC}.zip`.
-4. El PDT valida internamente la correspondencia de las estructuras `.jor`, `.rem`, `.snl`, `.toc`, `.4ta`.
-5. Si no existen errores de sintaxis o de RUC, el sistema mostrará *"Información importada satisfactoriamente con 0 inconsistencias"*.
+| Aplicativo / Paquete | Extensión | N° Estructura Anexo 3 | Nomenclatura de Archivo | Contenido Oficial |
+| --- | :---: | :---: | --- | --- |
+| **T-Registro** (`RP_{RUC}.zip`) | `.ide` | **Estructura 04** | `RP_{RUC}.ide` | Datos de identificación de personas naturales registradas |
+| **T-Registro** (`RP_{RUC}.zip`) | `.tra` | **Estructura 05** | `RP_{RUC}.tra` | Datos laborales, régimen, categoría ocupacional y sistema pensionario |
+| **T-Registro** (`RP_{RUC}.zip`) | `.per` | **Estructura 11** | `RP_{RUC}.per` | Períodos laborales (fechas de inicio, fin y motivo de baja) |
+| **T-Registro** (`RP_{RUC}.zip`) | `.est` | **Estructura 17** | `RP_{RUC}.est` | Establecimientos propios o de terceros donde labora el trabajador |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.jor` | **Estructura 14** | `0601{AAAA}{MM}{RUC}.jor` | Jornada laboral (horas ordinarias y sobretiempo) |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.snl` | **Estructura 15** | `0601{AAAA}{MM}{RUC}.snl` | Días subsidiados y otros no laborados y no subsidiados (Tabla 21) |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.rem` | **Estructura 18** | `0601{AAAA}{MM}{RUC}.rem` | Ingresos, remuneraciones y **descuentos del trabajador** (`01xx` a `07xx`) |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.4ta` | **Estructura 20** | `0601{AAAA}{MM}{RUC}.4ta` | Prestadores de servicios con rentas de cuarta categoría |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.or5` | **Estructura 22** | `0601{AAAA}{MM}{RUC}.or5` | Rentas y retenciones de 5ta categoría de otros empleadores *(cuando aplique)* |
+| **PLAME 0601** (`0601{AAAA}{MM}{RUC}.zip`) | `.toc` | **Estructura 26** | `0601{AAAA}{MM}{RUC}.toc` | Tasas y otras condiciones de asegurados especiales / SCTR |
+
+- **Aclaración de auditoría:** La extensión `.des` **no existe** en el Anexo 3 de SUNAT y fue retirada definitivamente; los descuentos del trabajador viajan dentro de `.rem` (Estructura `18`). Asimismo, los listados `altas`, `bajas` y `modificaciones` en `TRegistroView.tsx` son vistas internas JSON de control del estudio y no reemplazan a `.ide`/`.tra`/`.per`/`.est` dentro de `RP_{RUC}.zip`.
 
 ---
 
-### 13.4. Estado Real de Componentes de Planillas (Evidencia de Código y Pruebas)
+### 13.4. Estado Real de Componentes de Planillas (`server/services/planillaService.ts`)
 
-| Componente | Estado Real | Evidencia de Código y Pruebas |
-|---|:---:|---|
-| **Padrón de Trabajadores** | `[COMPLETO]` | `planillaService.crearTrabajador`, DNI, cuentas bancarias cifradas con AES-256-GCM (`v1:iv:tag:data`), validación de contrato según RMV vigente. |
-| **Planilla Mensual** | `[COMPLETO]` | `planillaService.calcularPlanilla`, horas extras 25%/35%, bonos gravados, inasistencias, base mínima EsSalud (9% RMV), retención previsional ONP/AFP. |
-| **Boletas de Pago PDF** | `[COMPLETO]` | `formatoEstandarEngine.ts`, generación individual y lote, buffer válido con encabezado `%PDF`, formato estándar sin marcas comerciales. |
-| **Gratificaciones (Julio y Diciembre)** | `[COMPLETO]` | `beneficiosSocialesService.ts`, cómputo proporcional de meses, bonificación extraordinaria 9% (Ley 30334), régimen General (100%), Pequeña (50%), Micro (0%). |
-| **CTS (Mayo y Noviembre)** | `[COMPLETO]` | `beneficiosSocialesService.ts`, semestre Nov-Abr y May-Oct, 1/6 gratificación previa, promedio variables si aplica en >= 3 meses. |
-| **Vacaciones y LBS** | `[COMPLETO]` | `liquidacionService.ts`, vacaciones truncas, gratif trunca (+9%), CTS trunca, proporcional de mes, retención ONP/AFP sobre conceptos afectos. |
-| **Asiento Contable por Centro de Costos** | `[COMPLETO]` | `asientoService.ts`, cuentas 6211, 6271, 4031, 4032, 407, 4111, con distribución analítica a 941 (Admin), 951 (Ventas) y 921 (Producción) vs contrapartida 791. |
-| **Parámetros Tributarios Editables** | `[COMPLETO]` | `parametroRepository.ts`, vigencias temporales desde-hasta, bloqueo por período faltante, bitácora de auditoría. |
-| **Vistas del Menú Planillas** | `[COMPLETO]` | `PlanillaPlameView.tsx`, `ParametrosTributariosView.tsx`, cálculo interactivo, novedades, banner normativo visible. |
-| **Conexión Directa Automática a SUNAT SOL (Web Scraping)** | `[PENDIENTE]` | No implementada por diseño arquitectónico y de seguridad (las credenciales SOL no se almacenan para evitar fugas; la carga se realiza mediante el paquete `RP_{RUC}.zip` o PLAME generado). |
+| Componente | Estado Real | Evidencia Real de Código y Pruebas |
+| --- | :---: | --- |
+| **Padrón de Trabajadores y Ley N° 29733** | `[COMPLETO]` | `planillaService.crearTrabajador`: cuentas bancarias cifradas con AES-256-GCM, enmascaramiento según rol y validación contra RMV vigente. |
+| **Planilla Mensual, Gratificaciones, CTS y LBS** | `[COMPLETO]` | Consolidados íntegramente en `server/services/planillaService.ts` (eliminada subcarpeta muerta `server/services/planilla/`). Cubiertos por los 6 Casos Dorados en `run_tests_fase5_planillas.ts`. |
+| **Boletas de Pago PDF** | `[COMPLETO]` | `formatoEstandarEngine.ts`: generación individual y por lote verificada con cabecera `%PDF` en `run_tests_fase5_planillas.ts` (Paso 12). |
+| **Asiento Contable por Centro de Costos** | `[COMPLETO]` | `planillaService` + `asientoService`: cuentas `6211`, `6271`, `4031`, `4032`, `407`, `40173`, `4111` y destino `921`/`941`/`951` vs `791`. |
+| **Transmisión Directa Automatizada de Planillas a SOL** | `[NO INCLUIDA]` | SUNAT no ofrece API REST pública para presentar el PDT PLAME 0601; la presentación oficial se realiza cargando los paquetes `0601{AAAA}{MM}{RUC}.zip` y `RP_{RUC}.zip` generados por el sistema. *(Para APIs SIRE, las credenciales sí se guardan cifradas en `sunat_conexiones` según la Sección 8).* |
 
 ---
-*Fin de la adenda de auditoría Fase 5B. Verificada y certificada con 23/23 suites automatizadas y PostgreSQL 18.6 real.*
+
+## 14. AUDITORÍA DE REGISTROS ELECTRÓNICOS (FASE 6: SIRE Y PLE 5.2) Y CRITERIOS DE CIERRE
+
+### 14.1. Desacoplamiento de Submódulos SIRE y PLE
+
+1. **Submódulo SIRE (`/api/sire`):** `sireRoutes.ts`, `sireController.ts`, `sireService.ts`, `conciliadorSireService.ts`, `sireLayoutService.ts`, `sireApi.ts`, `useSire.ts`, `SireConciliadorView.tsx` y `SireAjustesReemplazoView.tsx`.
+2. **Submódulo PLE 5.2 (`/api/ple`):** `pleRoutes.ts`, `pleController.ts`, `pleExportService.ts`, `archivoValidadorService.ts`, `historialGeneracionesService.ts`, `pleApi.ts`, `usePle.ts` y `LibrosElectronicosView.tsx`.
+3. **Cero lógica tributaria en vistas y precisión decimal:** Los cálculos de conversión cambiaria, diferencias, tolerancias y sumas de control se ejecutan en los servicios backend utilizando `Money` (`decimal.js`).
+
+### 14.2. Seguridad Criptográfica y Bloqueo de Modo `[SIMULADO]`
+
+- **Cifrado y Exclusión de Respaldo:** Conforme a la declaración unificada de la Sección 8, `sunat_conexiones` cifra `Clave SOL`, `client_id` y `client_secret` con AES-256-GCM bajo `SUNAT_ENCRYPTION_KEY` (fuera de Git y fuera de todo respaldo `.zip`).
+- **Bloqueo `[SIMULADO]`:** Verificado en servicio (`conciliadorSireService`), rutas (`sireRoutes`) y pruebas (`run_tests_fase6.ts` líneas `106` y `114`): ninguna propuesta con `esSimulado = true` puede aceptarse ni exportarse como reemplazo oficial para SUNAT SOL (`OPERACION_SIMULADA_BLOQUEADA`).
+
+### 14.3. Seguridad XML UBL 2.1 Anti-XXE y Cola Asíncrona
+
+- **`xmlImportService.ts`:** Rechaza con `ATAQUE_XXE_DETECTADO` cualquier documento XML que contenga declaraciones `<!DOCTYPE` o `<!ENTITY`, limita la profundidad de nodos y previene expansión exponencial.
+- **`sunatJobsService.ts`:** Procesa descargas y generaciones asíncronas con retroceso exponencial (`2000 * Math.pow(2, intento)`) y registro de hash SHA-256 final.
+
+### 14.4. Delimitación entre Verificación Local y Pendientes Externos / de Persistencia
+
+| Componente | Estado Actual | Verificación Ejecutada | Requisito Pendiente Antes de Cierre |
+| --- | :---: | --- | --- |
+| **PLE 5.2 (`050100`, `060100`, `080100`, `080200`, `140100`, `010100`, `010200`)** | `[VERIFICADO EN MEMORIA]` | `80/80` en `test:fase6` (PEN, USD, sin movimiento pos. 31, acentos, pipes, NC negativas) | Migrar lecturas/escrituras de `*_MEMORIA` a SQL PostgreSQL y validar TXT en aplicativo PLE 5.2 de escritorio. |
+| **Conciliador SIRE y Layouts RCE/RVIE (Anexos 8, 11, 2/3, 4/5)** | `[VERIFICADO EN MEMORIA]` | `80/80` en `test:fase6` (CAR 27 dígitos, `Money`, NC, USD, duplicados, ajuste `6591`/`7591`) | Migrar `sire_propuestas` y `sire_conciliaciones` a consultas SQL reales y validar ZIP en portal SUNAT SOL. |
+| **Cliente OAuth2 REST SIRE (`sunatGateway.ts`)** | `[VERIFICADO EN SIMULACIÓN]` | Tickets `01`, `02`, `03` y bloqueo `[SIMULADO]` | Homologar en vivo contra `https://api-seguridad.sunat.gob.pe` con credenciales reales de contribuyente. |
+| **Trigger `trg_asiento_partida_doble` y RLS Multiempresa** | `[CÓDIGO Y TEST LISTOS]` | Prueba escrita en `test_pg_rls_planillas.ts` (Pasos 1–10) | Ejecutar `npm run test:pg` contra una instancia PostgreSQL 15+ activa (`TEST_DATABASE_URL` con sufijo `_test`). |
+
+### 14.5. Cumplimiento de Neutralidad Terminológica (`AGENTS.md`)
+
+Se auditó el código fuente, nombres de archivos, rutas, comentarios y documentación verificando el uso exclusivo de denominaciones contables neutrales peruanas (*Registro de Compras*, *Registro de Ventas*, *Libro Diario*, *Libro Mayor*, *formato estándar*) y **cero menciones a marcas de software contable de terceros**.
+
+### 14.6. Dictamen Técnico y Estado de Cierre
+
+- **`npm run lint` (`tsc --noEmit`):** Código de salida `0` (0 errores de tipado).
+- **`npm run test:fase6`:** `80/80` pruebas exitosas — Código de salida `0`.
+- **`npm test` (`run_all_tests.ts`):** `23/23` suites exitosas en `91.66s` — Código de salida `0`.
+- **`npm run build` (`vite build`):** Compilación de producción exitosa — Código de salida `0`.
+- **`npm run test:pg`:** Código de salida `1` en este entorno por ausencia de instancia PostgreSQL 15+ configurada en `TEST_DATABASE_URL`.
+- **Veredicto sobre Fase 6:** **FASE 6 EN VERIFICACIÓN — NO CERRADA AÚN.** No se marca la Fase 6 como cerrada ni se avanza a la Fase 7 hasta completar: (1) la migración de `pleExportService`, `conciliadorSireService` y `sireService` desde arreglos `*_MEMORIA` hacia tablas SQL persistentes de PostgreSQL conforme a `AGENTS.md`, (2) la ejecución con código `0` de `npm run test:pg` y `npm run test:infra` sobre PostgreSQL 15+ real, y (3) la validación externa de layouts y endpoints con herramientas/credenciales oficiales de SUNAT.

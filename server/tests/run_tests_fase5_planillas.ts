@@ -82,13 +82,13 @@ async function runTestsFase5Planillas() {
   }
   assert.strictEqual(bloqueadoPeriodoFaltante, true, 'Debe bloquear estrictamente el cálculo si falta el parámetro del período');
 
-  // 1.4 Regresión completa de los 12 divisores mensuales de 5ta Categoría (Art. 40° inc. d Rgto. LIR)
+  // 1.4 Regresión completa de los 12 divisores mensuales de 5ta Categoría (Art. 40° Rgto. LIR; Q4 saldo progresivo)
   const tablaDivisoresEsperados = [
     { mes: 1, divisor: 12 }, { mes: 2, divisor: 12 }, { mes: 3, divisor: 12 },
     { mes: 4, divisor: 9 },
     { mes: 5, divisor: 8 }, { mes: 6, divisor: 8 }, { mes: 7, divisor: 8 },
     { mes: 8, divisor: 5 },
-    { mes: 9, divisor: 4 }, { mes: 10, divisor: 4 }, { mes: 11, divisor: 4 },
+    { mes: 9, divisor: 4 }, { mes: 10, divisor: 3 }, { mes: 11, divisor: 2 },
     { mes: 12, divisor: 1 }
   ];
   for (const item of tablaDivisoresEsperados) {
@@ -96,10 +96,10 @@ async function runTestsFase5Planillas() {
     assert.strictEqual(
       divObtenido,
       item.divisor,
-      `Divisor de 5ta en mes ${item.mes} debe ser ${item.divisor} según Art. 40° inc. d Rgto. LIR`
+      `Divisor de 5ta en mes ${item.mes} debe ser ${item.divisor}`
     );
   }
-  assert.strictEqual(obtenerDivisorQuintaCategoria(10), 4, 'Octubre (mes 10) debe tener divisor 4 según Art. 40° inc. d Rgto. LIR');
+  assert.strictEqual(obtenerDivisorQuintaCategoria(10), 3, 'Octubre (mes 10) debe tener divisor 3 deduciendo retenciones Ene-Sep');
 
   // 1.5 Transición de RMV en contratos laborales (Sep 2026 S/ 1,150 válida vs Oct 2026 rechazada)
   const trabTransicion = await planillaService.crearTrabajador(
@@ -165,7 +165,7 @@ async function runTestsFase5Planillas() {
       tipoContrato: 'INDETERMINADO',
       fechaIngreso: '2025-01-01',
       regimenLaboral: 'GENERAL',
-      sueldoBase: 14000.00, // Supera tope de prima de seguro AFP vigente (S/ 12,410.00)
+      sueldoBase: 14000.00, // Supera tope RMA prima de seguro AFP vigente Q3 2026 (S/ 12,672.65)
       cargasFamiliares: 2,
       tieneAsignacionFamiliar: true,
       sistemaPensiones: 'AFP',
@@ -276,7 +276,7 @@ async function runTestsFase5Planillas() {
     { sueldoBase: 1300.00, activo: false, fechaCese: '2026-08-31' },
     USER_ID
   );
-  console.log('   ✔ Comparativa ONP vs AFP (Flujo, Mixta, Tope Prima Seguro 12,410) y Base Mínima EsSalud (101.70) verificadas.');
+  console.log('   ✔ Comparativa ONP vs AFP (Flujo, Mixta, Tope Prima Seguro Q3 12,672.65) y Base Mínima EsSalud (101.70) verificadas.');
 
   // -------------------------------------------------------------------------
   // 3. RETENCIÓN DE 5TA CATEGORÍA CON PROYECCIÓN ANUAL E INGRESOS VARIABLES
@@ -440,18 +440,18 @@ async function runTestsFase5Planillas() {
   const expPlame = await planillaService.exportarPlame(EMPRESA_PLANILLA_TEST, planillaSept.id);
   assert.ok(expPlame.archivos.jor.includes('72839405|120|0|0|0|'), 'El archivo .jor debe reflejar las 120 horas ordinarias');
   assert.ok(expPlame.archivos.rem.includes('72839405|0121|1500.00|1500.00|'), 'El archivo .rem debe reflejar el básico proporcional');
-  assert.ok(expPlame.archivos.snl.length > 0, 'Debe exportar archivo .snl de días subsidiados/no laborados');
-  assert.ok(expPlame.archivos.toc.length > 0, 'Debe exportar archivo .toc de condiciones de aseguramiento');
-  assert.ok(expPlame.archivos['4ta'] !== undefined, 'Debe exportar estructura oficial 5: 4ta categoría (.4ta)');
+  assert.ok(expPlame.archivos.snl.length > 0, 'Debe exportar archivo .snl de días subsidiados/no laborados (Estructura 15)');
+  assert.ok(expPlame.archivos.toc.length > 0, 'Debe exportar archivo .toc de condiciones de aseguramiento (Estructura 26)');
+  assert.ok(expPlame.archivos['4ta'] !== undefined, 'Debe exportar Estructura 20 oficial: 4ta categoría (.4ta)');
   assert.strictEqual((expPlame.archivos as any).des, undefined, 'No debe existir extensión no oficial .des en PDT PLAME 0601');
 
-  // Exportador de T-Registro (Estructuras numeradas 1 a 4: .ide, .tra, .per, .est y paquete zip RP_{RUC}.zip)
+  // Exportador de T-Registro (Estructuras 04, 05, 11 y 17: .ide, .tra, .per, .est y paquete zip RP_{RUC}.zip)
   const expTReg = await planillaService.exportarTRegistro(EMPRESA_PLANILLA_TEST);
   assert.strictEqual(expTReg.validacion.esValido, true, 'El validador de estructura T-Registro debe aprobar el padrón');
-  assert.ok(expTReg.archivos.ide, 'Debe generar Estructura 1: Datos de Identificación (.ide)');
-  assert.ok(expTReg.archivos.tra, 'Debe generar Estructura 2: Datos del Trabajador (.tra)');
-  assert.ok(expTReg.archivos.per.includes('72839405'), 'Estructura 3: Períodos laborales (.per) debe incluir fecha de cese');
-  assert.ok(expTReg.archivos.est, 'Debe generar Estructura 4: Establecimientos donde labora (.est)');
+  assert.ok(expTReg.archivos.ide, 'Debe generar Estructura 04: Datos de Identificación (.ide)');
+  assert.ok(expTReg.archivos.tra, 'Debe generar Estructura 05: Datos Laborales del Trabajador (.tra)');
+  assert.ok(expTReg.archivos.per.includes('72839405'), 'Estructura 11: Períodos laborales (.per) debe incluir fecha de cese');
+  assert.ok(expTReg.archivos.est, 'Debe generar Estructura 17: Establecimientos donde labora (.est)');
   assert.strictEqual(expTReg.nombreArchivoZip, 'RP_20100000001.zip', 'Debe generar el paquete comprimido RP_{RUC}.zip para carga en SOL');
   assert.ok(expTReg.zipBase64, 'Debe incluir el contenido binario Base64 del ZIP para SOL');
   assert.ok(expTReg.advertenciaPvs.includes('PVS T-Registro'), 'Debe advertir la validación obligatoria con PVS T-Registro');
@@ -603,21 +603,22 @@ async function runTestsFase5Planillas() {
   console.log('9. Verificando los 6 Casos Dorados de cálculo numérico exacto...');
   const EMPRESA_DORADA = '00000000-0000-0000-0000-000000000088';
 
-  // Caso Dorado 1: Duplicado en dos períodos: Sep-2026 (RMV 1,130, AF 113) y Oct-2026 (RMV 1,230, AF 123)
+  // Caso Dorado 1: Mismo trabajador evaluado en Sep-2026 (RMV 1,130, AF 113) y Oct-2026 (RMV 1,230, AF 123)
   // 1A. Sep-2026 (RMV = 1,130.00 -> Asignación Familiar 10% = 113.00):
-  // Rem mensual: 5,000 + 113 = 5,113.00
-  // Rem anual proyectada: 5,113 * 12 = 61,356.00 + Gratif (10,226.00) + Bonif 9% (920.34) = 72,502.34
-  // Deducción 7 UIT (7 * 5,500.00): 38,500.00 -> Renta neta: 34,002.34
-  // Impuesto anual: Tramo 1 (8% de 27,500) = 2,200.00 + Tramo 2 (14% de 6,502.34) = 910.33 -> Total 3,110.33
-  // Retenciones meses 1 a 8 acumuladas: 2,073.55
-  // Saldo impuesto = 3,110.33 - 2,073.55 = 1,036.78 / Divisor 4 = 259.20
-  const trabDorado1Sep = await planillaService.crearTrabajador(
+  // - Rem mensual: 5,000.00 + 113.00 = 5,113.00
+  // - Rem ordinaria anual: 5,113.00 * 12 = 61,356.00
+  // - Gratificaciones (Jul + Dic): 5,113.00 + 5,113.00 = 10,226.00; Bonif 9%: 460.17 + 460.17 = 920.34
+  // - Renta Bruta Anual: 61,356.00 + 10,226.00 + 920.34 = 72,502.34
+  // - Deducción 7 UIT (7 * 5,500.00): 38,500.00 -> Renta Neta: 34,002.34
+  // - Impuesto Anual: Tramo 1 (27,500 * 8% = 2,200.00) + Tramo 2 (6,502.34 * 14% = 910.33) = 3,110.33
+  // - Retenciones Ene-Ago (8 meses): 2,073.55 -> Saldo: 1,036.78 / Divisor 4 = 259.20
+  const trabDorado1 = await planillaService.crearTrabajador(
     EMPRESA_DORADA,
     {
       tipoDocumento: '01',
       numeroDocumento: '55667781',
       nombres: 'DORADO',
-      apellidos: 'CASO 1 SEP',
+      apellidos: 'CASO 1 TRANSICION',
       cargo: 'JEFE',
       tipoContrato: 'INDETERMINADO',
       fechaIngreso: '2026-01-01',
@@ -638,58 +639,52 @@ async function runTestsFase5Planillas() {
     '2026-09',
     USER_ID
   );
-  const lineaDorado1Sep = planSepDorado.lineas.find(l => l.trabajadorId === trabDorado1Sep.id)!;
-  assert.strictEqual(lineaDorado1Sep.asignacionFamiliar, 113.00, 'Caso 1 (Sep-2026): Asignación familiar debe ser 10% de RMV 1,130 (113.00)');
+  const lineaDorado1Sep = planSepDorado.lineas.find(l => l.trabajadorId === trabDorado1.id)!;
+  assert.strictEqual(lineaDorado1Sep.asignacionFamiliar, 113.00, 'Caso 1 (Sep-2026): Asignación familiar debe ser 113.00');
   assert.strictEqual(lineaDorado1Sep.totalRemuneracion, 5113.00, 'Caso 1 (Sep-2026): Total remuneración mensual debe ser 5,113.00');
-  const difDorado1Sep = Math.abs(lineaDorado1Sep.retencionQuintaCategoria - 259.20);
-  assert.ok(difDorado1Sep <= 0.05, `Caso 1 (Sep-2026): Retención 5ta (${lineaDorado1Sep.retencionQuintaCategoria}) debe coincidir con literal manual 259.20`);
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.remuneracionesAnteriores, 40904.00, 'Caso 1 (Sep-2026): Base Ene-Ago (8 * 5,113) debe ser 40,904.00');
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.rentaBrutaAnualProyectada, 72502.34, 'Caso 1 (Sep-2026): Renta bruta anual proyectada debe ser 72,502.34');
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.rentaNetaAnualQuinta, 34002.34, 'Caso 1 (Sep-2026): Renta neta anual debe ser 34,002.34');
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.impuestoAnualCalculado, 3110.33, 'Caso 1 (Sep-2026): Impuesto anual debe ser 3,110.33');
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.retencionesAnterioresDeducibles, 2073.55, 'Caso 1 (Sep-2026): Retenciones Ene-Ago deben ser 2,073.55');
+  assert.strictEqual(lineaDorado1Sep.proyeccionQuinta?.divisorMes, 4, 'Caso 1 (Sep-2026): Divisor en setiembre debe ser 4');
+  assert.strictEqual(lineaDorado1Sep.retencionQuintaCategoria, 259.20, 'Caso 1 (Sep-2026): Retención 5ta debe ser exactamente 259.20');
 
-  // 1B. Oct-2026 (RMV = 1,230.00 -> Asignación Familiar 10% = 123.00):
-  // Rem mensual: 5,000 + 123 = 5,123.00
-  // Rem anual proyectada: 46,107.00 (meses 1 a 9) + 5,123.00 + 10,246.00 + Gratif (10,246.00) + Bonif (922.14) = 72,644.14
-  // Deducción 7 UIT: 38,500.00 -> Renta neta: 34,144.14
-  // Impuesto anual: 2,200.00 + (34,144.14 - 27,500) * 0.14 = 2,200 + 930.18 = 3,130.18
-  // Retenciones acumuladas meses 1 a 8: 2,086.79
-  // Saldo impuesto = 3,130.18 - 2,086.79 = 1,043.39 / Divisor 4 = 260.85
-  const trabDorado1Oct = await planillaService.crearTrabajador(
-    EMPRESA_DORADA,
-    {
-      tipoDocumento: '01',
-      numeroDocumento: '55667782',
-      nombres: 'DORADO',
-      apellidos: 'CASO 1 OCT',
-      cargo: 'JEFE',
-      tipoContrato: 'INDETERMINADO',
-      fechaIngreso: '2026-01-01',
-      regimenLaboral: 'GENERAL',
-      sueldoBase: 5000.00,
-      cargasFamiliares: 1,
-      tieneAsignacionFamiliar: true,
-      sistemaPensiones: 'ONP',
-      centroCosto: 'ADMINISTRACION',
-      activo: true
-    },
-    USER_ID
-  );
-
+  // 1B. Oct-2026 sobre el mismo trabajador (RMV = 1,230.00 -> Asignación Familiar 10% = 123.00):
+  // - Rem anteriores Ene-Sep: 9 * 5,113.00 = 46,017.00
+  // - Rem Oct: 5,123.00; Rem proyectada Nov-Dic: 2 * 5,123.00 = 10,246.00 (Subtotal ordinaria = 61,386.00)
+  // - Gratificaciones: Julio (5,113.00) + Diciembre (5,123.00) = 10,236.00
+  // - Bonif 9%: Julio (460.17) + Diciembre (461.07) = 921.24
+  // - Renta Bruta Anual: 61,386.00 + 10,236.00 + 921.24 = 72,543.24
+  // - Deducción 7 UIT: 38,500.00 -> Renta Neta: 34,043.24
+  // - Impuesto Anual: 2,200.00 + round(6,543.24 * 0.14 = 916.05) = 3,116.05
+  // - Retenciones acumuladas Ene-Sep (Ene-Ago 2,073.55 + Sep 259.20): 2,332.75
+  // - Saldo impuesto: 3,116.05 - 2,332.75 = 783.30 / Divisor 3 = 261.10
   const planOctDorado = await planillaService.calcularPlanilla(
     EMPRESA_DORADA,
     'per-2026-10',
     '2026-10',
     USER_ID
   );
-  const lineaDorado1Oct = planOctDorado.lineas.find(l => l.trabajadorId === trabDorado1Oct.id)!;
-  assert.strictEqual(lineaDorado1Oct.asignacionFamiliar, 123.00, 'Caso 1 (Oct-2026): Asignación familiar debe ser 10% de RMV 1,230 (123.00)');
+  const lineaDorado1Oct = planOctDorado.lineas.find(l => l.trabajadorId === trabDorado1.id)!;
+  assert.strictEqual(lineaDorado1Oct.asignacionFamiliar, 123.00, 'Caso 1 (Oct-2026): Asignación familiar debe ser 123.00');
   assert.strictEqual(lineaDorado1Oct.totalRemuneracion, 5123.00, 'Caso 1 (Oct-2026): Total remuneración mensual debe ser 5,123.00');
-  const difDorado1Oct = Math.abs(lineaDorado1Oct.retencionQuintaCategoria - 260.85);
-  assert.ok(difDorado1Oct <= 0.05, `Caso 1 (Oct-2026): Retención 5ta (${lineaDorado1Oct.retencionQuintaCategoria}) debe coincidir con literal manual 260.85`);
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.remuneracionesAnteriores, 46017.00, 'Caso 1 (Oct-2026): Base Ene-Sep (9 * 5,113) debe ser exactamente 46,017.00');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.gratificacionesProyectadas, 10236.00, 'Caso 1 (Oct-2026): Gratificaciones (Jul 5,113 + Dic 5,123) deben ser 10,236.00');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.bonificacionExtraProyectada, 921.24, 'Caso 1 (Oct-2026): Bonif. 9% (460.17 + 461.07) debe ser 921.24');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.rentaBrutaAnualProyectada, 72543.24, 'Caso 1 (Oct-2026): Renta bruta anual debe ser exactamente 72,543.24');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.rentaNetaAnualQuinta, 34043.24, 'Caso 1 (Oct-2026): Renta neta anual debe ser exactamente 34,043.24');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.impuestoAnualCalculado, 3116.05, 'Caso 1 (Oct-2026): Impuesto anual debe ser exactamente 3,116.05');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.retencionesAnterioresDeducibles, 2332.75, 'Caso 1 (Oct-2026): Retenciones Ene-Sep (incluyendo Sep 259.20) deben ser 2,332.75');
+  assert.strictEqual(lineaDorado1Oct.proyeccionQuinta?.divisorMes, 3, 'Caso 1 (Oct-2026): Divisor de octubre debe ser 3');
+  assert.strictEqual(lineaDorado1Oct.retencionQuintaCategoria, 261.10, 'Caso 1 (Oct-2026): Retención 5ta debe ser exactamente 261.10');
 
-  // Caso Dorado 2: Sueldo 15,000.00, AFP Integra Flujo, Período Octubre a Diciembre 2026 (Q4 2026)
+  // Caso Dorado 2: Sueldo 15,000.00, AFP Integra Flujo vs ONP 13%, Período Q4 2026 (Noviembre 2026)
   // - Fondo de Pensiones (10% de 15,000.00): 1,500.00
   // - Comisión sobre flujo Integra (1.55% de 15,000.00): 232.50
   // - Prima de seguro AFP 1.37% sobre tope RMA Q4 2026 (12,732.70): 12,732.70 * 0.0137 = 174.44
   // - Total Retención AFP Trabajador: 1,500.00 + 232.50 + 174.44 = 1,906.94
-  // - Comparativa ONP 13% sobre 15,000.00: 15,000.00 * 0.13 = 1,950.00
+  // - Comparativa ONP 13% sobre trabajador homólogo S/ 15,000.00: 1,950.00
   const trabDorado2Afp = await planillaService.crearTrabajador(
     EMPRESA_DORADA,
     {
@@ -714,6 +709,27 @@ async function runTestsFase5Planillas() {
     USER_ID
   );
 
+  const trabDorado2Onp = await planillaService.crearTrabajador(
+    EMPRESA_DORADA,
+    {
+      tipoDocumento: '01',
+      numeroDocumento: '55667785',
+      nombres: 'RICARDO',
+      apellidos: 'CASO 2 ONP',
+      cargo: 'DIRECTOR FINANCIERO',
+      tipoContrato: 'INDETERMINADO',
+      fechaIngreso: '2026-01-01',
+      regimenLaboral: 'GENERAL',
+      sueldoBase: 15000.00,
+      cargasFamiliares: 0,
+      tieneAsignacionFamiliar: false,
+      sistemaPensiones: 'ONP',
+      centroCosto: 'ADMINISTRACION',
+      activo: true
+    },
+    USER_ID
+  );
+
   const planNovDorado = await planillaService.calcularPlanilla(
     EMPRESA_DORADA,
     'per-2026-11',
@@ -721,17 +737,27 @@ async function runTestsFase5Planillas() {
     USER_ID
   );
   const lineaDorado2 = planNovDorado.lineas.find(l => l.trabajadorId === trabDorado2Afp.id)!;
+  const lineaDorado2Onp = planNovDorado.lineas.find(l => l.trabajadorId === trabDorado2Onp.id)!;
   assert.strictEqual(lineaDorado2.aporteObligatorioPension, 1500.00, 'Caso 2: Fondo de pensiones 10% de 15,000 debe ser 1,500.00');
   assert.strictEqual(lineaDorado2.comisionAfp, 232.50, 'Caso 2: Comisión flujo Integra 1.55% de 15,000 debe ser 232.50');
   assert.strictEqual(lineaDorado2.primaSeguroAfp, 174.44, 'Caso 2: Prima de seguro 1.37% sobre tope RMA Q4 (12,732.70) debe ser 174.44');
   const totalAfpCaso2 = Money.toNumber(Money.add(lineaDorado2.aporteObligatorioPension, Money.add(lineaDorado2.comisionAfp, lineaDorado2.primaSeguroAfp)));
   assert.strictEqual(totalAfpCaso2, 1906.94, 'Caso 2: Total retención AFP debe ser exactamente 1,906.94');
-  const onpComparativaCaso2 = Money.toNumber(Money.round(Money.create(15000.00).times(0.13)));
-  assert.strictEqual(onpComparativaCaso2, 1950.00, 'Caso 2: ONP 13% sobre 15,000 debe ser exactamente 1,950.00');
+  assert.strictEqual(lineaDorado2Onp.aporteObligatorioPension, 1950.00, 'Caso 2: ONP 13% calculado por planillaService sobre 15,000 debe ser exactamente 1,950.00');
 
-  // Caso Dorado 3: Trabajador con ingreso a mitad de año (01/08/2026) con certificado anterior y deducción 3 UIT en dic (Divisor 1)
+  // Caso Dorado 3: Ingreso a mitad de año (01/08/2026), Sueldo 6,000.00 sin AF, Certificado previo Ene-Jul (Rem 35,000, Ret 2,100)
+  // y deducción adicional de gastos personales sustentados (Art. 46° LIR, hasta 3 UIT) por S/ 5,000.00:
+  // - Rem previa (Ene-Jul): 35,000.00 + Rem nuevo empleador Ago-Dic (5 * 6,000): 30,000.00 = 65,000.00
+  // - Gratificación Dic proporcional (5/6 * 6,000): 5,000.00 + Bonif 9%: 450.00
+  // - Renta Bruta Anual: 35,000.00 + 30,000.00 + 5,000.00 + 450.00 = 70,450.00
+  // - Deducciones: 7 UIT (38,500.00) + Deducción adicional acreditada (5,000.00) = 43,500.00
+  // - Renta Neta Anual: 70,450.00 - 43,500.00 = 26,950.00 (Tramo 1 al 8%)
+  // - Impuesto Anual Exacto: 26,950.00 * 0.08 = 2,156.00
+  // - Retenciones Ago-Nov (4 meses a S/ 11.20/mes = 44.80) + Certificado previo (2,100.00) = 2,144.80
+  // - Regularización Diciembre (Divisor 1): 2,156.00 - 2,144.80 = 11.20
+  const EMPRESA_DORADA_3 = '00000000-0000-0000-0000-000000000089';
   const trabDorado3 = await planillaService.crearTrabajador(
-    EMPRESA_DORADA,
+    EMPRESA_DORADA_3,
     {
       tipoDocumento: '01',
       numeroDocumento: '55667783',
@@ -754,20 +780,56 @@ async function runTestsFase5Planillas() {
     USER_ID
   );
 
+  for (const perC3 of ['2026-08', '2026-09', '2026-10', '2026-11']) {
+    const plC3 = await planillaService.calcularPlanilla(EMPRESA_DORADA_3, `per-${perC3}`, perC3, USER_ID);
+    const linC3 = plC3.lineas.find(l => l.trabajadorId === trabDorado3.id)!;
+    assert.strictEqual(linC3.retencionQuintaCategoria, 11.20, `Caso 3 (${perC3}): Cuota mensual proyectada debe ser 11.20`);
+  }
+
   const planDicDorado = await planillaService.calcularPlanilla(
-    EMPRESA_DORADA,
+    EMPRESA_DORADA_3,
     'per-2026-12',
     '2026-12',
     USER_ID
   );
   const lineaDorado3 = planDicDorado.lineas.find(l => l.trabajadorId === trabDorado3.id)!;
-  assert.strictEqual(lineaDorado3.proyeccionQuinta?.divisorMes, 1, 'Caso Dorado 3: En diciembre el divisor debe ser 1 (regularización final)');
-  assert.strictEqual(lineaDorado3.proyeccionQuinta?.deduccionAdicional3Uit, 5000.00, 'Caso Dorado 3: Debe computar la deducción adicional de hasta 3 UIT');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.remuneracionesAnteriores, 59000.00, 'Caso 3: Rem anteriores Ene-Nov (35,000 + 4*6,000) deben ser 59,000.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.gratificacionesProyectadas, 5000.00, 'Caso 3: Gratificación Dic proporcional (5/6 de 6,000) debe ser 5,000.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.bonificacionExtraProyectada, 450.00, 'Caso 3: Bonif 9% sobre 5,000 debe ser 450.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.rentaBrutaAnualProyectada, 70450.00, 'Caso 3: Renta bruta anual debe ser exactamente 70,450.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.deduccion7Uit, 38500.00, 'Caso 3: Deducción 7 UIT debe ser 38,500.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.deduccionAdicional3Uit, 5000.00, 'Caso 3: Deducción adicional hasta 3 UIT debe ser 5,000.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.rentaNetaAnualQuinta, 26950.00, 'Caso 3: Renta neta anual debe ser 26,950.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.impuestoAnualCalculado, 2156.00, 'Caso 3: Impuesto anual (8% de 26,950) debe ser exactamente 2,156.00');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.retencionesAnterioresDeducibles, 2144.80, 'Caso 3: Retenciones acumuladas Ene-Nov (2,100 + 44.80) deben ser 2,144.80');
+  assert.strictEqual(lineaDorado3.proyeccionQuinta?.divisorMes, 1, 'Caso 3: En diciembre el divisor debe ser 1 (regularización final)');
+  assert.strictEqual(lineaDorado3.retencionQuintaCategoria, 11.20, 'Caso 3: Retención regularización diciembre debe ser exactamente 11.20');
 
   // Caso Dorado 4: Gratificación Diciembre 2026 con RMV 1,230 y Asignación Familiar 123.00
-  // - Régimen General: trabDorado1Oct (sueldo 5,000 + AF 123 = 5,123.00): Gratif = 5,123.00, Bonif 9% = 461.07, Neto = 5,584.07
+  // - Régimen General (Sueldo 3,500.00 + AF 123.00 = 3,623.00): Gratif = 3,623.00, Bonif 9% = 326.07, Neto = 3,949.07
   // - MYPE Pequeña Empresa: sueldo 2,400.00 -> 50% = 1,200.00, Bonif 9% = 108.00, Neto = 1,308.00
   // - MYPE Microempresa: sueldo 2,000.00 -> 0.00
+  const trabDorado45Gen = await planillaService.crearTrabajador(
+    EMPRESA_DORADA,
+    {
+      tipoDocumento: '01',
+      numeroDocumento: '55667788',
+      nombres: 'CARLOS',
+      apellidos: 'DORADO 4Y5 GENERAL',
+      cargo: 'CONTADOR SENIOR',
+      tipoContrato: 'INDETERMINADO',
+      fechaIngreso: '2026-01-01',
+      regimenLaboral: 'GENERAL',
+      sueldoBase: 3500.00,
+      cargasFamiliares: 1,
+      tieneAsignacionFamiliar: true,
+      sistemaPensiones: 'ONP',
+      centroCosto: 'ADMINISTRACION',
+      activo: true
+    },
+    USER_ID
+  );
+
   const trabDorado4Peq = await planillaService.crearTrabajador(
     EMPRESA_DORADA,
     {
@@ -811,14 +873,14 @@ async function runTestsFase5Planillas() {
   );
 
   const resGratiDic = await planillaService.calcularGratificaciones(EMPRESA_DORADA, '2026-12', USER_ID);
-  const gratiGeneralDic = resGratiDic.items.find(g => g.trabajadorId === trabDorado1Oct.id)!;
+  const gratiGeneralDic = resGratiDic.items.find(g => g.trabajadorId === trabDorado45Gen.id)!;
   const gratiPequenaDic = resGratiDic.items.find(g => g.trabajadorId === trabDorado4Peq.id)!;
   const gratiMicroDic = resGratiDic.items.find(g => g.trabajadorId === trabDorado4Mic.id)!;
 
-  assert.strictEqual(gratiGeneralDic.remuneracionComputable, 5123.00, 'Caso 4: Rem computable Dic Régimen General (5,000 + 123) debe ser 5,123.00');
-  assert.strictEqual(gratiGeneralDic.montoGratificacion, 5123.00, 'Caso 4: Gratificación ordinaria Dic Régimen General debe ser 5,123.00');
-  assert.strictEqual(gratiGeneralDic.bonificacionExtraordinaria, 461.07, 'Caso 4: Bonif extraordinaria 9% (5,123 * 0.09) debe ser 461.07');
-  assert.strictEqual(gratiGeneralDic.netoGratificacion, 5584.07, 'Caso 4: Neto gratificación Dic (5,123 + 461.07) debe ser 5,584.07');
+  assert.strictEqual(gratiGeneralDic.remuneracionComputable, 3623.00, 'Caso 4: Rem computable Dic Régimen General (3,500 + 123) debe ser 3,623.00');
+  assert.strictEqual(gratiGeneralDic.montoGratificacion, 3623.00, 'Caso 4: Gratificación ordinaria Dic Régimen General debe ser 3,623.00');
+  assert.strictEqual(gratiGeneralDic.bonificacionExtraordinaria, 326.07, 'Caso 4: Bonif extraordinaria 9% (3,623 * 0.09) debe ser 326.07');
+  assert.strictEqual(gratiGeneralDic.netoGratificacion, 3949.07, 'Caso 4: Neto gratificación Dic (3,623 + 326.07) debe ser 3,949.07');
 
   assert.strictEqual(gratiPequenaDic.montoGratificacion, 1200.00, 'Caso 4: MYPE Pequeña percibe 50% de gratificación (1,200.00)');
   assert.strictEqual(gratiPequenaDic.bonificacionExtraordinaria, 108.00, 'Caso 4: MYPE Pequeña bonif extraordinaria 9% es 108.00');
@@ -826,23 +888,26 @@ async function runTestsFase5Planillas() {
   assert.strictEqual(gratiMicroDic.netoGratificacion, 0.00, 'Caso 4: MYPE Micro percibe 0.00 de gratificación legal');
 
   // Caso Dorado 5: CTS Noviembre 2026 (Semestre Mayo a Octubre 2026, RMV 1,230 y Asignación Familiar 123.00)
-  // Para trabajador con asignación familiar (trabDorado1Oct: sueldo 5,000 + AF 123 = 5,123.00 + 1/6 gratif 853.83 = 5,976.83)
+  // - Base ordinaria al 31/10/2026: 3,500.00 + 123.00 = 3,623.00
+  // - Sexto de gratificación (3,623.00 / 6): 603.83
+  // - Remuneración computable CTS: 3,623.00 + 603.83 = 4,226.83
+  // - Depósito semestral CTS (6/12 de 4,226.83): 2,113.42
   const resCtsNov = await planillaService.calcularCts(EMPRESA_DORADA, '2026-11', USER_ID);
-  const lineaCtsNovDorado = resCtsNov.items.find(c => c.trabajadorId === trabDorado1Oct.id)!;
-  assert.strictEqual((lineaCtsNovDorado as any).asignacionFamiliar, 123.00, 'Caso 5: Asignación familiar en CTS Nov-2026 debe ser 10% de RMV 1,230 (123.00)');
-  assert.strictEqual(lineaCtsNovDorado.sextoGratificacion, 853.83, 'Caso 5: 1/6 gratificación de 5,123.00 debe ser 853.83');
-  assert.strictEqual(lineaCtsNovDorado.remuneracionComputable, 5976.83, 'Caso 5: Rem computable CTS Nov (5,123 + 853.83) debe ser 5,976.83');
-  assert.strictEqual(lineaCtsNovDorado.ctsDepositada, 2988.42, 'Caso 5: Depósito semestral CTS Nov (5,976.83 / 2) debe ser 2,988.42');
+  const lineaCtsNovDorado = resCtsNov.items.find(c => c.trabajadorId === trabDorado45Gen.id)!;
+  assert.strictEqual((lineaCtsNovDorado as any).asignacionFamiliar, 123.00, 'Caso 5: Asignación familiar en CTS Nov-2026 debe ser 123.00');
+  assert.strictEqual(lineaCtsNovDorado.sextoGratificacion, 603.83, 'Caso 5: 1/6 gratificación (3,623.00 / 6) debe ser exactamente 603.83');
+  assert.strictEqual(lineaCtsNovDorado.remuneracionComputable, 4226.83, 'Caso 5: Rem computable CTS Nov (3,623.00 + 603.83) debe ser 4,226.83');
+  assert.strictEqual(lineaCtsNovDorado.ctsDepositada, 2113.42, 'Caso 5: Depósito semestral CTS Nov (4,226.83 * 6 / 12) debe ser 2,113.42');
 
-  // Caso Dorado 6: Liquidación de Beneficios Sociales al 15/10/2026 (RMV 1,230, AF 123.00)
-  // Trabajador con renuncia al 15/10/2026, sueldo 3,000 + AF 123 = rem computable 3,123.00:
-  // - Remuneración pendiente mes de cese (15 días sueldo 1,500 + AF 123): 1,623.00
-  // - Vacaciones truncas (15 días sobre base 3,123.00): 1,561.50
-  // - Gratificación trunca (3 meses completos Jul-Sep sobre base 3,123.00): 1,561.50
-  // - Bonificación extraordinaria trunca 9% (Ley 30334): 140.54
-  // - CTS trunca (165 días May-15 Oct; base 3,123.00 + 1/6(3,123) = 3,643.50): 3,643.50 * (165 / 360) = 1,669.94
-  // - Descuento pensión ONP 13% (sobre rem 1,623.00 + vacaciones 1,561.50 = 3,184.50): 413.99
-  // - Neto de liquidación: 1,623.00 + 1,561.50 + 1,561.50 + 140.54 + 1,669.94 - 413.99 = 6,142.49
+  // Caso Dorado 6: Liquidación de Beneficios Sociales al 15/10/2026 (Ingreso 01/01/2026, RMV 1,230, AF 123.00, ONP 13%)
+  // Reglas normativas de fracción de mes (15 días de octubre):
+  // - Remuneración mes de cese (15 días sueldo 1,500.00 + AF íntegra 123.00): 1,623.00 [AFECTA ONP/AFP]
+  // - Vacaciones truncas (D.Leg. 713 Art. 22° / D.S. 012-92-TR Art. 23° — computa fracción: 9m 15d = 285/360 * 3,123.00): 2,472.38 [AFECTA ONP/AFP]
+  // - Gratificación trunca (Ley 27735 Art. 7° / D.S. 005-2002-TR Art. 5° num. 5.2 — SOLO meses calendario completos Jul-Sep = 3/6 * 3,123.00): 1,561.50 [INAFECTA ONP/AFP por Ley 30334]
+  // - Bonificación extraordinaria trunca 9% (Ley 30334 Art. 3°: 1,561.50 * 0.09): 140.54 [INAFECTA ONP/AFP]
+  // - CTS trunca (D.S. 001-97-TR Art. 21° — computa fracción: 5m 15d = 165/360 * (3,123.00 + 520.50 = 3,643.50)): 1,669.94 [INAFECTA ONP/AFP]
+  // - Base afecta ONP 13%: 1,623.00 + 2,472.38 = 4,095.38 -> ONP = round(4,095.38 * 0.13) = 532.40
+  // - Total Bruto: 1,623.00 + 2,472.38 + 1,561.50 + 140.54 + 1,669.94 = 7,467.36 -> Neto: 7,467.36 - 532.40 = 6,934.96
   const trabLbsOct = await planillaService.crearTrabajador(
     EMPRESA_DORADA,
     {
@@ -852,7 +917,7 @@ async function runTestsFase5Planillas() {
       apellidos: 'DORADO LBS OCT',
       cargo: 'ANALISTA FINANCIERA',
       tipoContrato: 'INDETERMINADO',
-      fechaIngreso: '2025-01-01',
+      fechaIngreso: '2026-01-01',
       fechaCese: '2026-10-15',
       motivoCese: 'RENUNCIA VOLUNTARIA',
       regimenLaboral: 'GENERAL',
@@ -871,22 +936,24 @@ async function runTestsFase5Planillas() {
     {
       trabajadorId: trabLbsOct.id,
       fechaCese: '2026-10-15',
-      motivoCese: 'RENUNCIA VOLUNTARIA',
-      diasVacacionesPendientes: 15,
-      mesesCtsTruncos: 5,
-      diasCtsTruncos: 15,
-      mesesGratiTruncos: 3
+      motivoCese: 'RENUNCIA VOLUNTARIA'
     },
     USER_ID
   );
   assert.strictEqual(lbsOct.diasTrabajadosMesCese, 15, 'Caso 6: 15 días laborados en el mes de cese');
-  assert.strictEqual(lbsOct.remuneracionMensualPendiente, 1623.00, 'Caso 6: Remuneración pendiente (15 días sueldo 1,500 + AF 123) debe ser 1,623.00');
-  assert.strictEqual(lbsOct.vacacionesTruncas, 1561.50, 'Caso 6: Vacaciones truncas (15 días de base 3,123.00) debe ser 1,561.50');
-  assert.strictEqual(lbsOct.gratificacionTrunca, 1561.50, 'Caso 6: Gratificación trunca (3 meses de base 3,123.00) debe ser 1,561.50');
+  assert.strictEqual(lbsOct.remuneracionMensualPendiente, 1623.00, 'Caso 6: Remuneración pendiente (1,500 + AF 123) debe ser 1,623.00');
+  assert.strictEqual(lbsOct.vacacionesTruncasMeses, 9, 'Caso 6: Vacaciones truncas deben registrar 9 meses');
+  assert.strictEqual(lbsOct.vacacionesTruncasDias, 15, 'Caso 6: Vacaciones truncas deben computar fracción de 15 días de octubre');
+  assert.strictEqual(lbsOct.vacacionesTruncas, 2472.38, 'Caso 6: Vacaciones truncas (285/360 de 3,123.00) deben ser exactamente 2,472.38');
+  assert.strictEqual(lbsOct.gratificacionTruncaMeses, 3, 'Caso 6: Gratificación trunca solo computa 3 meses calendario íntegros (Jul-Sep, sin fracción Oct)');
+  assert.strictEqual(lbsOct.gratificacionTrunca, 1561.50, 'Caso 6: Gratificación trunca (3/6 de 3,123.00) debe ser 1,561.50');
   assert.strictEqual(lbsOct.bonificacionExtraTrunca, 140.54, 'Caso 6: Bonif extraordinaria trunca 9% debe ser 140.54');
-  assert.strictEqual(lbsOct.ctsTrunca, 1669.94, 'Caso 6: CTS trunca (165 días sobre base 3,643.50) debe ser 1,669.94');
-  assert.strictEqual(lbsOct.descuentoPension, 413.99, 'Caso 6: ONP 13% sobre base afecta 3,184.50 debe ser 413.99');
-  assert.strictEqual(lbsOct.netoLiquidacion, 6142.49, 'Caso 6: Neto liquidación final al 15/10/2026 debe ser exactamente 6,142.49');
+  assert.strictEqual(lbsOct.ctsTruncaMeses, 5, 'Caso 6: CTS trunca debe computar 5 meses completos (May-Sep)');
+  assert.strictEqual(lbsOct.ctsTruncaDias, 15, 'Caso 6: CTS trunca debe computar fracción de 15 días de octubre');
+  assert.strictEqual(lbsOct.ctsTrunca, 1669.94, 'Caso 6: CTS trunca (165/360 de 3,643.50) debe ser exactamente 1,669.94');
+  assert.strictEqual(lbsOct.descuentoPension, 532.40, 'Caso 6: ONP 13% sobre base afecta (1,623.00 + 2,472.38 = 4,095.38; gratif trunca inafecta Ley 30334) debe ser 532.40');
+  assert.strictEqual(lbsOct.totalBrutoBeneficios, 7467.36, 'Caso 6: Total bruto liquidación debe ser 7,467.36');
+  assert.strictEqual(lbsOct.netoLiquidacion, 6934.96, 'Caso 6: Neto liquidación final al 15/10/2026 debe ser exactamente 6,934.96');
 
   console.log('   ✔ Los 6 Casos Dorados recalculados normativamente verificados con diferencia 0.00.');
 

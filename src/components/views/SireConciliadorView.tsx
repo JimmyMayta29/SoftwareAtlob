@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Comprobante, EmpresaCliente } from '../../types';
 import { 
+  useSireConexionEstado,
   useSireConciliacion, 
   useDescargarPropuestaSire, 
   useAplicarConciliacionSire,
@@ -36,7 +37,7 @@ import {
   useAceptarPropuestaOficialSire,
   useReemplazarPropuestaOficialSire,
   useRegistrarAjustePosteriorSire
-} from '../../hooks/useSunatSirePle';
+} from '../../hooks/useSire';
 import { generarSireRceTxt } from '../../services/sireTxtGenerator';
 import { useToast } from '../../context/ToastContext';
 
@@ -106,6 +107,8 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
   });
 
   // Queries & Mutations
+  const { data: estadoConexion } = useSireConexionEstado(empresa.id);
+  const esModoSimulado = Boolean(estadoConexion ? estadoConexion.modoSimulado : (empresa.esDemo || true));
   const { data: conciliacion, isLoading, refetch } = useSireConciliacion(empresa.id, tabRegistro, periodo);
   const { data: reglasProveedor = [], refetch: refetchReglas } = useReglasProveedorSire(empresa.id);
 
@@ -198,6 +201,10 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
   };
 
   const handleAceptarOficialPropuesta = async () => {
+    if (esModoSimulado) {
+      warning('Operación bloqueada: No se puede enviar a SUNAT una propuesta en modo [SIMULADO]. Configure credenciales SOL reales.', 'Simulación Bloqueada');
+      return;
+    }
     try {
       const res: any = await aceptarOficialMutation.mutateAsync({ tipo: tabRegistro, periodo });
       setTicketModal({
@@ -213,6 +220,10 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
   };
 
   const handleReemplazarOficialPropuesta = async () => {
+    if (esModoSimulado) {
+      warning('Operación bloqueada: No se puede exportar ni enviar reemplazo para SOL en modo [SIMULADO]. Configure credenciales SOL reales.', 'Simulación Bloqueada');
+      return;
+    }
     try {
       const { nombreArchivo, contenido } = generarSireRceTxt(empresa.ruc, periodo, compras);
       const res: any = await reemplazarOficialMutation.mutateAsync({
@@ -260,6 +271,10 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
   };
 
   const handleDescargarReemplazo = () => {
+    if (esModoSimulado) {
+      warning('Operación bloqueada: No se puede exportar ni descargar archivos de reemplazo para SOL en modo [SIMULADO].', 'Descarga Bloqueada');
+      return;
+    }
     const { nombreArchivo, contenido } = generarSireRceTxt(empresa.ruc, periodo, compras);
     const blob = new Blob([contenido], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -299,10 +314,18 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <FileCheck className="w-5 h-5 text-blue-600" />
-            Conciliador & Cierre Automatizado SUNAT SIRE (RCE & RVIE)
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <FileCheck className="w-5 h-5 text-blue-600" />
+              Conciliador & Cierre Automatizado SUNAT SIRE (RCE & RVIE)
+            </h2>
+            {esModoSimulado && (
+              <span className="text-[11px] font-bold px-2.5 py-0.5 bg-amber-50 border border-amber-300 text-amber-800 rounded-full flex items-center gap-1.5 shadow-xs" title="Modo Simulado: Las operaciones de envío y descarga para SOL están bloqueadas">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                [SIMULADO]
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Cruce algorítmico por clave única (RUC-Tipo-Serie-Número), clasificación en los 8 estados normativos y cierre oficial con Tickets SUNAT.
           </p>

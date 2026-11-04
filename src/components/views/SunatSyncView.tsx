@@ -20,10 +20,13 @@ import {
   useGuardarConexionSunat, 
   useValidarConexionSunat,
   useComprobantesXmlList,
-  useImportarComprobantesXml,
+  useImportarComprobantesXml
+} from '../../hooks/useSire';
+import {
   usePleLibrosCatalogo,
-  useExportarPle
-} from '../../hooks/useSunatSirePle';
+  useExportarPle,
+  PleLibroConfig
+} from '../../hooks/usePle';
 import { useToast } from '../../context/ToastContext';
 
 interface SunatSyncViewProps {
@@ -473,7 +476,7 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-              {pleLibros.map((libro) => (
+              {pleLibros.map((libro: PleLibroConfig) => (
                 <div key={libro.codigoLibro} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 shadow-xs space-y-3 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-1">

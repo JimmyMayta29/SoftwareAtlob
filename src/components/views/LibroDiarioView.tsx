@@ -27,6 +27,8 @@ import {
 } from '../../services/reportesEngine';
 import { useToast } from '../../context/ToastContext';
 import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
+import { construirDefinicionLibroDiarioEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { VisorReporteModal } from '../modals/VisorReporteModal';
 
 interface LibroDiarioViewProps {
   asientos: AsientoContable[];
@@ -47,6 +49,7 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
 
   // Filtros y opciones
   const [searchTerm, setSearchTerm] = useState('');
+  const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
   const [subdiarioFiltro, setSubdiarioFiltro] = useState<string>('TODOS');
   const [incluirCierre, setIncluirCierre] = useState<boolean>(true);
   const [ocultarGlosa, setOcultarGlosa] = useState<boolean>(false);
@@ -174,6 +177,14 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               Hoja de cálculo
+            </button>
+            <button
+              onClick={() => setModalEstandarOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              title="Vista previa y exportación en formato estándar oficial B/N"
+            >
+              <FileText className="w-4 h-4 text-slate-700" />
+              <span>Reporte estándar</span>
             </button>
             <button
               onClick={handleExportPdf}
@@ -534,6 +545,16 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Vista Previa Formato Estándar */}
+      {modalEstandarOpen && (
+        <VisorReporteModal
+          isOpen={modalEstandarOpen}
+          onClose={() => setModalEstandarOpen(false)}
+          definicion={construirDefinicionLibroDiarioEstandar(empresa, asientos, periodo)}
+          onExportarLegacyPdf={handleExportPdf}
+        />
+      )}
     </div>
   );
 };

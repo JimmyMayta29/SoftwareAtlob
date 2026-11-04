@@ -150,6 +150,7 @@ function DesktopWorkspaceContent() {
   }, [compras, ventas, periodo, empresaActual.tasaRentaMensual, saldoAnteriorIgv]);
 
   const rolActual = obtenerCodigoRolDesdePerfil(perfil);
+  const esAdmin = rolActual === 'ADMIN_ESTUDIO' || rolActual === 'ADMINISTRADOR' || perfil === 'ADMINISTRADOR';
 
   const todosItemsHoja = useMemo(() => obtenerItemsHojaMenu(MENU_DATA), []);
   const comandosFiltrados = useMemo(() => {
@@ -310,9 +311,12 @@ function DesktopWorkspaceContent() {
                   empresaId={empresaId}
                   periodo={periodo}
                   isPeriodoCerrado={isPeriodoCerrado}
+                  empresa={empresaActual}
+                  usuarioNombre={perfil}
+                  usuarioRol={rolActual}
                 />
               )}
-              {activeModuleId === 'plan-cuentas' && <PlanCuentasView />}
+              {activeModuleId === 'plan-cuentas' && <PlanCuentasView rolUsuario={rolActual} esAdmin={esAdmin} />}
               {activeModuleId === 'centros-costo' && <CentrosCostoView />}
               {activeModuleId === 'libro-diario' && (
                 <LibroDiarioView

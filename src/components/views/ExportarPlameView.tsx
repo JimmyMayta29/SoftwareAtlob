@@ -46,7 +46,7 @@ export const ExportarPlameView: React.FC = () => {
       const exp = await exportarPlameMutation.mutateAsync(planilla.id);
       setExportResult(exp);
       success(
-        `Estructura PLAME (${periodo}) validada y generada (.rem, .jor, .snl, .toc, .des).`,
+        `Estructura PLAME (${periodo}) validada y generada (.jor, .snl, .rem, .4ta, .toc).`,
         'Validador PLAME OK'
       );
     } catch (err: any) {
@@ -63,7 +63,7 @@ export const ExportarPlameView: React.FC = () => {
     const jorTxt = getTxt(exportResult?.archivos?.jor);
     const snlTxt = getTxt(exportResult?.archivos?.snl);
     const tocTxt = getTxt(exportResult?.archivos?.toc);
-    const desTxt = getTxt(exportResult?.archivos?.des);
+    const cuartaTxt = getTxt(exportResult?.archivos?.['4ta'] ?? exportResult?.archivos?.cuarta);
 
     const contarLineas = (txt: string) =>
       txt
@@ -82,17 +82,8 @@ export const ExportarPlameView: React.FC = () => {
         lineas: contarLineas(jorTxt)
       },
       {
-        extension: '.rem',
-        estructura: 'Estructura 18 — Remuneraciones, Ingresos, Descuentos y Aportes',
-        descripcionAnexo3:
-          'Tipo Doc | N° Doc | Cód. Concepto PLAME (0121, 0201, 0105, 0106, 0601, 0605, 0606, 0607, 0608, 0804) | Monto Devengado | Monto Pagado/Descontado |',
-        nomenclatura: `${baseName}.rem`,
-        contenido: remTxt,
-        lineas: contarLineas(remTxt)
-      },
-      {
         extension: '.snl',
-        estructura: 'Estructura 15 — Subsidios y Otros Días No Laborados y No Subsidiados',
+        estructura: 'Estructura 15 — Subsidios y Otros Días No Laborados',
         descripcionAnexo3:
           'Tipo Doc | N° Doc | Tipo Suspensión Relación Laboral (Tabla 21: 07 Falta no justificada / 05 Licencia SGH) | N° Días |',
         nomenclatura: `${baseName}.snl`,
@@ -100,22 +91,31 @@ export const ExportarPlameView: React.FC = () => {
         lineas: contarLineas(snlTxt)
       },
       {
-        extension: '.toc',
-        estructura: 'Estructura 17 — Tasas y Otras Condiciones de Aportación del Trabajador',
+        extension: '.rem',
+        estructura: 'Estructura 18 — Detalle de Ingresos, Tributos, Descuentos y Aportes',
         descripcionAnexo3:
-          'Tipo Doc | N° Doc | Ind. Aporte SCTR Salud | Ind. SCTR Pensión | Ind. Domiciliado | Condición Especial |',
+          'Tipo Doc | N° Doc | Cód. Concepto Tabla 22 (0121, 0201, 0105, 0106, 0601, 0605, 0606, 0607, 0608, 0705, 0804) | Monto Devengado | Monto Pagado/Descontado |',
+        nomenclatura: `${baseName}.rem`,
+        contenido: remTxt,
+        lineas: contarLineas(remTxt)
+      },
+      {
+        extension: '.4ta',
+        estructura: 'Estructura 20 — Prestadores de Servicios de Cuarta Categoría (Comprobantes)',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Tipo Comprobante (02=RxH) | Serie | Número | Monto Bruto | Retención 8% | Fecha Emisión | Fecha Pago |',
+        nomenclatura: `${baseName}.4ta`,
+        contenido: cuartaTxt,
+        lineas: contarLineas(cuartaTxt)
+      },
+      {
+        extension: '.toc',
+        estructura: 'Estructura 26 — Trabajador: Otras Condiciones y Tasas de Aseguramiento',
+        descripcionAnexo3:
+          'Tipo Doc | N° Doc | Ind. Asegura tu Pensión | Ind. +Vida | Ind. SCTR Salud | Ind. SCTR Pensión |',
         nomenclatura: `${baseName}.toc`,
         contenido: tocTxt,
         lineas: contarLineas(tocTxt)
-      },
-      {
-        extension: '.des',
-        estructura: 'Resumen de Descuentos Previsionales y Retenciones del Período',
-        descripcionAnexo3:
-          'Tipo Doc | N° Doc | Cód. Descuento (ONP 0607, AFP 0608/0601/0606, Renta 5ta 0605, Faltas 0705) | Importe Retenido |',
-        nomenclatura: `${baseName}.des`,
-        contenido: desTxt,
-        lineas: contarLineas(desTxt)
       }
     ];
   };
@@ -216,7 +216,7 @@ export const ExportarPlameView: React.FC = () => {
     <div className="flex flex-col h-full bg-[#FFFFFF]">
       <BarraHerramientasLocal
         titulo="Exportador Oficial de Archivos PDT PLAME (Formulario Virtual 0601)"
-        subtitulo="Generación de archivos .jor, .rem, .snl, .toc y .des con Validador de Estructura Previo conforme al Anexo 3 R.S. N° 183-2011/SUNAT"
+        subtitulo="Generación de archivos .jor, .snl, .rem, .4ta y .toc con Validador de Estructura Previo conforme al Anexo 3 R.M. N° 121-2011-TR y R.S. N° 016-2022/SUNAT"
         derecha={
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-bold">Período:</label>

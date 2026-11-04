@@ -6,8 +6,17 @@ import { TablaDensa } from '../ui/TablaDensa';
 import { VentanaModal } from '../ui/VentanaModal';
 import { useToast } from '../../context/ToastContext';
 
-export const PlanCuentasView: React.FC = () => {
-  const { success } = useToast();
+interface PlanCuentasViewProps {
+  rolUsuario?: string;
+  esAdmin?: boolean;
+}
+
+export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
+  rolUsuario = 'ADMINISTRADOR',
+  esAdmin = true
+}) => {
+  const puedeEditar = esAdmin || rolUsuario === 'ADMIN_ESTUDIO' || rolUsuario === 'ADMINISTRADOR' || rolUsuario === 'ADMIN';
+  const { success, warning } = useToast();
   const [cuentas, setCuentas] = useState<CuentaPCGE[]>(PLAN_CONTABLE_PCGE);
   const [busqueda, setBusqueda] = useState('');
   const [elementoFiltro, setElementoFiltro] = useState<string>('TODOS');
@@ -30,13 +39,25 @@ export const PlanCuentasView: React.FC = () => {
 
   const handleGuardarCuenta = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!puedeEditar) {
+      warning('Acceso denegado: La modificación del Plan de Cuentas está restringida exclusivamente a ADMIN_ESTUDIO / ADMINISTRADOR. Los contadores tienen permiso de solo consulta.', 'Permiso Insuficiente');
+      return;
+    }
     if (!codigo.trim() || !nombre.trim()) return;
     const nueva: CuentaPCGE = {
       codigo: codigo.trim(),
       nombre: nombre.trim(),
       elemento: elemento as any,
+      nivel: codigo.trim().length,
       naturaleza,
-      tipo: tipo as any
+      tipo: (tipo === 'GASTO' || tipo === 'INGRESO' ? 'RESULTADOS' : 'BALANCE') as any,
+      tipoNormativo: (tipo === 'GASTO' || tipo === 'INGRESO' ? 'GESTION' : tipo) as any,
+      permiteMovimiento: codigo.trim().length >= 3,
+      monedaCuenta: 'PEN',
+      requiereAnexo: ['12', '14', '16', '42', '43', '46'].some(p => codigo.startsWith(p)),
+      requiereDocumento: ['12', '16', '42', '43'].some(p => codigo.startsWith(p)),
+      requiereCentroCosto: elemento === 9 || elemento === 6,
+      requiereVencimiento: ['12', '42'].some(p => codigo.startsWith(p)),
     };
     setCuentas([nueva, ...cuentas]);
     setModalNuevaOpen(false);
@@ -49,9 +70,9 @@ export const PlanCuentasView: React.FC = () => {
     <div className="space-y-2">
       <BarraHerramientasLocal
         tituloModulo="Plan Contable General Empresarial (PCGE)"
-        subtitulo={`${filtradas.length} cuentas analíticas y divisionarias`}
-        onNuevo={() => setModalNuevaOpen(true)}
-        labelNuevo="Nueva Subcuenta"
+        subtitulo={`${filtradas.length} cuentas analíticas y divisionarias — ${puedeEditar ? 'Modo Administración' : 'Solo Consulta (Contador / Auditor)'}`}
+        onNuevo={puedeEditar ? () => setModalNuevaOpen(true) : undefined}
+        labelNuevo={puedeEditar ? "Nueva Subcuenta" : undefined}
         onExportar={() => success('Catálogo PCGE exportado en formato CSV.', 'Exportación')}
       />
 

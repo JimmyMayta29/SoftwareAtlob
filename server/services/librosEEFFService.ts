@@ -370,7 +370,7 @@ export const librosEEFFService = {
         JOIN periodos p ON p.id = a.periodo_id
         JOIN subdiarios s ON s.id = a.subdiario_id
         JOIN asiento_detalle d ON d.asiento_id = a.id
-        JOIN cuentas c ON c.id = d.cuenta_id
+        JOIN plan_cuentas c ON c.id = d.cuenta_id
         WHERE a.empresa_id = $1 AND ${sqlPeriodo} AND a.estado = 'CONTABILIZADO' ${sqlFiltroCierre}
         GROUP BY a.id, p.codigo_periodo, s.codigo
         ORDER BY s.codigo ASC, a.fecha ASC, a.numero ASC

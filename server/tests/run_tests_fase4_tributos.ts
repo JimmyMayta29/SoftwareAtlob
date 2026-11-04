@@ -167,14 +167,49 @@ async function runTestsFase4Tributos() {
     saldoAnteriorAFavor: 1800,
     retencionesPeriodo: 450,
     percepcionesPeriodo: 250,
+    saldoFavorRentaAnterior: 120,
   });
   assert.strictEqual(liqConRetPer.casillas.c184_tributoAPagarOSaldoFavor, 1800);
+  assert.strictEqual(liqConRetPer.casillas.c171_percepcionesPeriodo, 250, 'Casilla 171 = Percepciones del período (250.00)');
+  assert.strictEqual(liqConRetPer.casillas.c179_retencionesPeriodo, 450, 'Casilla 179 = Retenciones del período (450.00)');
+  assert.strictEqual(liqConRetPer.casillas.c188_totalDeudaTributariaIgv, 1100, 'Casilla 188 = 1800 - 250 - 450 = 1100');
+  assert.strictEqual(liqConRetPer.casillas.c303_saldoFavorRentaCompensado, 120, 'Casilla 303 = Saldo a favor Renta anterior compensado (120.00)');
+  assert.strictEqual(liqConRetPer.casillas.c304_pagoACuentaRentaPorPagar, 280, 'Casilla 304 = 400 - 120 = 280.00');
   assert.strictEqual(liqConRetPer.retencionesAplicables, 450);
   assert.strictEqual(liqConRetPer.percepcionesAplicables, 250);
-  assert.strictEqual(liqConRetPer.igvPorPagar, 1100, 'Casilla 188 = 1800 - 450 - 250 = 1100');
+  assert.strictEqual(liqConRetPer.igvPorPagar, 1100, 'Casilla 188 = 1800 - 250 - 450 = 1100');
   console.log(
-    `  ✓ Caso (b) OK: Cas. 184 (S/ ${liqConRetPer.casillas.c184_tributoAPagarOSaldoFavor.toFixed(2)}) - Retenciones Cas. 171 (S/ ${liqConRetPer.retencionesAplicables.toFixed(2)}) - Percepciones Cas. 168 (S/ ${liqConRetPer.percepcionesAplicables.toFixed(2)}) = IGV por pagar Cas. 188 S/ ${liqConRetPer.igvPorPagar.toFixed(2)}.`
+    `  ✓ Caso (b) OK: Cas. 184 (S/ ${liqConRetPer.casillas.c184_tributoAPagarOSaldoFavor.toFixed(2)}) - Percepciones Cas. 171 (S/ ${liqConRetPer.casillas.c171_percepcionesPeriodo.toFixed(2)}) - Retenciones Cas. 179 (S/ ${liqConRetPer.casillas.c179_retencionesPeriodo.toFixed(2)}) = IGV por pagar Cas. 188 S/ ${liqConRetPer.casillas.c188_totalDeudaTributariaIgv.toFixed(2)} | Renta Cas. 303 S/ ${liqConRetPer.casillas.c303_saldoFavorRentaCompensado.toFixed(2)}.`
   );
+
+  // Verificación explícita de Casilla 102 (Descuentos y devoluciones por Nota de Crédito '07')
+  VENTAS_MEMORIA.push({
+    id: 'v-f4-nc07',
+    empresaId,
+    periodoId: '2026-09',
+    clienteId: 'cli-a2',
+    tipoComprobante: '07',
+    serie: 'FC01',
+    numero: '00000010',
+    fechaEmision: '2026-09-25',
+    fechaContable: '2026-09-25',
+    moneda: 'PEN',
+    tipoCambio: 1,
+    baseGravada: 1000,
+    igv: 180,
+    total: 1180,
+    estado: 'CONTABILIZADO',
+    asientoId: 'asi-v-nc07',
+  } as any);
+  const liqConNc = await liquidacionIGVService.calcular(empresaId, '2026-09', {
+    regimenOverride: 'MYPE_TRIBUTARIO',
+    saldoAnteriorAFavor: 1800,
+    retencionesPeriodo: 450,
+    percepcionesPeriodo: 250,
+  });
+  assert.strictEqual(liqConNc.casillas.c102_descuentosDevolucionesBase, 1000, 'Casilla 102 = Base Notas de Crédito ventas (1000.00)');
+  assert.strictEqual(liqConNc.casillas.c103_descuentosDevolucionesIgv, 180, 'Casilla 103 = IGV Notas de Crédito ventas (180.00)');
+  assert.strictEqual(liqConNc.casillas.c188_totalDeudaTributariaIgv, 920, 'Casilla 188 tras NC = 1100 - 180 = 920.00');
 
   // -------------------------------------------------------------------------
   // CASO (c): MYPE Tributario (1%) vs Régimen General con coeficiente

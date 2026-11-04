@@ -269,7 +269,7 @@ export interface TRegistroMovimientoModel {
 
 export interface ValidacionPlameItem {
   severidad: 'ERROR' | 'ADVERTENCIA';
-  archivo: '.rem' | '.jor' | '.snl' | '.toc' | '.des' | 'GENERAL';
+  archivo: '.rem' | '.jor' | '.snl' | '.toc' | '.4ta' | '.or5' | 'GENERAL';
   trabajadorDocumento?: string;
   codigoRegla: string;
   mensaje: string;
@@ -376,7 +376,8 @@ export interface ExportadorPlame {
     jor: { nombre: string; contenido: string; totalLineas: number };
     snl: { nombre: string; contenido: string; totalLineas: number };
     toc: { nombre: string; contenido: string; totalLineas: number };
-    des: { nombre: string; contenido: string; totalLineas: number };
+    cuarta: { nombre: string; contenido: string; totalLineas: number };
+    '4ta'?: { nombre: string; contenido: string; totalLineas: number };
   };
   resumen?: {
     periodo: string;
@@ -404,11 +405,13 @@ export interface ExportadorTRegistro {
   nombreArchivoZip: string;
   zipBase64: string;
   archivos: {
+    ide: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
     tra: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
     per: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
-    altas: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
-    bajas: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
-    modificaciones: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
+    est: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
+    altas?: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
+    bajas?: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
+    modificaciones?: { nombre: string; descripcion: string; contenido: string; totalLineas: number };
   };
   movimientosRegistrados: TRegistroMovimientoModel[];
 }
@@ -461,26 +464,32 @@ function calcularDiasLaborablesMes(mes: string, fechaIngreso: string, fechaCese?
 }
 
 /**
- * Obtiene el divisor oficial del mes según Art. 40° inc. d) del Reglamento de la LIR
+ * Obtiene el divisor mensual de 5ta Categoría (Art. 40° Rgto. LIR;
+ * en Q4 se aplica saldo progresivo por meses pendientes: Sep=4, Oct=3, Nov=2, Dic=1)
  */
 export function obtenerDivisorQuintaCategoria(mesNumero: number): number {
   if (mesNumero >= 1 && mesNumero <= 3) return 12;
   if (mesNumero === 4) return 9;
   if (mesNumero >= 5 && mesNumero <= 7) return 8;
   if (mesNumero === 8) return 5;
-  if (mesNumero >= 9 && mesNumero <= 11) return 4;
+  if (mesNumero === 9) return 4;
+  if (mesNumero === 10) return 3;
+  if (mesNumero === 11) return 2;
   return 1; // Diciembre
 }
 
 /**
- * Determina hasta qué mes anterior se deducen las retenciones previas según Art. 40° Rgto. LIR
+ * Determina hasta qué mes anterior se deducen las retenciones previas acumuladas
+ * (Ene-Mar=0; Abr=3; May-Jul=4; Ago=7; Sep=8; Oct=9 incluye Setiembre; Nov=10; Dic=11)
  */
 export function obtenerMesCorteRetencionesPrevias(mesNumero: number): number {
   if (mesNumero <= 3) return 0; // Ene-Mar no deducen retenciones previas
   if (mesNumero === 4) return 3; // Abril deduce Ene-Mar
   if (mesNumero >= 5 && mesNumero <= 7) return 4; // May-Jul deduce Ene-Abr
   if (mesNumero === 8) return 7; // Agosto deduce Ene-Jul
-  if (mesNumero >= 9 && mesNumero <= 11) return 8; // Set-Nov deduce Ene-Ago
+  if (mesNumero === 9) return 8; // Setiembre deduce Ene-Ago
+  if (mesNumero === 10) return 9; // Octubre deduce Ene-Sep (incluye retención de setiembre)
+  if (mesNumero === 11) return 10; // Noviembre deduce Ene-Oct
   return 11; // Diciembre deduce Ene-Nov
 }
 
@@ -873,7 +882,22 @@ export const planillaService = {
     let retencionesPreviasReales = Money.create(trabajador.retencionesPrevias5taAnio || 0);
     const mesCorteRetenciones = obtenerMesCorteRetencionesPrevias(mesNumero);
 
+    const tieneAsigFamiliar = Boolean(trabajador.tieneAsignacionFamiliar || (trabajador.cargasFamiliares || 0) > 0);
+    const obtenerRemContratoHistoricaMes = async (periodoMes: string) => {
+      if (!tieneAsigFamiliar) {
+        return Money.create(trabajador.sueldoBase);
+      }
+      const fRefMes = `${periodoMes}-15`;
+      const pRmvHist = await parametroRepository.obtenerParametroPorCodigo('RMV', fRefMes);
+      const rmvHist = pRmvHist ? pRmvHist.valorNumerico : 0;
+      const tasaAfHist = await parametroRepository.obtenerValorNumerico('TASA_ASIGNACION_FAMILIAR', 0.10, fRefMes);
+      const afHist = Money.round(Money.create(rmvHist).times(tasaAfHist));
+      return Money.add(Money.create(trabajador.sueldoBase), afHist);
+    };
+
+    const ingresoPosteriorInicioAnio = trabajador.fechaIngreso > `${anio}-01-01`;
     let mesesPreviosSinPlanilla = 0;
+    let primerMesSinPlanilla = 0;
     for (let m = 1; m < mesNumero; m++) {
       const mStr = `${anio}-${String(m).padStart(2, '0')}`;
       const pl = planillasAnioPrevias.find(p => p.mes === mStr);
@@ -884,13 +908,15 @@ export const planillaService = {
         if (m <= mesCorteRetenciones) {
           retencionesPreviasReales = Money.add(retencionesPreviasReales, Money.create(linea.retencionQuinta));
         }
-      } else if ((trabajador.remuneracionesPreviasAnio || 0) === 0) {
+      } else if ((trabajador.remuneracionesPreviasAnio || 0) === 0 || ingresoPosteriorInicioAnio) {
         const diasM = calcularDiasLaborablesMes(mStr, trabajador.fechaIngreso, trabajador.fechaCese);
         if (diasM > 0) {
-          const remMesEst = Money.round(Money.create(remuneracionMensualContrato).times(diasM / 30));
+          const remContratoMesHist = await obtenerRemContratoHistoricaMes(mStr);
+          const remMesEst = Money.round(remContratoMesHist.times(diasM).dividedBy(30));
           remAnteriores = Money.add(remAnteriores, remMesEst);
           if (m <= mesCorteRetenciones) {
             mesesPreviosSinPlanilla++;
+            if (primerMesSinPlanilla === 0) primerMesSinPlanilla = m;
           }
         }
       }
@@ -950,14 +976,19 @@ export const planillaService = {
         bonifExtraProyectada = Money.add(bonifExtraProyectada, bDic);
       }
     } else {
+      const remContratoJulio = mesesGratifJulio > 0 && mesNumero > 7
+        ? await obtenerRemContratoHistoricaMes(`${anio}-07`)
+        : Money.create(remuneracionMensualContrato);
       const gJul = Money.round(
-        Money.create(remuneracionMensualContrato).times(factorRegimenGratif).dividedBy(6).times(mesesGratifJulio)
+        remContratoJulio.times(factorRegimenGratif).dividedBy(6).times(mesesGratifJulio)
       );
+      const bJul = Money.round(gJul.times(tasaBonifExtra));
       const gDic = Money.round(
         Money.create(remuneracionMensualContrato).times(factorRegimenGratif).dividedBy(6).times(mesesGratifDiciembre)
       );
+      const bDic = Money.round(gDic.times(tasaBonifExtra));
       gratifProyectada = Money.add(gJul, gDic);
-      bonifExtraProyectada = Money.round(gratifProyectada.times(tasaBonifExtra));
+      bonifExtraProyectada = Money.add(bJul, bDic);
     }
 
     // 4. Renta Bruta Anual Proyectada
@@ -989,29 +1020,62 @@ export const planillaService = {
     const tope4 = 45 * valorUit;
     const rnNum = Money.toNumber(rentaNetaAnual);
 
-    const baseT1 = Math.max(0, Math.min(rnNum, tope1));
-    const baseT2 = Math.max(0, Math.min(rnNum - tope1, tope2 - tope1));
-    const baseT3 = Math.max(0, Math.min(rnNum - tope2, tope3 - tope2));
-    const baseT4 = Math.max(0, Math.min(rnNum - tope3, tope4 - tope3));
-    const baseT5 = Math.max(0, rnNum - tope4);
+    const calcularImpuestoPorTramos = (rnNumCalc: number) => {
+      const b1 = Math.max(0, Math.min(rnNumCalc, tope1));
+      const b2 = Math.max(0, Math.min(rnNumCalc - tope1, tope2 - tope1));
+      const b3 = Math.max(0, Math.min(rnNumCalc - tope2, tope3 - tope2));
+      const b4 = Math.max(0, Math.min(rnNumCalc - tope3, tope4 - tope3));
+      const b5 = Math.max(0, rnNumCalc - tope4);
+      const i1 = Money.round(Money.create(b1).times(tasaT1));
+      const i2 = Money.round(Money.create(b2).times(tasaT2));
+      const i3 = Money.round(Money.create(b3).times(tasaT3));
+      const i4 = Money.round(Money.create(b4).times(tasaT4));
+      const i5 = Money.round(Money.create(b5).times(tasaT5));
+      return {
+        impT1: i1,
+        impT2: i2,
+        impT3: i3,
+        impT4: i4,
+        impT5: i5,
+        total: Money.add(i1, Money.add(i2, Money.add(i3, Money.add(i4, i5))))
+      };
+    };
 
-    const impT1 = Money.round(Money.create(baseT1).times(tasaT1));
-    const impT2 = Money.round(Money.create(baseT2).times(tasaT2));
-    const impT3 = Money.round(Money.create(baseT3).times(tasaT3));
-    const impT4 = Money.round(Money.create(baseT4).times(tasaT4));
-    const impT5 = Money.round(Money.create(baseT5).times(tasaT5));
+    const tramosActuales = calcularImpuestoPorTramos(rnNum);
+    const { impT1, impT2, impT3, impT4, impT5 } = tramosActuales;
+    const impuestoAnual = tramosActuales.total;
 
-    const impuestoAnual = Money.add(impT1, Money.add(impT2, Money.add(impT3, Money.add(impT4, impT5))));
-
-    // Si no hubo planillas previas reales pero estamos en mes > 3 y proyectamos meses previos sin certificado externo, estimar retenciones previas proporcionales
+    // Si no hubo planillas previas reales pero estamos en mes > 3 y proyectamos meses previos sin certificado externo,
+    // estimar las retenciones previas usando la remuneración e impuesto proyectado vigente durante esos meses previos
     if (
       mesesPreviosSinPlanilla > 0 &&
       (trabajador.retencionesPrevias5taAnio || 0) === 0 &&
       (trabajador.remuneracionesPreviasAnio || 0) === 0 &&
       mesCorteRetenciones > 0
     ) {
+      const mHistStr = `${anio}-${String(primerMesSinPlanilla || 1).padStart(2, '0')}`;
+      const remHist = await obtenerRemContratoHistoricaMes(mHistStr);
+      let mesesActivosAnio = 0;
+      for (let m = 1; m <= 12; m++) {
+        if (calcularDiasLaborablesMes(`${anio}-${String(m).padStart(2, '0')}`, trabajador.fechaIngreso, undefined) > 0) {
+          mesesActivosAnio++;
+        }
+      }
+      const gHistJul = Money.round(remHist.times(factorRegimenGratif).dividedBy(6).times(mesesGratifJulio));
+      const bHistJul = Money.round(gHistJul.times(tasaBonifExtra));
+      const gHistDic = Money.round(remHist.times(factorRegimenGratif).dividedBy(6).times(mesesGratifDiciembre));
+      const bHistDic = Money.round(gHistDic.times(tasaBonifExtra));
+      const rbHist = Money.add(
+        Money.round(remHist.times(mesesActivosAnio)),
+        Money.add(gHistJul, Money.add(bHistJul, Money.add(gHistDic, bHistDic)))
+      );
+      const rnHist = Money.toNumber(rbHist) > Money.toNumber(totalDeduccionUit)
+        ? Money.toNumber(Money.sub(rbHist, totalDeduccionUit))
+        : 0;
+      const impHistAnual = calcularImpuestoPorTramos(rnHist).total;
+      const divisorBaseHist = mesesActivosAnio > 0 ? mesesActivosAnio : 12;
       const retencionEstimadaMesesSinPlanilla = Money.round(
-        impuestoAnual.dividedBy(12).times(mesesPreviosSinPlanilla)
+        impHistAnual.dividedBy(divisorBaseHist).times(mesesPreviosSinPlanilla)
       );
       retencionesPreviasReales = Money.add(retencionesPreviasReales, retencionEstimadaMesesSinPlanilla);
     }
@@ -1201,7 +1265,7 @@ export const planillaService = {
         const tasaComision = trab.afpTipoComision === 'MIXTA'
           ? (pComMixta ? pComMixta.valorNumerico : 0.00)
           : (pComFlujo ? pComFlujo.valorNumerico : 0.0155);
-        const tasaSeguro = pSeguro ? pSeguro.valorNumerico : 0.0184;
+        const tasaSeguro = pSeguro ? pSeguro.valorNumerico : 0.0137;
 
         aportePension = Money.round(baseImponibleAportes.times(tasaFondo));
         comisionAfp = Money.round(baseImponibleAportes.times(tasaComision));
@@ -2095,8 +2159,15 @@ export const planillaService = {
       const tCom = trab.afpTipoComision === 'MIXTA'
         ? await parametroRepository.obtenerValorNumerico(`AFP_${admin}_COMISION_MIXTA`, 0.00, input.fechaCese)
         : await parametroRepository.obtenerValorNumerico(`AFP_${admin}_COMISION_FLUJO`, 0.0155, input.fechaCese);
-      const tSeg = await parametroRepository.obtenerValorNumerico(`AFP_${admin}_PRIMA_SEGURO`, 0.0184, input.fechaCese);
-      descuentoPension = Money.round(baseAfectaPension.times(tFondo + tCom + tSeg));
+      const tSeg = await parametroRepository.obtenerValorNumerico(`AFP_${admin}_PRIMA_SEGURO`, 0.0137, input.fechaCese);
+      const paramTopeSeg = await parametroRepository.obtenerParametroPorCodigo('TOPE_PRIMA_SEGURO_AFP', input.fechaCese);
+      const baseSegLbs = paramTopeSeg && Money.toNumber(baseAfectaPension) > paramTopeSeg.valorNumerico
+        ? Money.create(paramTopeSeg.valorNumerico)
+        : baseAfectaPension;
+      descuentoPension = Money.add(
+        Money.round(baseAfectaPension.times(tFondo)),
+        Money.add(Money.round(baseAfectaPension.times(tCom)), Money.round(baseSegLbs.times(tSeg)))
+      );
     }
 
     const aporteEssalud = Money.round(baseAfectaPension.times(tasaEssalud));
@@ -2216,7 +2287,7 @@ export const planillaService = {
   },
 
   // --------------------------------------------------------------------------
-  // 8. VALIDADOR Y EXPORTADOR OFICIAL PLAME (.jor, .rem, .snl, .toc, .des)
+  // 8. VALIDADOR Y EXPORTADOR OFICIAL PLAME (.jor, .snl, .rem, .4ta, .toc)
   // --------------------------------------------------------------------------
   async validarEstructuraPlame(empresaId: string, planillaId: string): Promise<ResultadoValidacionPlame> {
     const planilla = PLANILLAS_MEMORIA.find(p => p.id === planillaId && p.empresaId === empresaId);
@@ -2313,11 +2384,12 @@ export const planillaService = {
       },
       items,
       supuestosNormativos: [
-        'Anexo 3 R.S. N° 183-2011/SUNAT y modificatorias (PDT Planilla Electrónica - PLAME Formulario Virtual N° 0601).',
+        'Anexo 3 R.M. N° 121-2011-TR y modificatorias (R.S. N° 183-2011/SUNAT y R.S. N° 016-2022/SUNAT — PDT PLAME Formulario Virtual N° 0601 v4.0+).',
         'Estructura 14 (.jor): 6 campos separados por pipe (TipoDoc|NumDoc|HorasOrd|MinOrd|HorasSobretiempo|MinSobretiempo|).',
         'Estructura 15 (.snl): 4 campos separados por pipe (TipoDoc|NumDoc|TipoSuspensionTabla21|DiasSuspension|).',
-        'Estructura 17 (.toc): 6 campos separados por pipe (TipoDoc|NumDoc|IndAseguraTuPension|IndMasVida|IndSctrSalud|IndSctrPension|).',
-        'Estructura 18 (.rem): 5 campos separados por pipe con códigos de la Tabla 22 SUNAT (TipoDoc|NumDoc|CodigoConcepto4Dig|MontoDevengado|MontoPagado|).'
+        'Estructura 18 (.rem): 5 campos separados por pipe con códigos Tabla 22 SUNAT (TipoDoc|NumDoc|CodigoConcepto4Dig|MontoDevengado|MontoPagado|). Incluye descuentos al trabajador (06xx/07xx); no existe extensión .des.',
+        'Estructura 20 (.4ta): Prestadores de servicios de cuarta categoría — comprobantes emitidos.',
+        'Estructura 26 (.toc): 6 campos separados por pipe (TipoDoc|NumDoc|IndAseguraTuPension|IndMasVida|IndSctrSalud|IndSctrPension|).'
       ]
     } as any;
   },
@@ -2458,7 +2530,7 @@ export const planillaService = {
       const fEmision = h.fechaEmision;
       const fPago = h.fechaPago || h.fechaEmision;
 
-      // Estructura 5: Prestadores de 4ta Categoría (.4ta) - Anexo 3 R.M. 121-2011-TR
+      // Estructura 20: Prestadores de 4ta Categoría (.4ta) - Anexo 3 R.M. N° 121-2011-TR
       cuartaContent += `${tipoDoc}|${numDoc}|${tipoComp}|${serie}|${numero}|${bruto}|${ret}|${fEmision}|${fPago}|\r\n`;
     }
 
@@ -2469,7 +2541,7 @@ export const planillaService = {
     const tocNombre = `${nombreBase}.toc`;
     const cuartaNombre = `${nombreBase}.4ta`;
 
-    // Anexo 3 R.M. 121-2011-TR / R.S. 016-2022/SUNAT: estructuras oficiales numeradas 1, 2, 3, 4 y 5 (.4ta)
+    // Anexo 3 R.M. N° 121-2011-TR / R.S. N° 016-2022/SUNAT: Estructuras 14 (.jor), 15 (.snl), 18 (.rem), 20 (.4ta) y 26 (.toc)
     // Se retiró .des porque no figura en la normativa oficial; los descuentos van integrados en .rem
     zip.addFile(remNombre, Buffer.from(remContent, 'latin1'));
     zip.addFile(jorNombre, Buffer.from(jorContent, 'latin1'));
@@ -2594,19 +2666,19 @@ export const planillaService = {
       const apMaterno = t.apellidos.split(' ').slice(1).join(' ') || '.';
       const nombres = t.nombres;
 
-      // Estructura 1: Datos de Identificación (.ide) - Anexo 3 R.M. 121-2011-TR
+      // Estructura 04: Datos de Identificación (.ide) - Anexo 3 R.M. N° 121-2011-TR
       ideContent += `${tDoc}|${t.numeroDocumento}|604|${fNac}|${apPaterno}|${apMaterno}|${nombres}|1|604|||\r\n`;
 
-      // Estructura 2: Datos del Trabajador (.tra)
+      // Estructura 05: Datos Laborales del Trabajador (.tra)
       const lineaTra = `${tDoc}|${t.numeroDocumento}|604|21|${codRegimen}|11|122101|0|${t.cuspp || ''}|0|${codContrato}|0|1|0|0|1|2|${sueldoStr}|${situacion}|0|0|2||0||\r\n`;
       traContent += lineaTra;
 
-      // Estructura 3: Períodos Laborales (.per)
+      // Estructura 11: Períodos Laborales (.per)
       const motivoFin = !t.activo || t.fechaCese ? (t.motivoCese || '01') : '';
       const lineaPer = `${tDoc}|${t.numeroDocumento}|604|1|${t.activo && !t.fechaCese ? '1' : '2'}|${fIngreso}|${fCese}|${motivoFin}||\r\n`;
       perContent += lineaPer;
 
-      // Estructura 4: Establecimientos (.est)
+      // Estructura 17: Establecimientos donde labora (.est)
       estContent += `${tDoc}|${t.numeroDocumento}|${ruc}|0000|\r\n`;
 
       if (t.activo && !t.fechaCese) {
@@ -2685,10 +2757,10 @@ export const planillaService = {
         modificaciones: modContent
       },
       archivosDetalle: {
-        ide: { nombre: nombreIde, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 1 SUNAT: Datos de Identificación (.ide)', contenido: ideContent, totalLineas: ideContent.split('\r\n').filter(Boolean).length },
-        tra: { nombre: nombreTra, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 2 SUNAT: Datos del Trabajador (.tra)', contenido: traContent, totalLineas: traContent.split('\r\n').filter(Boolean).length },
-        per: { nombre: nombrePer, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 3 SUNAT: Períodos Laborales Altas/Bajas (.per)', contenido: perContent, totalLineas: perContent.split('\r\n').filter(Boolean).length },
-        est: { nombre: nombreEst, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 4 SUNAT: Establecimientos donde labora (.est)', contenido: estContent, totalLineas: estContent.split('\r\n').filter(Boolean).length }
+        ide: { nombre: nombreIde, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 04 SUNAT: Datos de Identificación (.ide)', contenido: ideContent, totalLineas: ideContent.split('\r\n').filter(Boolean).length },
+        tra: { nombre: nombreTra, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 05 SUNAT: Datos Laborales del Trabajador (.tra)', contenido: traContent, totalLineas: traContent.split('\r\n').filter(Boolean).length },
+        per: { nombre: nombrePer, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 11 SUNAT: Períodos Laborales Altas/Bajas (.per)', contenido: perContent, totalLineas: perContent.split('\r\n').filter(Boolean).length },
+        est: { nombre: nombreEst, tipoArchivo: 'ESTRUCTURA_OFICIAL_SUNAT', descripcion: 'Estructura 17 SUNAT: Establecimientos donde labora (.est)', contenido: estContent, totalLineas: estContent.split('\r\n').filter(Boolean).length }
       },
       advertenciaPvs: 'IMPORTANTE: Valide el paquete RP_{RUC}.zip con el PVS T-Registro de SUNAT antes de cargarlo en SOL.',
       movimientosRegistrados: movimientosEmpresa,

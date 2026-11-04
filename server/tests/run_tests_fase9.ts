@@ -37,7 +37,7 @@ async function ejecutarSuiteFase9() {
   // --------------------------------------------------------------------------
   // TEST 1: Generación y Empaquetado Oficial PLAME PDT 0601 y T-Registro (9.1)
   // --------------------------------------------------------------------------
-  console.log('🔹 Test 1: Exportador Oficial PLAME (PDT 0601 / T-Registro - .rem, .jor, .snl, .des)');
+  console.log('🔹 Test 1: Exportador Oficial PLAME (PDT 0601 / T-Registro - .jor, .snl, .rem, .4ta, .toc)');
   {
     // 1.1 Registrar trabajadores para Empresa A
     const trab1Id = `trab-f9-01-${Date.now()}`;
@@ -117,7 +117,7 @@ async function ejecutarSuiteFase9() {
     assert(zipEntries.some(e => e.endsWith('.rem')), 'Estructura .rem (Remuneraciones) incluida en el archivo ZIP');
     assert(zipEntries.some(e => e.endsWith('.jor')), 'Estructura .jor (Jornada Laboral) incluida en el archivo ZIP');
     assert(zipEntries.some(e => e.endsWith('.snl')), 'Estructura .snl (Conceptos Detallados SUNAT) incluida en el archivo ZIP');
-    assert(zipEntries.some(e => e.endsWith('.4ta')), 'Estructura .4ta (Prestadores de 4ta Categoría - Estructura 5 Anexo 3) incluida en el archivo ZIP');
+    assert(zipEntries.some(e => e.endsWith('.4ta')), 'Estructura .4ta (Prestadores de 4ta Categoría - Estructura 20 Anexo 3) incluida en el archivo ZIP');
 
     // Validar líneas y delimitadores pleca
     const remTxt = exportacion.archivos!.rem.contenido;
@@ -133,7 +133,7 @@ async function ejecutarSuiteFase9() {
     assert(snlTxt.includes('0804'), 'Concepto SUNAT 0804 (EsSalud 9%) presente en .snl');
 
     const cuartaTxt = (exportacion.archivos as any)['4ta']?.contenido || (exportacion.archivos as any).cuarta?.contenido;
-    assert(cuartaTxt.includes('10445566771'), 'RUC de prestador de 4ta categoría presente en .4ta (Estructura 5 Anexo 3)');
+    assert(cuartaTxt.includes('10445566771'), 'RUC de prestador de 4ta categoría presente en .4ta (Estructura 20 Anexo 3)');
     assert(cuartaTxt.includes('E001|0000452'), 'Serie y número del recibo por honorarios presentes en .4ta');
   }
 

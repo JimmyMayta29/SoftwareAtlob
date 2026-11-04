@@ -510,6 +510,40 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       concBClient.release();
     }
 
+    // 10. Demostración de Trigger Diferido de Partida Doble (trg_asiento_partida_doble / fn_validar_partida_doble)
+    console.log('\n10. Demostrando rechazo de COMMIT en asiento CONTABILIZADO descuadrado (trg_asiento_partida_doble)...');
+    const descClient = await ownerPool.connect();
+    try {
+      await descClient.query('BEGIN');
+      await descClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+
+      const asientoDescId = crypto.randomUUID();
+      await descClient.query(`
+        INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, numero, fecha, glosa, moneda, estado)
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '01099999', '2026-09-20', 'Asiento Descuadrado Prueba Trigger', 'PEN', 'CONTABILIZADO')
+      `, [asientoDescId, empA]);
+
+      await descClient.query(`
+        INSERT INTO asiento_detalle (id, asiento_id, empresa_id, linea, cuenta_id, debe, haber)
+        VALUES
+          ($3, $1, $2, 1, '00000000-0000-0000-0000-0000000000c1', 1500.00, 0),
+          ($4, $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 1499.99)
+      `, [asientoDescId, empA, crypto.randomUUID(), crypto.randomUUID()]);
+
+      let rechazoPartidaDoble = false;
+      try {
+        await descClient.query('COMMIT');
+      } catch (e: any) {
+        rechazoPartidaDoble = true;
+        assert.match(e.message, /ASIENTO_DESCUADRADO/, 'El COMMIT debe ser abortado con ASIENTO_DESCUADRADO por trg_asiento_partida_doble');
+        await descClient.query('ROLLBACK');
+      }
+      assert.equal(rechazoPartidaDoble, true, 'PostgreSQL debe abortar el COMMIT de cualquier asiento CONTABILIZADO descuadrado');
+      console.log('   ✔ Comprobado: trg_asiento_partida_doble abortó el COMMIT del asiento descuadrado (1500.00 vs 1499.99).');
+    } finally {
+      descClient.release();
+    }
+
     console.log('\n====================================================================');
     console.log('✅ TODAS LAS PRUEBAS DE COMPORTAMIENTO EN POSTGRESQL REAL PASARON.');
     console.log('   Etiqueta de estado: IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL');

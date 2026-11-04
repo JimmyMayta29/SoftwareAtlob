@@ -87,10 +87,18 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
 
   const calculoCasillas = useMemo(() => {
     const tasaIgv = new Decimal('0.18');
-    const cas100 = new Decimal(liquidacion.ventasNetasGravadas || 0).toDecimalPlaces(2);
-    const cas101 = new Decimal(liquidacion.debitoFiscalIgv || 0).toDecimalPlaces(2);
+    const ncVentas = ventas.filter((v) => v.tipoDoc === '07' && v.estadoSunat !== 'ANULADO');
+    const cas102 = ncVentas
+      .reduce((acc, v) => acc.plus(new Decimal(Math.abs(Number(v.baseImponibleGravada || 0)))), new Decimal(0))
+      .toDecimalPlaces(2);
+    const cas103 = ncVentas
+      .reduce((acc, v) => acc.plus(new Decimal(Math.abs(Number(v.igv || 0)))), new Decimal(0))
+      .toDecimalPlaces(2);
+
+    const cas100 = new Decimal(liquidacion.ventasNetasGravadas || 0).plus(cas102).toDecimalPlaces(2);
+    const cas101 = new Decimal(liquidacion.debitoFiscalIgv || 0).plus(cas103).toDecimalPlaces(2);
     const cas106 = new Decimal(0);
-    const cas131 = cas101;
+    const cas131 = Decimal.max(0, cas101.minus(cas103)).toDecimalPlaces(2);
 
     const cas107 = new Decimal(liquidacion.comprasNetasGravadas || 0).toDecimalPlaces(2);
     const cas108 = new Decimal(liquidacion.creditoFiscalIgv || 0).toDecimalPlaces(2);
@@ -116,16 +124,17 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
       ? netoDespuesSaldoAnterior.abs()
       : new Decimal(0);
 
-    const cas171 = Decimal.max(0, new Decimal(retencionesIgvInput || '0')).toDecimalPlaces(2);
-    const cas168 = Decimal.max(0, new Decimal(percepcionesIgvInput || '0')).toDecimalPlaces(2);
+    // Casilla 171: Percepciones declaradas en el período | Casilla 179: Retenciones declaradas en el período
+    const cas171 = Decimal.max(0, new Decimal(percepcionesIgvInput || '0')).toDecimalPlaces(2);
+    const cas179 = Decimal.max(0, new Decimal(retencionesIgvInput || '0')).toDecimalPlaces(2);
 
-    const netoFinalIgv = cas184.minus(cas171).minus(cas168);
+    const netoFinalIgv = cas184.minus(cas171).minus(cas179);
     const cas188 = Decimal.max(0, netoFinalIgv).toDecimalPlaces(2);
     const excedenteRetPer = netoFinalIgv.lt(0) ? netoFinalIgv.abs() : new Decimal(0);
-    const cas179 = saldoFavorDespues145.plus(excedenteRetPer).toDecimalPlaces(2);
+    const nuevoSaldoFavorIgv = saldoFavorDespues145.plus(excedenteRetPer).toDecimalPlaces(2);
 
     // Renta 3ra Categoría (Parámetros editables UIT 2026 = S/ 5,500)
-    const cas301 = cas100;
+    const cas301 = Decimal.max(0, cas100.minus(cas102)).toDecimalPlaces(2);
     const coefInput = Decimal.max(0, new Decimal(coeficienteRentaInput || '0'));
     let tasaRentaFraccion = new Decimal('0.01');
     let etiquetaRegimen = 'RMT Tramo 1 (<= 300 UIT — 1.00%)';
@@ -155,34 +164,36 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
           : new Decimal(50)
         : cas301.mul(tasaRentaFraccion).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
 
-    const cas303 = Decimal.max(0, new Decimal(saldoFavorRentaAnteriorInput || '0')).toDecimalPlaces(2);
+    const cas303 = Decimal.min(cas302, Decimal.max(0, new Decimal(saldoFavorRentaAnteriorInput || '0'))).toDecimalPlaces(2);
     const cas304 = Decimal.max(0, cas302.minus(cas303)).toDecimalPlaces(2);
 
     const totalDeudaMes = cas188.plus(cas304).toDecimalPlaces(2);
 
     const listaPdf = [
       { seccion: 'IGV VENTAS', casillaBase: '100', montoBase: cas100.toNumber(), casillaTributo: '101', concepto: 'Ventas netas gravadas (Base imponible RVIE)', montoTributo: cas101.toNumber(), enteroSunat: Math.round(cas101.toNumber()) },
+      { seccion: 'IGV VENTAS', casillaBase: '102', montoBase: cas102.toNumber(), casillaTributo: '103', concepto: 'Descuentos concedidos y/o devoluciones de ventas (Notas de Crédito)', montoTributo: cas103.toNumber(), enteroSunat: Math.round(cas103.toNumber()) },
       { seccion: 'IGV VENTAS', casillaBase: '106', montoBase: cas106.toNumber(), casillaTributo: '—', concepto: 'Exportaciones facturadas en el período', montoTributo: 0, enteroSunat: 0 },
-      { seccion: 'IGV VENTAS', casillaBase: '—', montoBase: cas100.toNumber(), casillaTributo: '131', concepto: 'TOTAL DÉBITO FISCAL DEL PERÍODO', montoTributo: cas131.toNumber(), enteroSunat: Math.round(cas131.toNumber()) },
+      { seccion: 'IGV VENTAS', casillaBase: '—', montoBase: cas301.toNumber(), casillaTributo: '131', concepto: 'TOTAL DÉBITO FISCAL DEL PERÍODO (Cas. 101 - Cas. 103)', montoTributo: cas131.toNumber(), enteroSunat: Math.round(cas131.toNumber()) },
       { seccion: 'IGV COMPRAS', casillaBase: '107', montoBase: cas107.toNumber(), casillaTributo: '108', concepto: 'Compras netas destinadas a ventas gravadas exclusivas (Destino 1)', montoTributo: cas108.toNumber(), enteroSunat: Math.round(cas108.toNumber()) },
       { seccion: 'IGV COMPRAS', casillaBase: '110', montoBase: cas110.toNumber(), casillaTributo: '111', concepto: `Compras destinadas a ventas gravadas y no gravadas — Prorrata ${pctProrrata.toFixed(2)}% (Destino 2)`, montoTributo: cas111.toNumber(), enteroSunat: Math.round(cas111.toNumber()) },
       { seccion: 'IGV COMPRAS', casillaBase: '113', montoBase: cas113.toNumber(), casillaTributo: '—', concepto: 'Compras netas destinadas a operaciones no gravadas (Destino 3) / Adq. no gravadas', montoTributo: 0, enteroSunat: 0 },
       { seccion: 'IGV COMPRAS', casillaBase: '—', montoBase: cas107.plus(cas110).toNumber(), casillaTributo: '178', concepto: 'TOTAL CRÉDITO FISCAL DEL PERÍODO (Cas. 108 + Cas. 111)', montoTributo: cas178.toNumber(), enteroSunat: Math.round(cas178.toNumber()) },
       { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '140', concepto: 'Impuesto resultante o Saldo a favor del período (Cas. 131 - Cas. 178)', montoTributo: cas140.toNumber(), enteroSunat: Math.round(cas140.toNumber()) },
       { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '145', concepto: 'Saldo a favor del período anterior', montoTributo: cas145.toNumber(), enteroSunat: Math.round(cas145.toNumber()) },
-      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '184', concepto: 'Tributo a pagar IGV o Saldo a favor antes de retenciones/percepciones', montoTributo: cas184.toNumber(), enteroSunat: Math.round(cas184.toNumber()) },
-      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '171', concepto: 'Retenciones del IGV declaradas en el período', montoTributo: cas171.toNumber(), enteroSunat: Math.round(cas171.toNumber()) },
-      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '168', concepto: 'Percepciones del IGV declaradas en el período', montoTributo: cas168.toNumber(), enteroSunat: Math.round(cas168.toNumber()) },
-      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '179', concepto: 'Nuevo Saldo a Favor del IGV para el siguiente período', montoTributo: cas179.toNumber(), enteroSunat: Math.round(cas179.toNumber()) },
+      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '184', concepto: 'Tributo a pagar IGV o Saldo a favor antes de percepciones/retenciones', montoTributo: cas184.toNumber(), enteroSunat: Math.round(cas184.toNumber()) },
+      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '171', concepto: 'Percepciones del IGV declaradas en el período', montoTributo: cas171.toNumber(), enteroSunat: Math.round(cas171.toNumber()) },
+      { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '179', concepto: 'Retenciones del IGV declaradas en el período', montoTributo: cas179.toNumber(), enteroSunat: Math.round(cas179.toNumber()) },
       { seccion: 'DETERM. IGV', casillaBase: '—', montoBase: null, casillaTributo: '188', concepto: 'TOTAL DEUDA TRIBUTARIA IGV POR PAGAR', montoTributo: cas188.toNumber(), enteroSunat: Math.round(cas188.toNumber()) },
       { seccion: 'RENTA 3RA', casillaBase: '301', montoBase: cas301.toNumber(), casillaTributo: '302', concepto: `Ingresos netos del mes — ${etiquetaRegimen}`, montoTributo: cas302.toNumber(), enteroSunat: Math.round(cas302.toNumber()) },
-      { seccion: 'RENTA 3RA', casillaBase: '—', montoBase: null, casillaTributo: '303', concepto: 'Saldo a favor del Impuesto a la Renta de ejercicios anteriores', montoTributo: cas303.toNumber(), enteroSunat: Math.round(cas303.toNumber()) },
+      { seccion: 'RENTA 3RA', casillaBase: '—', montoBase: null, casillaTributo: '303', concepto: 'Saldo a favor del período anterior - Impuesto a la Renta', montoTributo: cas303.toNumber(), enteroSunat: Math.round(cas303.toNumber()) },
       { seccion: 'RENTA 3RA', casillaBase: '—', montoBase: null, casillaTributo: '304', concepto: 'TOTAL DEUDA TRIBUTARIA PAGO A CUENTA RENTA 3RA CATEGORÍA', montoTributo: cas304.toNumber(), enteroSunat: Math.round(cas304.toNumber()) },
     ];
 
     return {
       cas100,
       cas101,
+      cas102,
+      cas103,
       cas106,
       cas131,
       cas107,
@@ -195,9 +206,9 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
       cas145,
       cas184,
       cas171,
-      cas168,
       cas179,
       cas188,
+      nuevoSaldoFavorIgv,
       cas301,
       cas315,
       cas302,
@@ -304,7 +315,7 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
       fechaPresentacion: fechaPresentacionManual || null,
       asientoNumero: asientoDeterminacion || null,
       totalDeudaIgv: calculoCasillas.cas188.toNumber(),
-      nuevoSaldoFavorIgv: calculoCasillas.cas179.toNumber(),
+      nuevoSaldoFavorIgv: calculoCasillas.nuevoSaldoFavorIgv.toNumber(),
       pagoCuentaRenta: calculoCasillas.cas304.toNumber(),
       totalPagarSunat: calculoCasillas.totalDeudaMes.toNumber(),
       filasCasillas: calculoCasillas.listaPdf,
@@ -354,13 +365,12 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
               v{versionActual} · {tipoDeclaracion}
             </span>
             <span
-              className={`font-mono font-bold px-2 py-0.5 border ${
-                estadoDeclaracion === 'PRESENTADO'
+              className={`font-mono font-bold px-2 py-0.5 border ${estadoDeclaracion === 'PRESENTADO'
                   ? 'bg-[#ECFDF5] border-[#1E6F42] text-[#1E6F42]'
                   : estadoDeclaracion === 'PRELIQUIDADO'
-                  ? 'bg-[#EFF6FF] border-[#1D4ED8] text-[#1D4ED8]'
-                  : 'bg-[#FEF3C7] border-[#B45309] text-[#B45309]'
-              }`}
+                    ? 'bg-[#EFF6FF] border-[#1D4ED8] text-[#1D4ED8]'
+                    : 'bg-[#FEF3C7] border-[#B45309] text-[#B45309]'
+                }`}
             >
               Estado: {estadoDeclaracion}
             </span>
@@ -418,24 +428,24 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
         </div>
 
         <div>
-          <label className="block font-bold text-[#1E3A5F] mb-0.5">Retenciones IGV [Cas. 171]</label>
+          <label className="block font-bold text-[#1E3A5F] mb-0.5">Percepciones IGV [Cas. 171]</label>
           <input
             type="number"
             step="0.01"
-            value={retencionesIgvInput}
-            onChange={(e) => setRetencionesIgvInput(e.target.value)}
+            value={percepcionesIgvInput}
+            onChange={(e) => setPercepcionesIgvInput(e.target.value)}
             disabled={estadoDeclaracion === 'PRESENTADO' || esRolAuditor}
             className="w-full h-6 px-1.5 text-right font-mono bg-[#FFFFFF] border border-[#D1D5DB]"
           />
         </div>
 
         <div>
-          <label className="block font-bold text-[#1E3A5F] mb-0.5">Percepciones IGV [Cas. 168]</label>
+          <label className="block font-bold text-[#1E3A5F] mb-0.5">Retenciones IGV [Cas. 179]</label>
           <input
             type="number"
             step="0.01"
-            value={percepcionesIgvInput}
-            onChange={(e) => setPercepcionesIgvInput(e.target.value)}
+            value={retencionesIgvInput}
+            onChange={(e) => setRetencionesIgvInput(e.target.value)}
             disabled={estadoDeclaracion === 'PRESENTADO' || esRolAuditor}
             className="w-full h-6 px-1.5 text-right font-mono bg-[#FFFFFF] border border-[#D1D5DB]"
           />
@@ -503,10 +513,16 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
                 <td className="px-2 text-right font-mono">{calculoCasillas.cas100.toFixed(2)}</td>
                 <td className="px-2 text-right font-mono font-bold">{calculoCasillas.cas101.toFixed(2)}</td>
               </tr>
+              <tr className="h-[26px]">
+                <td className="px-2 font-mono font-bold text-[#B91C1C]">[102/103]</td>
+                <td className="px-2">(-) Descuentos Concedidos y/o Devoluciones de Ventas (Notas de Crédito)</td>
+                <td className="px-2 text-right font-mono text-[#B91C1C]">-{calculoCasillas.cas102.toFixed(2)}</td>
+                <td className="px-2 text-right font-mono font-bold text-[#B91C1C]">-{calculoCasillas.cas103.toFixed(2)}</td>
+              </tr>
               <tr className="h-[26px] bg-[#F5F7FA] font-bold">
                 <td className="px-2 font-mono text-[#1E3A5F]">[131]</td>
-                <td className="px-2 text-[#1E3A5F]">TOTAL DÉBITO FISCAL DEL PERÍODO</td>
-                <td className="px-2 text-right font-mono">{calculoCasillas.cas100.toFixed(2)}</td>
+                <td className="px-2 text-[#1E3A5F]">TOTAL DÉBITO FISCAL DEL PERÍODO (Cas. 101 - Cas. 103)</td>
+                <td className="px-2 text-right font-mono">{calculoCasillas.cas301.toFixed(2)}</td>
                 <td className="px-2 text-right font-mono text-[#1E3A5F]">{calculoCasillas.cas131.toFixed(2)}</td>
               </tr>
               <tr className="h-[26px]">
@@ -557,25 +573,25 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
               </tr>
               <tr className="h-[26px]">
                 <td className="px-2 font-mono font-bold">[171]</td>
-                <td className="px-2">(-) Retenciones del IGV del Período</td>
+                <td className="px-2">(-) Percepciones del IGV Declaradas en el Período</td>
                 <td className="px-2 text-right font-mono text-[#9CA3AF]">—</td>
                 <td className="px-2 text-right font-mono text-[#1E6F42]">-{calculoCasillas.cas171.toFixed(2)}</td>
               </tr>
               <tr className="h-[26px]">
-                <td className="px-2 font-mono font-bold">[168]</td>
-                <td className="px-2">(-) Percepciones del IGV del Período</td>
+                <td className="px-2 font-mono font-bold">[179]</td>
+                <td className="px-2">(-) Retenciones del IGV Declaradas en el Período</td>
                 <td className="px-2 text-right font-mono text-[#9CA3AF]">—</td>
-                <td className="px-2 text-right font-mono text-[#1E6F42]">-{calculoCasillas.cas168.toFixed(2)}</td>
+                <td className="px-2 text-right font-mono text-[#1E6F42]">-{calculoCasillas.cas179.toFixed(2)}</td>
               </tr>
               <tr className="h-[26px] bg-[#ECFDF5]">
-                <td className="px-2 font-mono font-bold text-[#1E6F42]">[179]</td>
-                <td className="px-2 font-bold text-[#1E6F42]">Saldo a Favor del IGV para el Siguiente Período</td>
+                <td className="px-2 font-mono font-bold text-[#1E6F42]">[S.FAV]</td>
+                <td className="px-2 font-bold text-[#1E6F42]">Saldo a Favor del IGV Arrastrable al Siguiente Período</td>
                 <td className="px-2 text-right font-mono text-[#9CA3AF]">—</td>
-                <td className="px-2 text-right font-mono font-bold text-[#1E6F42]">{calculoCasillas.cas179.toFixed(2)}</td>
+                <td className="px-2 text-right font-mono font-bold text-[#1E6F42]">{calculoCasillas.nuevoSaldoFavorIgv.toFixed(2)}</td>
               </tr>
               <tr className="h-[28px] bg-[#E8ECF1] font-bold">
                 <td className="px-2 font-mono text-[#1E3A5F]">[188]</td>
-                <td className="px-2 text-[#1E3A5F]">DEUDA TRIBUTARIA IGV POR PAGAR A SUNAT</td>
+                <td className="px-2 text-[#1E3A5F]">TOTAL DEUDA TRIBUTARIA IGV POR PAGAR A SUNAT</td>
                 <td className="px-2 text-right font-mono text-[#9CA3AF]">—</td>
                 <td className="px-2 text-right font-mono text-[13px] text-[#111827]">{calculoCasillas.cas188.toFixed(2)}</td>
               </tr>

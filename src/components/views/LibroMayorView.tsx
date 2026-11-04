@@ -9,10 +9,13 @@ import {
   X,
   Layers,
   ArrowUpRight,
-  ArrowDownLeft
+  ArrowDownLeft,
+  FileText
 } from 'lucide-react';
 import { AsientoContable, EmpresaCliente } from '../../types';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
+import { construirDefinicionLibroMayorEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { VisorReporteModal } from '../modals/VisorReporteModal';
 
 interface LibroMayorViewProps {
   asientos: AsientoContable[];
@@ -38,6 +41,7 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
   const { cruceNavegacion, limpiarCruceNavegacion, navegarCruzado } = useEmpresaPeriodo();
   const [cuentaSeleccionada, setCuentaSeleccionada] = useState<string>('TODAS');
   const [filtroTexto, setFiltroTexto] = useState<string>('');
+  const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
 
   // Si viene de navegación cruzada con una cuenta específica
   useEffect(() => {
@@ -136,6 +140,14 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => setModalEstandarOpen(true)}
+            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap"
+            title="Vista previa y exportación en formato estándar oficial B/N"
+          >
+            <FileText className="w-4 h-4 text-slate-700" />
+            <span>Reporte estándar</span>
+          </button>
           <select
             value={cuentaSeleccionada}
             onChange={(e) => setCuentaSeleccionada(e.target.value)}
@@ -229,6 +241,14 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
           })
         )}
       </div>
+      {/* Modal de Vista Previa Formato Estándar */}
+      {modalEstandarOpen && (
+        <VisorReporteModal
+          isOpen={modalEstandarOpen}
+          onClose={() => setModalEstandarOpen(false)}
+          definicion={construirDefinicionLibroMayorEstandar(empresa, asientos, periodo)}
+        />
+      )}
     </div>
   );
 };

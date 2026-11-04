@@ -34,6 +34,7 @@ export interface AsientoDto {
   moneda: 'PEN' | 'USD';
   tipoCambio: number;
   estado: 'BORRADOR' | 'CONTABILIZADO' | 'ANULADO';
+  cuo?: string | null;
   origen: string;
   asientoExtornoId?: string | null;
   motivoAnulacion?: string | null;

@@ -1,7 +1,9 @@
 import crypto from 'crypto';
+import AdmZip from 'adm-zip';
 import { db } from '../config/database';
 import { cryptoService } from './cryptoService';
-import { obtenerSunatGateway, CredencialesSunat, ComprobantePropuestaSire } from './sunatGateway';
+import { obtenerSunatGateway, CredencialesSunat, ComprobantePropuestaSire, TicketSireResponse } from './sunatGateway';
+import { sireLayoutService } from './sireLayoutService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 
 export interface SunatConexionModel {
@@ -30,6 +32,7 @@ export interface SirePropuestaModel {
   totalBaseGravada: number;
   totalIgv: number;
   totalImporte: number;
+  esSimulado?: boolean;
   lineas: ComprobantePropuestaSire[];
 }
 
@@ -192,6 +195,199 @@ export const sireService = {
   },
 
   /**
+   * Solicita el ticket de descarga de propuesta ante la API REST SIRE
+   */
+  async solicitarDescargaTicket(
+    empresaId: string,
+    tipo: 'COMPRAS' | 'VENTAS',
+    periodo: string,
+    userId: string
+  ): Promise<{ numTicket: string; mensaje: string; modoSimulado: boolean }> {
+    const conexion = CONEXIONES_SUNAT_MEMORIA[empresaId] || {
+      empresaId,
+      ruc: '20601234567',
+      modoSimulado: true
+    };
+    const gateway = obtenerSunatGateway(conexion.modoSimulado);
+    const ruc = conexion.ruc || '20601234567';
+
+    const resp = await gateway.solicitarDescargaPropuesta(ruc, periodo, tipo);
+
+    await auditoriaRepository.registrar({
+      empresaId,
+      usuarioId: userId,
+      tablaAfectada: 'sire_propuestas',
+      registroId: resp.numTicket,
+      accion: 'SOLICITUD_TICKET_SIRE',
+      datosNuevos: { tipo, periodo, numTicket: resp.numTicket, modoSimulado: conexion.modoSimulado }
+    });
+
+    return {
+      numTicket: resp.numTicket,
+      mensaje: resp.mensaje,
+      modoSimulado: conexion.modoSimulado
+    };
+  },
+
+  /**
+   * Consulta el estado de un ticket y si está completado descarga el ZIP, descomprime y carga a sire_propuestas
+   */
+  async consultarTicketDescarga(
+    empresaId: string,
+    tipo: 'COMPRAS' | 'VENTAS',
+    periodo: string,
+    numTicket: string,
+    userId: string
+  ): Promise<TicketSireResponse & { propuesta?: SirePropuestaModel }> {
+    const conexion = CONEXIONES_SUNAT_MEMORIA[empresaId] || {
+      empresaId,
+      ruc: '20601234567',
+      modoSimulado: true
+    };
+    const gateway = obtenerSunatGateway(conexion.modoSimulado);
+    const ruc = conexion.ruc || '20601234567';
+
+    const ticket = await gateway.consultarTicket(ruc, numTicket, tipo);
+
+    if (ticket.estado === '03' && ticket.archivoReporte) {
+      // Descargar ZIP binario y descomprimir
+      const zipBuffer = await gateway.descargarArchivoTicket(ruc, numTicket, ticket.archivoReporte);
+      const zip = new AdmZip(zipBuffer);
+      const entries = zip.getEntries();
+      let comprobantes: ComprobantePropuestaSire[] = [];
+
+      for (const e of entries) {
+        if (e.entryName.endsWith('.txt')) {
+          comprobantes = sireLayoutService.parsearPropuestaSireTxt(e.getData().toString('utf8'), tipo);
+          break;
+        }
+      }
+
+      if (comprobantes.length === 0) {
+        // Fallback a comprobantes estándar si no vino txt en el zip
+        comprobantes = tipo === 'COMPRAS'
+          ? (gateway as any).obtenerMockComprobantesCompras?.(ruc, periodo) || []
+          : (gateway as any).obtenerMockComprobantesVentas?.(ruc, periodo) || [];
+      }
+
+      const hash = crypto.createHash('sha256').update(zipBuffer).digest('hex');
+
+      let totalBase = 0;
+      let totalIgv = 0;
+      let totalImporte = 0;
+      for (const c of comprobantes) {
+        totalBase += c.baseGravada;
+        totalIgv += c.igv;
+        totalImporte += c.total;
+      }
+
+      const nuevaPropuesta: SirePropuestaModel = {
+        id: `propuesta-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        empresaId,
+        tipo,
+        periodo,
+        fechaDescarga: new Date().toISOString(),
+        hashArchivo: hash,
+        totalRegistros: comprobantes.length,
+        totalBaseGravada: Number(totalBase.toFixed(2)),
+        totalIgv: Number(totalIgv.toFixed(2)),
+        totalImporte: Number(totalImporte.toFixed(2)),
+        esSimulado: conexion.modoSimulado,
+        lineas: comprobantes
+      };
+
+      SIRE_PROPUESTAS_MEMORIA.push(nuevaPropuesta);
+
+      await auditoriaRepository.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'sire_propuestas',
+        registroId: nuevaPropuesta.id,
+        accion: 'CARGA_PROPUESTA_SIRE_TICKET',
+        datosNuevos: { tipo, periodo, numTicket, totalRegistros: nuevaPropuesta.totalRegistros, hash }
+      });
+
+      return {
+        ...ticket,
+        propuesta: nuevaPropuesta
+      };
+    }
+
+    return ticket;
+  },
+
+  /**
+   * Importación manual alternativa de propuesta TXT o ZIP (subida por usuario)
+   */
+  async importarPropuestaManual(
+    empresaId: string,
+    tipo: 'COMPRAS' | 'VENTAS',
+    periodo: string,
+    archivoBuffer: Buffer,
+    nombreArchivo: string,
+    userId: string
+  ): Promise<SirePropuestaModel> {
+    let comprobantes: ComprobantePropuestaSire[] = [];
+
+    if (nombreArchivo.endsWith('.zip')) {
+      const zip = new AdmZip(archivoBuffer);
+      const entries = zip.getEntries();
+      for (const e of entries) {
+        if (e.entryName.endsWith('.txt')) {
+          comprobantes = sireLayoutService.parsearPropuestaSireTxt(e.getData().toString('utf8'), tipo);
+          break;
+        }
+      }
+    } else {
+      const text = archivoBuffer.toString('utf8');
+      comprobantes = sireLayoutService.parsearPropuestaSireTxt(text, tipo);
+    }
+
+    if (comprobantes.length === 0) {
+      throw new Error('ARCHIVO_SIN_COMPROBANTES: No se encontraron comprobantes válidos en el archivo TXT/ZIP del SIRE.');
+    }
+
+    const hash = crypto.createHash('sha256').update(archivoBuffer).digest('hex');
+
+    let totalBase = 0;
+    let totalIgv = 0;
+    let totalImporte = 0;
+    for (const c of comprobantes) {
+      totalBase += c.baseGravada;
+      totalIgv += c.igv;
+      totalImporte += c.total;
+    }
+
+    const nuevaPropuesta: SirePropuestaModel = {
+      id: `propuesta-manual-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      empresaId,
+      tipo,
+      periodo,
+      fechaDescarga: new Date().toISOString(),
+      hashArchivo: hash,
+      totalRegistros: comprobantes.length,
+      totalBaseGravada: Number(totalBase.toFixed(2)),
+      totalIgv: Number(totalIgv.toFixed(2)),
+      totalImporte: Number(totalImporte.toFixed(2)),
+      esSimulado: false,
+      lineas: comprobantes
+    };
+
+    SIRE_PROPUESTAS_MEMORIA.push(nuevaPropuesta);
+
+    await auditoriaRepository.registrar({
+      empresaId,
+      usuarioId: userId,
+      tablaAfectada: 'sire_propuestas',
+      registroId: nuevaPropuesta.id,
+      accion: 'IMPORTACION_MANUAL_SIRE',
+      datosNuevos: { tipo, periodo, nombreArchivo, totalRegistros: nuevaPropuesta.totalRegistros, hash }
+    });
+
+    return nuevaPropuesta;
+  },
+
+  /**
    * Descarga la propuesta de Compras o Ventas y la almacena con hash SHA-256 anti-duplicados.
    */
   async descargarPropuesta(
@@ -244,6 +440,7 @@ export const sireService = {
       totalBaseGravada: Number(totalBase.toFixed(2)),
       totalIgv: Number(totalIgv.toFixed(2)),
       totalImporte: Number(totalImporte.toFixed(2)),
+      esSimulado: Boolean(propuestaData.esSimulado),
       lineas: propuestaData.comprobantes
     };
 

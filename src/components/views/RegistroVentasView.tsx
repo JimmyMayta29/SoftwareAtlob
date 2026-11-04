@@ -30,6 +30,8 @@ import {
 import { operacionesApi } from '../../api/operacionesApi';
 import { generarSireRvieTxt, exportarComprobantesCsv } from '../../services/sireTxtGenerator';
 import { exportarRegistroVentasPdf } from '../../services/pdfExportService';
+import { construirDefinicionRegistroVentasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
 import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
 
@@ -46,6 +48,7 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
 }) => {
   const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState<'LIBRO' | 'DIGITACION'>('LIBRO');
+  const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
@@ -381,6 +384,15 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
               <span className="text-[10px] opacity-75 font-mono">(Ctrl+N)</span>
             </button>
           </div>
+
+          <button
+            onClick={() => setModalEstandarOpen(true)}
+            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            title="Vista previa y exportación en formato estándar oficial"
+          >
+            <FileText className="w-4 h-4 text-slate-700" />
+            <span>Reporte estándar</span>
+          </button>
 
           <button
             onClick={() => exportarRegistroVentasPdf(empresa, legacyVentas, periodo)}
@@ -1150,6 +1162,15 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {/* Modal de Vista Previa Formato Estándar */}
+      {modalEstandarOpen && (
+        <VisorReporteModal
+          isOpen={modalEstandarOpen}
+          onClose={() => setModalEstandarOpen(false)}
+          definicion={construirDefinicionRegistroVentasEstandar(empresa, itemsVentas, periodo)}
+          onExportarLegacyPdf={() => exportarRegistroVentasPdf(empresa, legacyVentas, periodo)}
+        />
       )}
     </div>
   );

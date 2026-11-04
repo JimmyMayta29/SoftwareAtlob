@@ -47,46 +47,40 @@ export const TRegistroView: React.FC = () => {
 
   const archivos: ArchivoTRegistroItem[] = [
     {
+      codigo: 'EST-04',
+      nombreArchivo: `RP_${ruc}.ide`,
+      estructura: 'Estructura 04 — Datos de Identificación del Trabajador (.ide)',
+      descripcion:
+        'Tipo Doc | N° Doc | País Emisor (604) | Fecha Nacimiento | Ap. Paterno | Ap. Materno | Nombres | Sexo | Nacionalidad | Teléfono | Correo |',
+      contenido: datosTRegistro?.archivos?.ide || '',
+      lineas: contarLineas(datosTRegistro?.archivos?.ide || '')
+    },
+    {
       codigo: 'EST-05',
       nombreArchivo: `RP_${ruc}.tra`,
       estructura: 'Estructura 05 — Datos Laborales del Trabajador (.tra)',
       descripcion:
-        'Tipo Doc | N° Doc | País | Régimen Laboral | Categoría Ocupacional | Tipo Contrato | Periodicidad | Monto Básico | Situación | Cuenta Haberes |',
+        'Tipo Doc | N° Doc | País | Régimen Laboral | Nivel Educativo | Ocupación | Discapacidad | CUSPP | Tipo Contrato | Periodicidad | Sueldo Básico | Situación |',
       contenido: datosTRegistro?.archivos?.tra || '',
       lineas: contarLineas(datosTRegistro?.archivos?.tra || '')
     },
     {
       codigo: 'EST-11',
       nombreArchivo: `RP_${ruc}.per`,
-      estructura: 'Estructura 11 — Períodos Laborales, Altas, Bajas y Régimen Pensionario (.per)',
+      estructura: 'Estructura 11 — Períodos Laborales: Altas y Bajas (.per)',
       descripcion:
-        'Tipo Doc | N° Doc | Categoría (1=Trabajador) | Tipo Registro (1=Período, 2=T.Trab, 3=Salud, 4=Pensión) | Fecha Inicio | Fecha Fin (Cese) | Motivo Baja |',
+        'Tipo Doc | N° Doc | País | Categoría (1=Trabajador) | Tipo Registro (1=Alta, 2=Baja) | Fecha Inicio | Fecha Fin (Cese) | Motivo Baja |',
       contenido: datosTRegistro?.archivos?.per || '',
       lineas: contarLineas(datosTRegistro?.archivos?.per || '')
     },
     {
-      codigo: 'ALTAS',
-      nombreArchivo: `RP_${ruc}_altas.txt`,
-      estructura: 'Reporte de Altas de Trabajadores para Importación Masiva',
-      descripcion: 'Movimientos de ingreso de nuevos trabajadores registrados en el padrón con fecha de inicio.',
-      contenido: datosTRegistro?.archivos?.altas || '',
-      lineas: contarLineas(datosTRegistro?.archivos?.altas || '')
-    },
-    {
-      codigo: 'BAJAS',
-      nombreArchivo: `RP_${ruc}_bajas.txt`,
-      estructura: 'Reporte de Bajas / Ceses de Trabajadores (Mitad o Fin de Mes)',
-      descripcion: 'Movimientos de extinción del vínculo laboral con fecha efectiva de cese y código de motivo.',
-      contenido: datosTRegistro?.archivos?.bajas || '',
-      lineas: contarLineas(datosTRegistro?.archivos?.bajas || '')
-    },
-    {
-      codigo: 'MODIF',
-      nombreArchivo: `RP_${ruc}_modificaciones.txt`,
-      estructura: 'Reporte de Modificaciones Contractuales y Previsionales',
-      descripcion: 'Cambios de remuneración básica, régimen pensionario (ONP/AFP), CUSPP o cuenta bancaria.',
-      contenido: datosTRegistro?.archivos?.modificaciones || '',
-      lineas: contarLineas(datosTRegistro?.archivos?.modificaciones || '')
+      codigo: 'EST-17',
+      nombreArchivo: `RP_${ruc}.est`,
+      estructura: 'Estructura 17 — Establecimientos donde Labora el Trabajador (.est)',
+      descripcion:
+        'Tipo Doc | N° Doc | RUC Empleador | Código Establecimiento SUNAT (0000=Domicilio Fiscal) |',
+      contenido: datosTRegistro?.archivos?.est || '',
+      lineas: contarLineas(datosTRegistro?.archivos?.est || '')
     }
   ];
 
@@ -112,10 +106,10 @@ export const TRegistroView: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = datosTRegistro.nombreArchivoZip || `TREGISTRO_${ruc}.zip`;
+    a.download = datosTRegistro.nombreArchivoZip || `RP_${ruc}.zip`;
     a.click();
     URL.revokeObjectURL(url);
-    success('Paquete ZIP de T-Registro descargado.', 'T-Registro');
+    success(`Paquete ${datosTRegistro.nombreArchivoZip || `RP_${ruc}.zip`} descargado.`, 'T-Registro');
   };
 
   const columnasArchivos: ColumnaTablaDensa<ArchivoTRegistroItem>[] = [
@@ -157,8 +151,8 @@ export const TRegistroView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF]">
       <BarraHerramientasLocal
-        titulo="Exportador Independiente de T-Registro (Altas, Bajas y Modificaciones)"
-        subtitulo="Generación separada de estructuras masivas .tra y .per para carga en SUNAT Operaciones en Línea (SOL)"
+        titulo="Exportador Independiente de T-Registro (Carga Masiva PVS / SOL)"
+        subtitulo="Generación de estructuras oficiales .ide (Est. 04), .tra (Est. 05), .per (Est. 11) y .est (Est. 17) conforme al Anexo 3 R.M. N° 121-2011-TR"
         acciones={[
           {
             id: 'refrescar-treg',
@@ -168,7 +162,7 @@ export const TRegistroView: React.FC = () => {
           },
           {
             id: 'zip-treg',
-            label: `Descargar Paquete TREGISTRO_${ruc}.zip`,
+            label: `Descargar Paquete RP_${ruc}.zip`,
             icono: FileArchive,
             primario: true,
             disabled: !datosTRegistro?.zipBase64,
@@ -183,7 +177,7 @@ export const TRegistroView: React.FC = () => {
             <CheckCircle2 className="w-4 h-4" />
             <span>
               VALIDACIÓN T-REGISTRO:{' '}
-              {datosTRegistro.validacion.esValido ? 'ESTRUCTURAS .TRA Y .PER CONFORMES' : 'CON OBSERVACIONES'}
+              {datosTRegistro.validacion.esValido ? 'ESTRUCTURAS .IDE, .TRA, .PER Y .EST CONFORMES' : 'CON OBSERVACIONES'}
             </span>
           </div>
           <div className="flex items-center gap-1">

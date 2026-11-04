@@ -1,21 +1,32 @@
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { buscarCuentaPCGE } from '../../src/data/pcgeAccounts';
 
 export interface DetalleInput {
   linea: number;
   cuentaId: string;
+  cuentaCodigo?: string | null;
+  cuentaNombre?: string | null;
   anexoId?: string | null;
+  anexoTipoDoc?: string | null;
+  anexoNumero?: string | null;
+  anexoNumDoc?: string | null;
+  anexoNombre?: string | null;
   debe: number;
   haber: number;
   debeMe?: number;
   haberMe?: number;
   centroCostoId?: string | null;
+  centroCostoCodigo?: string | null;
+  unidadOperacion?: string | null;
   docTipo?: string | null;
   docSerie?: string | null;
   docNumero?: string | null;
+  fechaEmision?: string | null;
   fechaVencimiento?: string | null;
   glosaLinea?: string | null;
+  correlativoPle?: string | null;
 }
 
 export interface AsientoInput {
@@ -28,6 +39,11 @@ export interface AsientoInput {
   origen?: string;
   origenId?: string | null;
   version?: number;
+  cuo?: string | null;
+  fechaDocumento?: string | null;
+  codigoLibro?: string | null;
+  estadoOperacion?: '1' | '8' | '9' | string | null;
+  validarNormativa?: boolean;
   detalles: DetalleInput[];
 }
 
@@ -70,14 +86,88 @@ export const ASIENTOS_MEMORIA: any[] = [];
 const CORRELATIVOS_MEMORIA = new Map<string, number>();
 
 function getNextCorrelativoMemoria(empresaId: string, periodoId: string, subdiarioId: string): number {
-  const key = `${empresaId}-${periodoId}-${subdiarioId}`;
-  const current = CORRELATIVOS_MEMORIA.get(key) || 0;
+  const normSub = (subdiarioId || '01').replace(/^sub-/, '').padStart(2, '0');
+  const key = `${empresaId}-${periodoId}-${normSub}`;
+  let current = CORRELATIVOS_MEMORIA.get(key) || 0;
+
+  // Escanear ASIENTOS_MEMORIA para garantizar correlativo estrictamente incremental y evitar colisiones
+  const maxInMem = ASIENTOS_MEMORIA.reduce((max, a) => {
+    if (a.empresaId === empresaId && a.periodoId === periodoId) {
+      const aSub = (a.subdiarioId || '01').replace(/^sub-/, '').padStart(2, '0');
+      if (aSub === normSub && a.numero) {
+        const numPart = parseInt(a.numero.slice(-4), 10);
+        if (!isNaN(numPart) && numPart > max) return numPart;
+      }
+    }
+    return max;
+  }, 0);
+
+  if (maxInMem > current) {
+    current = maxInMem;
+  }
+
   const next = current + 1;
   CORRELATIVOS_MEMORIA.set(key, next);
   return next;
 }
 
 export const asientoService = {
+  /**
+   * Valida estrictamente las reglas normativas SUNAT / PCGE / PLE 5.x sobre el asiento.
+   */
+  validarAsientoNormativo(input: {
+    subdiario?: string;
+    subdiarioId?: string;
+    periodo?: string;
+    periodoId?: string;
+    fecha?: string;
+    fechaContable?: string;
+    glosa?: string;
+    glosaGeneral?: string;
+    moneda?: string;
+    tipoCambio?: number;
+    detalles: Array<Partial<DetalleInput> & { cuentaCodigo?: string | null; debe: number; haber: number }>;
+  }) {
+    let sumDebe = Money.create(0);
+    let sumHaber = Money.create(0);
+
+    for (const d of input.detalles) {
+      sumDebe = Money.add(sumDebe, d.debe);
+      sumHaber = Money.add(sumHaber, d.haber);
+
+      const cod = (d.cuentaCodigo || d.cuentaId || '').replace(/^cta-/, '');
+      if (cod.length === 2 || ['10', '12', '14', '16', '20', '33', '40', '42', '50', '60', '70'].includes(cod)) {
+        throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta ${cod} es una cuenta de mayor (2 dígitos) y no permite apuntes directos.`);
+      }
+
+      const pcge = buscarCuentaPCGE(cod);
+      if (pcge) {
+        if (!pcge.permiteMovimiento) {
+          throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta ${cod} es de título o mayor y no admite movimientos.`);
+        }
+        if (pcge.requiereAnexo && !d.anexoId && !d.anexoNumero && !d.anexoNumDoc) {
+          throw new Error(`ANEXO_REQUERIDO: La cuenta ${cod} exige indicar anexo (RUC/DNI del cliente, proveedor o trabajador).`);
+        }
+        if (pcge.requiereDocumento && (!d.docTipo || (!d.docNumero && !(d as any).docNumero))) {
+          throw new Error(`DOCUMENTO_REQUERIDO: La cuenta ${cod} exige comprobante de pago de referencia (tipo y número).`);
+        }
+        if (pcge.requiereCentroCosto && !d.centroCostoId && !d.centroCostoCodigo) {
+          throw new Error(`CENTRO_COSTO_REQUERIDO: La cuenta ${cod} exige indicar centro de costo.`);
+        }
+        if (pcge.requiereVencimiento && !d.fechaVencimiento) {
+          throw new Error(`VENCIMIENTO_REQUERIDO: La cuenta ${cod} exige indicar fecha de vencimiento.`);
+        }
+      }
+    }
+
+    if (!Money.isEqual(sumDebe, sumHaber)) {
+      throw new Error(`ASIENTO_DESCUADRADO: El asiento está descuadrado (Debe S/ ${Money.format(sumDebe)} != Haber S/ ${Money.format(sumHaber)})`);
+    }
+    if (Money.isEqual(sumDebe, 0)) {
+      throw new Error('ASIENTO_DESCUADRADO: El importe total debe ser mayor a cero.');
+    }
+  },
+
   /**
    * Crea un nuevo asiento en estado BORRADOR. Los borradores NO consumen correlativo.
    */
@@ -97,6 +187,18 @@ export const asientoService = {
       sumHaber = Money.add(sumHaber, d.haber);
     }
 
+    // Validación preventiva de cuentas de mayor (2 dígitos)
+    for (const d of input.detalles) {
+      const cod = (d.cuentaCodigo || d.cuentaId || '').replace(/^cta-/, '');
+      if (cod.length === 2 || ['10', '12', '14', '16', '20', '33', '40', '42', '50', '60', '70'].includes(cod)) {
+        throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta ${cod} es una cuenta de mayor y no permite apuntes directos.`);
+      }
+    }
+
+    if (input.validarNormativa) {
+      asientoService.validarAsientoNormativo(input);
+    }
+
     if (db.isPostgresConnected()) {
       const client = await db.getClient();
       try {
@@ -113,12 +215,14 @@ export const asientoService = {
         const insertRes = await client.query(`
           INSERT INTO asientos (
             empresa_id, periodo_id, subdiario_id, numero, fecha, glosa,
-            moneda, tipo_cambio, estado, origen, origen_id, version, created_by
-          ) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, 'BORRADOR', $8, $9, $10, $11)
+            moneda, tipo_cambio, estado, origen, origen_id, version, created_by,
+            cuo, fecha_documento, codigo_libro, estado_operacion
+          ) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, 'BORRADOR', $8, $9, $10, $11, $12, $13, $14, $15)
           RETURNING *
         `, [
           empresaId, input.periodoId, input.subdiarioId, input.fecha, input.glosa,
-          moneda, tipoCambio, input.origen || 'MANUAL', input.origenId || null, version, userId
+          moneda, tipoCambio, input.origen || 'MANUAL', input.origenId || null, version, userId,
+          input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1'
         ]);
 
         const asientoCreado = insertRes.rows[0];
@@ -129,13 +233,17 @@ export const asientoService = {
             INSERT INTO asiento_detalle (
               asiento_id, empresa_id, linea, cuenta_id, anexo_id, debe, haber,
               debe_me, haber_me, centro_costo_id, doc_tipo, doc_serie, doc_numero,
-              fecha_vencimiento, glosa_linea
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+              fecha_vencimiento, glosa_linea, unidad_operacion, anexo_tipo_doc,
+              anexo_num_doc, anexo_nombre, fecha_emision, correlativo_ple
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
           `, [
             asientoCreado.id, empresaId, d.linea, d.cuentaId, d.anexoId || null,
             d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, d.centroCostoId || null,
             d.docTipo || null, d.docSerie || null, d.docNumero || null,
-            d.fechaVencimiento || null, d.glosaLinea || null
+            d.fechaVencimiento || null, d.glosaLinea || null,
+            d.unidadOperacion || null, d.anexoTipoDoc || null,
+            d.anexoNumero || d.anexoNumDoc || null, d.anexoNombre || null,
+            d.fechaEmision || null, d.correlativoPle || null
           ]);
         }
 
@@ -165,7 +273,11 @@ export const asientoService = {
       periodoId: input.periodoId,
       subdiarioId: input.subdiarioId,
       numero: null,
+      cuo: input.cuo || null,
       fecha: input.fecha,
+      fechaDocumento: input.fechaDocumento || input.fecha,
+      codigoLibro: input.codigoLibro || '050100',
+      estadoOperacion: input.estadoOperacion || '1',
       glosa: input.glosa,
       moneda,
       tipoCambio,
@@ -322,15 +434,25 @@ export const asientoService = {
         const correlativoNum = corrRes.rows[0].ultimo_numero;
         const mesStr = asiento.codigo_periodo.split('-')[1] || '09';
         const numeroCorrelativo = `${asiento.subdiario_codigo}${mesStr}${String(correlativoNum).padStart(4, '0')}`;
+        const cuoOficial = asiento.cuo || `CUO-${asiento.subdiario_codigo}-${mesStr}-${String(correlativoNum).padStart(4, '0')}`;
+
+        // Validar unicidad del CUO en el período
+        const cuoCheck = await client.query(`
+          SELECT id FROM asientos
+          WHERE empresa_id = $1 AND periodo_id = $2 AND cuo = $3 AND id <> $4
+        `, [empresaId, asiento.periodo_id, cuoOficial, asientoId]);
+        if (cuoCheck.rows.length > 0) {
+          throw new Error(`CUO_DUPLICADO: El CUO ${cuoOficial} ya se encuentra asignado a otro asiento en el mismo período.`);
+        }
 
         // 2. Actualizar estado a CONTABILIZADO
         const updateRes = await client.query(`
           UPDATE asientos SET
-            numero = $1, estado = 'CONTABILIZADO', version = version + 1,
-            updated_by = $2, updated_at = CURRENT_TIMESTAMP
-          WHERE id = $3
+            numero = $1, cuo = $2, estado = 'CONTABILIZADO', version = version + 1,
+            updated_by = $3, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4
           RETURNING *
-        `, [numeroCorrelativo, userId, asientoId]);
+        `, [numeroCorrelativo, cuoOficial, userId, asientoId]);
 
         await client.query('COMMIT');
 
@@ -340,7 +462,7 @@ export const asientoService = {
           tablaAfectada: 'asientos',
           registroId: asientoId,
           accion: 'UPDATE',
-          datosNuevos: { estado: 'CONTABILIZADO', numero: numeroCorrelativo }
+          datosNuevos: { estado: 'CONTABILIZADO', numero: numeroCorrelativo, cuo: cuoOficial }
         });
 
         return updateRes.rows[0];
@@ -374,14 +496,24 @@ export const asientoService = {
     item.estado = 'EN_PROCESO_CONTABILIZACION';
     try {
       const pId = item.periodoId || 'per-2026-09';
-      const sId = item.subdiarioId || '01';
+      const sId = (item.subdiarioId || '01').replace(/^sub-/, '').padStart(2, '0');
       const corrNum = getNextCorrelativoMemoria(empresaId, pId, sId);
-      const subCod = (item.subdiarioCodigo || sId || '01').padStart(2, '0').slice(-2);
+      const subCod = sId;
       const mesStr = item.fecha ? item.fecha.substring(5, 7) : (pId.includes('-') ? pId.split('-')[1] : '09');
       const numStr = `${subCod}${mesStr}${String(corrNum).padStart(4, '0')}`;
+      const cuoOficial = item.cuo || `CUO-${subCod}-${mesStr}-${String(corrNum).padStart(4, '0')}`;
+
+      // Validar unicidad de CUO en memoria
+      const cuoDuplicado = ASIENTOS_MEMORIA.some(
+        a => a.id !== item.id && a.empresaId === empresaId && a.periodoId === pId && a.cuo === cuoOficial
+      );
+      if (cuoDuplicado) {
+        throw new Error(`CUO_DUPLICADO: El CUO ${cuoOficial} ya se encuentra asignado a otro asiento en el mismo período.`);
+      }
 
       item.estado = 'CONTABILIZADO';
       item.numero = numStr;
+      item.cuo = cuoOficial;
       item.version = (item.version || 1) + 1;
       item.updatedAt = new Date().toISOString();
 
@@ -421,13 +553,13 @@ export const asientoService = {
         const dRes = await client.query(`SELECT * FROM asiento_detalle WHERE asiento_id = $1 ORDER BY linea`, [asientoId]);
         const lineasOriginales = dRes.rows;
 
-        // 1. Crear Asiento de Extorno (Invierte Debe y Haber)
+        // 1. Crear Asiento de Extorno (Invierte Debe y Haber) como BORRADOR
         const glosaExtorno = `Extorno de asiento N° ${original.numero || 'S/N'}: ${motivo}`;
         const extornoRes = await client.query(`
           INSERT INTO asientos (
             empresa_id, periodo_id, subdiario_id, numero, fecha, glosa,
             moneda, tipo_cambio, estado, origen, origen_id, version, created_by
-          ) VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, 'CONTABILIZADO', 'AJUSTE', $8, 1, $9)
+          ) VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $7, 'BORRADOR', 'AJUSTE', $8, 1, $9)
           RETURNING *
         `, [
           empresaId, original.periodo_id, original.subdiario_id,
@@ -450,6 +582,9 @@ export const asientoService = {
             l.doc_tipo, l.doc_serie, l.doc_numero, `Extorno: ${l.glosa_linea || ''}`
           ]);
         }
+
+        // Sellar asiento de extorno a CONTABILIZADO una vez insertado el detalle
+        await client.query(`UPDATE asientos SET estado = 'CONTABILIZADO' WHERE id = $1`, [extornoAsiento.id]);
 
         // 2. Marcar asiento original como ANULADO
         await client.query(`

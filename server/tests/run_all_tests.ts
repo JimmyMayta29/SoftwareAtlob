@@ -27,7 +27,8 @@ const suites = [
   { name: 'Fase 1: Taxonomía de Menú Propio y Separación 1:1 de Vistas', path: 'server/tests/run_tests_menu_fase1.ts' },
   { name: 'Fase 4 (Tributos): PDT 621, Prorrata IGV, Renta Anual, DAOT, Cronograma y Parámetros', path: 'server/tests/run_tests_fase4_tributos.ts' },
   { name: 'Fase 5 (Planillas): RMV, AFP vs ONP, 5ta Proyectada, Gratificaciones/CTS, Baja Mitad de Mes y PLAME/T-Registro', path: 'server/tests/run_tests_fase5_planillas.ts' },
-  { name: 'A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria', path: 'server/tests/test_produccion_sin_db.ts' }
+  { name: 'A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria', path: 'server/tests/test_produccion_sin_db.ts' },
+  { name: 'Optimización Visual Normativa: Reportes Uniformes y Vouchers de Escritorio', path: 'server/tests/run_tests_reportes_y_vouchers_normativos.ts' }
 ];
 
 console.log('========================================================================');

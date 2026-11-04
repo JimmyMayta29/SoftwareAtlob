@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { TablaDensa, ColumnaTablaDensa } from '../ui/TablaDensa';
 import { SelectorPeriodo } from '../ui/SelectorPeriodo';
+import { EMPRESAS_CLIENTES_DEMO } from '../../data/empresasClientes';
+import { construirDefinicionEstadoSituacionFinancieraEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { VisorReporteModal } from '../modals/VisorReporteModal';
 
 interface PartidaBalanceGeneral {
   id: string;
@@ -27,6 +30,9 @@ const PARTIDAS_BG: PartidaBalanceGeneral[] = [
 export const BalanceGeneralView: React.FC = () => {
   const { state, notify } = useAppContext();
   const [periodo, setPeriodo] = useState(state.activePeriodo || '2026-03');
+  const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
+
+  const empresa = (state.activeEmpresa as any) || EMPRESAS_CLIENTES_DEMO[0];
 
   const totalActivo = PARTIDAS_BG.filter((p) => p.bloque.startsWith('ACTIVO')).reduce((s, p) => s + p.importePen, 0);
   const totalPasivoPatrimonio = PARTIDAS_BG.filter((p) => !p.bloque.startsWith('ACTIVO')).reduce((s, p) => s + p.importePen, 0);
@@ -45,10 +51,16 @@ export const BalanceGeneralView: React.FC = () => {
         subtitulo="Presentación clasificada de Activo Corriente, Activo No Corriente, Pasivo y Patrimonio Neto"
         acciones={[
           {
+            id: 'estandar',
+            label: 'Reporte estándar',
+            icono: FileText,
+            primario: true,
+            onClick: () => setModalEstandarOpen(true),
+          },
+          {
             id: 'exportar',
             label: 'Exportar Formato 3.1',
             icono: Download,
-            primario: true,
             onClick: () => notify(`Estado de Situación Financiera (${periodo}) exportado`, 'success'),
           },
         ]}
@@ -70,6 +82,15 @@ export const BalanceGeneralView: React.FC = () => {
           rowKey={(r) => r.id}
         />
       </div>
+
+      {/* Modal de Vista Previa Formato Estándar */}
+      {modalEstandarOpen && (
+        <VisorReporteModal
+          isOpen={modalEstandarOpen}
+          onClose={() => setModalEstandarOpen(false)}
+          definicion={construirDefinicionEstadoSituacionFinancieraEstandar(empresa, {}, periodo)}
+        />
+      )}
     </div>
   );
 };

@@ -1,10 +1,13 @@
 import { db } from '../config/database';
+import { Money } from '../utils/decimal';
 import { sireService, SirePropuestaModel } from './sireService';
 import { compraService, COMPRAS_MEMORIA } from './compraService';
 import { ventaService, VENTAS_MEMORIA } from './ventaService';
 import { periodoService } from './periodoService';
-import { asientoService } from './asientoService';
+import { asientoService, ASIENTOS_MEMORIA } from './asientoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { parametroRepository } from '../repositories/parametroRepository';
+import { sireLayoutService, generarCarOficial } from './sireLayoutService';
 
 export type EstadoConciliacionSire =
   | 'COINCIDE'
@@ -53,12 +56,20 @@ export interface SireConciliacionLineaModel {
   fechaDecision?: string;
   comprobanteGeneradoId?: string;
   asientoExtornoId?: string;
+  asientoAjusteId?: string;
   car?: string;
   tieneDetraccion?: boolean;
   codigoDetraccion?: string;
   destinoCompra?: 'DESTINO_1' | 'DESTINO_2' | 'DESTINO_3' | 'DESTINO_4';
   cuentaGasto?: string;
   centroCostoId?: string;
+  esNotaCredito?: boolean;
+  docModificadoReferencia?: {
+    tipo?: string;
+    serie?: string;
+    numero?: string;
+    fecha?: string;
+  };
 }
 
 export interface SireConciliacionResumenModel {
@@ -94,7 +105,6 @@ export interface ReglaProveedorSire {
 
 export const CONCILIACIONES_SIRE_MEMORIA: SireConciliacionResumenModel[] = [];
 export const REGLAS_PROVEEDOR_SIRE_MEMORIA: ReglaProveedorSire[] = [
-  // Regla por defecto para el proveedor de prueba oficial
   {
     id: 'regla-demo-01',
     empresaId: '00000000-0000-0000-0000-000000000001',
@@ -111,9 +121,6 @@ export const REGLAS_PROVEEDOR_SIRE_MEMORIA: ReglaProveedorSire[] = [
 ];
 
 export const conciliadorSireService = {
-  /**
-   * Registra o actualiza una regla de contabilización automática por proveedor (Fase 9.2)
-   */
   async guardarReglaProveedor(empresaId: string, regla: Omit<ReglaProveedorSire, 'id'>): Promise<ReglaProveedorSire> {
     const idx = REGLAS_PROVEEDOR_SIRE_MEMORIA.findIndex(
       r => r.empresaId === empresaId && r.proveedorRuc === regla.proveedorRuc
@@ -150,8 +157,12 @@ export const conciliadorSireService = {
   },
 
   /**
-   * Ejecuta el cruce automático entre la propuesta descargada y los registros internos,
-   * identificando los 8 estados oficiales del SIRE (Fase 9.1).
+   * Ejecuta el cruce automático entre la propuesta descargada y los registros internos:
+   * 1. Cruce prioritario por CAR oficial de 27 dígitos y alternativo por clave compuesta.
+   * 2. Tolerancias parametrizadas desde parametroRepository (cero valores mágicos en código).
+   * 3. Tratamiento de Notas de Crédito (tipo 07, signos, verificación de comprobante modificado).
+   * 4. Tratamiento de Duplicados (POSIBLE_DUPLICADO).
+   * 5. Multimoneda (USD y tipo de cambio SUNAT).
    */
   async conciliarPeriodo(
     empresaId: string,
@@ -159,9 +170,16 @@ export const conciliadorSireService = {
     periodo: string,
     opciones: { toleranciaImporte?: number; toleranciaFechaDias?: number } = {}
   ): Promise<SireConciliacionResumenModel> {
-    const tolerancia = opciones.toleranciaImporte ?? 0.05;
+    const fechaRef = `${periodo}-15`;
 
-    // 1. Obtener propuesta
+    // Cargar tolerancias desde parametroRepository (cero hardcoding)
+    const tolTotal = opciones.toleranciaImporte !== undefined
+      ? opciones.toleranciaImporte
+      : await parametroRepository.obtenerValorNumerico('SIRE_TOLERANCIA_TOTAL_DECIMAL', 0.05, fechaRef);
+    const tolIgv = await parametroRepository.obtenerValorNumerico('SIRE_TOLERANCIA_IGV_DECIMAL', 0.05, fechaRef);
+    const tolBase = await parametroRepository.obtenerValorNumerico('SIRE_TOLERANCIA_BASE_DECIMAL', 0.05, fechaRef);
+
+    // 1. Obtener o descargar propuesta
     let propuesta = await sireService.obtenerPropuesta(empresaId, tipo, periodo);
     if (!propuesta) {
       propuesta = await sireService.descargarPropuesta(empresaId, tipo, periodo, 'SISTEMA');
@@ -175,7 +193,6 @@ export const conciliadorSireService = {
     const conciliacionId = `concil-${empresaId}-${tipo}-${periodo}`;
     const lineasConciliadas: SireConciliacionLineaModel[] = [];
 
-    // Contadores de estados
     let countCoinciden = 0;
     let countSoloSistema = 0;
     let countSoloSunat = 0;
@@ -185,30 +202,39 @@ export const conciliadorSireService = {
     let countDiferenciaOtrosCampos = 0;
     let countPosibleDuplicado = 0;
 
-    // Mapa de comprobantes del ERP por clave
-    const mapErp = new Map<string, any[]>();
+    // Mapa de comprobantes del ERP por CAR oficial (27 caracteres)
+    const mapErpByCar = new Map<string, any[]>();
+    // Mapa de comprobantes del ERP por clave compuesta: TIPO-SERIE-NUMERO-RUC
+    const mapErpByKey = new Map<string, any[]>();
+
     for (const c of erpComprobantes) {
       const cAny = c as any;
       const ruc = tipo === 'COMPRAS' ? (cAny.proveedorRuc || '') : (cAny.clienteRuc || '');
       const key = `${c.tipoComprobante}-${c.serie}-${c.numero}-${ruc}`;
-      if (!mapErp.has(key)) mapErp.set(key, []);
-      mapErp.get(key)!.push(c);
+      const car = cAny.car || generarCarOficial(ruc, c.tipoComprobante, c.serie, c.numero);
+
+      if (!mapErpByKey.has(key)) mapErpByKey.set(key, []);
+      mapErpByKey.get(key)!.push(c);
+
+      if (!mapErpByCar.has(car)) mapErpByCar.set(car, []);
+      mapErpByCar.get(car)!.push(c);
     }
 
     const matchedErpKeys = new Set<string>();
+    const matchedErpIds = new Set<string>();
 
-    // Procesar comprobantes de SUNAT
+    // Procesar comprobantes de la propuesta SUNAT
     for (const p of propuesta.lineas) {
       const ruc = p.rucEmisor;
       const key = `${p.tipoComprobante}-${p.serie}-${p.numero}-${ruc}`;
-      const matches = mapErp.get(key) || [];
+      const car = p.car || generarCarOficial(ruc, p.tipoComprobante, p.serie, p.numero);
 
       // 1. ANULADO_EN_SUNAT
       const estadoSunatRaw = (p as any).estadoComprobante || (p as any).estado || '1';
       if (estadoSunatRaw === 'ANULADO' || estadoSunatRaw === '2') {
         countAnuladosSunat++;
         lineasConciliadas.push({
-          id: `linea-${conciliacionId}-${p.car || key}`,
+          id: `linea-${conciliacionId}-${car || key}`,
           conciliacionId,
           empresaId,
           tipo,
@@ -229,17 +255,25 @@ export const conciliadorSireService = {
           diferenciaTotal: 0,
           decision: 'OBSERVADA',
           motivoDecision: 'Comprobante figura como ANULADO en los padrones de SUNAT.',
-          car: p.car
+          car
         });
         continue;
       }
 
-      // 2. POSIBLE_DUPLICADO
+      // Buscar coincidencias: primero por CAR, luego por clave compuesta
+      let matches = mapErpByCar.get(car);
+      if (!matches || matches.length === 0) {
+        matches = mapErpByKey.get(key) || [];
+      }
+
+      // 2. POSIBLE_DUPLICADO en el ERP
       if (matches.length > 1) {
         countPosibleDuplicado++;
         matchedErpKeys.add(key);
+        matches.forEach(m => matchedErpIds.add(m.id));
+
         lineasConciliadas.push({
-          id: `linea-${conciliacionId}-${p.car || key}`,
+          id: `linea-${conciliacionId}-${car || key}`,
           conciliacionId,
           empresaId,
           tipo,
@@ -264,7 +298,7 @@ export const conciliadorSireService = {
           diferenciaTotal: 0,
           decision: 'OBSERVADA',
           motivoDecision: `Existen ${matches.length} comprobantes con la misma serie y número registrados en el sistema.`,
-          car: p.car
+          car
         });
         continue;
       }
@@ -273,13 +307,14 @@ export const conciliadorSireService = {
 
       if (match) {
         matchedErpKeys.add(key);
+        matchedErpIds.add(match.id);
 
         // 3. PERIODO_DISTINTO
         const periodoMatch = match.periodoId ? match.periodoId.replace('per-', '') : match.fechaEmision.substring(0, 7);
         if (periodoMatch !== periodo) {
           countPeriodoDistinto++;
           lineasConciliadas.push({
-            id: `linea-${conciliacionId}-${p.car || key}`,
+            id: `linea-${conciliacionId}-${car || key}`,
             conciliacionId,
             empresaId,
             tipo,
@@ -304,26 +339,54 @@ export const conciliadorSireService = {
             diferenciaTotal: 0,
             decision: 'OBSERVADA',
             motivoDecision: `El comprobante está registrado en el período ${periodoMatch} del sistema pero figura en la propuesta ${periodo} de SUNAT.`,
-            car: p.car
+            car
           });
           continue;
         }
 
-        // Manejo de moneda extranjera (USD)
-        let totalSunatPen = p.total;
-        let totalSistemaPen = Number(match.total);
-        if (p.moneda === 'USD' && match.moneda === 'USD') {
-          // Comparación directa en dólares
-        } else if (p.moneda === 'USD' && match.moneda === 'PEN') {
-          const tc = p.tipoCambio || match.tipoCambio || 1.0;
-          totalSunatPen = Number((p.total * tc).toFixed(2));
+        // Manejo de Nota de Crédito (tipo 07)
+        const esNotaCredito = p.tipoComprobante === '07' || match.tipoComprobante === '07';
+
+        // Manejo de Multimoneda (USD / PEN) con precisión exacta decimal.js (Money)
+        let totalSunatPen = Money.round(p.total);
+        let baseSunatPen = Money.round(p.baseGravada);
+        let igvSunatPen = Money.round(p.igv);
+
+        let totalSistemaPen = Money.round(match.total || 0);
+        let baseSistemaPen = Money.round(match.baseGravada || 0);
+        let igvSistemaPen = Money.round(match.igv || 0);
+
+        let esMultimoneda = false;
+        let motivoMoneda = '';
+
+        if (p.moneda === 'USD' && match.moneda === 'PEN') {
+          esMultimoneda = true;
+          const tc = Money.create(p.tipoCambio || match.tipoCambio || 1.0);
+          totalSunatPen = Money.mul(p.total, tc);
+          baseSunatPen = Money.mul(p.baseGravada, tc);
+          igvSunatPen = Money.mul(p.igv, tc);
+          motivoMoneda = `Conversión USD a PEN con TC SUNAT S/ ${tc.toFixed(3)}`;
+        } else if (p.moneda === 'PEN' && match.moneda === 'USD') {
+          esMultimoneda = true;
+          const tc = Money.create(match.tipoCambio || p.tipoCambio || 1.0);
+          totalSistemaPen = Money.mul(totalSistemaPen, tc);
+          baseSistemaPen = Money.mul(baseSistemaPen, tc);
+          igvSistemaPen = Money.mul(igvSistemaPen, tc);
+          motivoMoneda = `Conversión Sistema USD a PEN con TC S/ ${tc.toFixed(3)}`;
         }
 
-        const difTotal = Math.abs(totalSistemaPen - totalSunatPen);
-        const difBase = Math.abs(Number(match.baseGravada) - p.baseGravada);
-        const difIgv = Math.abs(Number(match.igv) - p.igv);
+        // Si es nota de crédito con signos invertidos, normalizar comparación
+        if (esNotaCredito) {
+          if (totalSistemaPen.isNegative() && totalSunatPen.isPositive()) totalSunatPen = totalSunatPen.negated();
+          if (baseSistemaPen.isNegative() && baseSunatPen.isPositive()) baseSunatPen = baseSunatPen.negated();
+          if (igvSistemaPen.isNegative() && igvSunatPen.isPositive()) igvSunatPen = igvSunatPen.negated();
+        }
 
-        // 4. DIFERENCIA_OTROS_CAMPOS (monto cuadra pero fecha/razon social/tipo cambia)
+        const difTotal = Money.sub(totalSistemaPen, totalSunatPen).abs();
+        const difBase = Money.sub(baseSistemaPen, baseSunatPen).abs();
+        const difIgv = Money.sub(igvSistemaPen, igvSunatPen).abs();
+
+        // 4. DIFERENCIA_OTROS_CAMPOS (importe cuadra pero fecha/razon social/moneda difiere)
         const camposDiff: string[] = [];
         if (match.fechaEmision && p.fechaEmision && match.fechaEmision !== p.fechaEmision) {
           camposDiff.push('FECHA_EMISION');
@@ -335,10 +398,15 @@ export const conciliadorSireService = {
           camposDiff.push('TIPO_COMPROBANTE');
         }
 
-        if (difTotal <= tolerancia && camposDiff.length > 0) {
+        const cuadraImporte =
+          difTotal.lessThanOrEqualTo(Money.create(tolTotal)) &&
+          difBase.lessThanOrEqualTo(Money.create(tolBase)) &&
+          difIgv.lessThanOrEqualTo(Money.create(tolIgv));
+
+        if (cuadraImporte && camposDiff.length > 0) {
           countDiferenciaOtrosCampos++;
           lineasConciliadas.push({
-            id: `linea-${conciliacionId}-${p.car || key}`,
+            id: `linea-${conciliacionId}-${car || key}`,
             conciliacionId,
             empresaId,
             tipo,
@@ -350,13 +418,14 @@ export const conciliadorSireService = {
             razonSocialEmisor: p.razonSocialEmisor,
             fechaEmision: p.fechaEmision,
             moneda: p.moneda,
+            tipoCambio: p.tipoCambio,
             baseSunat: p.baseGravada,
             igvSunat: p.igv,
             totalSunat: p.total,
             comprobanteSistemaId: match.id,
-            baseSistema: Number(match.baseGravada),
-            igvSistema: Number(match.igv),
-            totalSistema: Number(match.total),
+            baseSistema: Money.toNumber(match.baseGravada || 0),
+            igvSistema: Money.toNumber(match.igv || 0),
+            totalSistema: Money.toNumber(match.total || 0),
             estadoConciliacion: 'DIFERENCIA_OTROS_CAMPOS',
             diferenciaBase: 0,
             diferenciaIgv: 0,
@@ -364,13 +433,14 @@ export const conciliadorSireService = {
             camposConDiferencia: camposDiff,
             decision: 'PENDIENTE',
             motivoDecision: `Importe conforme pero existen diferencias en: ${camposDiff.join(', ')}`,
-            car: p.car
+            car,
+            esNotaCredito
           });
-        } else if (difTotal <= tolerancia) {
+        } else if (cuadraImporte) {
           // 5. COINCIDE
           countCoinciden++;
           lineasConciliadas.push({
-            id: `linea-${conciliacionId}-${p.car || key}`,
+            id: `linea-${conciliacionId}-${car || key}`,
             conciliacionId,
             empresaId,
             tipo,
@@ -382,27 +452,33 @@ export const conciliadorSireService = {
             razonSocialEmisor: p.razonSocialEmisor,
             fechaEmision: p.fechaEmision,
             moneda: p.moneda,
+            tipoCambio: p.tipoCambio,
             baseSunat: p.baseGravada,
             igvSunat: p.igv,
             totalSunat: p.total,
             comprobanteSistemaId: match.id,
-            baseSistema: Number(match.baseGravada),
-            igvSistema: Number(match.igv),
-            totalSistema: Number(match.total),
+            baseSistema: Money.toNumber(match.baseGravada || 0),
+            igvSistema: Money.toNumber(match.igv || 0),
+            totalSistema: Money.toNumber(match.total || 0),
             estadoConciliacion: 'COINCIDE',
             diferenciaBase: 0,
             diferenciaIgv: 0,
             diferenciaTotal: 0,
             decision: 'ACEPTADA',
-            car: p.car,
+            car,
             tieneDetraccion: p.tieneDetraccion,
-            codigoDetraccion: p.codigoDetraccion
+            codigoDetraccion: p.codigoDetraccion,
+            esNotaCredito
           });
         } else {
           // 6. DIFERENCIA_IMPORTE
           countDiferencias++;
+          const difBaseFirmada = Money.toNumber(Money.sub(match.baseGravada || 0, p.baseGravada));
+          const difIgvFirmada = Money.toNumber(Money.sub(match.igv || 0, p.igv));
+          const difTotalFirmada = Money.toNumber(Money.sub(match.total || 0, p.total));
+
           lineasConciliadas.push({
-            id: `linea-${conciliacionId}-${p.car || key}`,
+            id: `linea-${conciliacionId}-${car || key}`,
             conciliacionId,
             empresaId,
             tipo,
@@ -414,28 +490,31 @@ export const conciliadorSireService = {
             razonSocialEmisor: p.razonSocialEmisor,
             fechaEmision: p.fechaEmision,
             moneda: p.moneda,
+            tipoCambio: p.tipoCambio,
             baseSunat: p.baseGravada,
             igvSunat: p.igv,
             totalSunat: p.total,
             comprobanteSistemaId: match.id,
-            baseSistema: Number(match.baseGravada),
-            igvSistema: Number(match.igv),
-            totalSistema: Number(match.total),
+            baseSistema: Money.toNumber(match.baseGravada || 0),
+            igvSistema: Money.toNumber(match.igv || 0),
+            totalSistema: Money.toNumber(match.total || 0),
             estadoConciliacion: 'DIFERENCIA_IMPORTE',
-            diferenciaBase: Number((Number(match.baseGravada) - p.baseGravada).toFixed(2)),
-            diferenciaIgv: Number((Number(match.igv) - p.igv).toFixed(2)),
-            diferenciaTotal: Number((Number(match.total) - p.total).toFixed(2)),
+            diferenciaBase: difBaseFirmada,
+            diferenciaIgv: difIgvFirmada,
+            diferenciaTotal: difTotalFirmada,
             decision: 'PENDIENTE',
-            car: p.car,
+            motivoDecision: esMultimoneda ? `${motivoMoneda}. Dif Total: S/ ${Money.format(difTotalFirmada)}` : undefined,
+            car,
             tieneDetraccion: p.tieneDetraccion,
-            codigoDetraccion: p.codigoDetraccion
+            codigoDetraccion: p.codigoDetraccion,
+            esNotaCredito
           });
         }
       } else {
         // 7. SOLO_EN_SUNAT
         countSoloSunat++;
         lineasConciliadas.push({
-          id: `linea-${conciliacionId}-${p.car || key}`,
+          id: `linea-${conciliacionId}-${car || key}`,
           conciliacionId,
           empresaId,
           tipo,
@@ -447,29 +526,33 @@ export const conciliadorSireService = {
           razonSocialEmisor: p.razonSocialEmisor,
           fechaEmision: p.fechaEmision,
           moneda: p.moneda,
+          tipoCambio: p.tipoCambio,
           baseSunat: p.baseGravada,
           igvSunat: p.igv,
           totalSunat: p.total,
           estadoConciliacion: 'SOLO_EN_SUNAT',
-          diferenciaBase: -p.baseGravada,
-          diferenciaIgv: -p.igv,
-          diferenciaTotal: -p.total,
+          diferenciaBase: Money.toNumber(Money.round(p.baseGravada).negated()),
+          diferenciaIgv: Money.toNumber(Money.round(p.igv).negated()),
+          diferenciaTotal: Money.toNumber(Money.round(p.total).negated()),
           decision: 'PENDIENTE',
-          car: p.car,
+          car,
           tieneDetraccion: p.tieneDetraccion,
-          codigoDetraccion: p.codigoDetraccion
+          codigoDetraccion: p.codigoDetraccion,
+          esNotaCredito: p.tipoComprobante === '07'
         });
       }
     }
 
     // 8. SOLO_EN_SISTEMA
-    for (const [key, comps] of mapErp.entries()) {
-      if (!matchedErpKeys.has(key)) {
-        for (const c of comps) {
+    for (const [key, comps] of mapErpByKey.entries()) {
+      for (const c of comps) {
+        if (!matchedErpIds.has(c.id)) {
           if (c.periodoId === `per-${periodo}`) {
             countSoloSistema++;
             const ruc = tipo === 'COMPRAS' ? c.proveedorRuc : c.clienteRuc;
             const nombre = tipo === 'COMPRAS' ? c.proveedorNombre : c.clienteNombre;
+            const car = c.car || generarCarOficial(ruc || '', c.tipoComprobante, c.serie, c.numero);
+
             lineasConciliadas.push({
               id: `linea-${conciliacionId}-erp-${c.id}`,
               conciliacionId,
@@ -483,18 +566,21 @@ export const conciliadorSireService = {
               razonSocialEmisor: nombre || '',
               fechaEmision: c.fechaEmision,
               moneda: c.moneda || 'PEN',
+              tipoCambio: c.tipoCambio,
               baseSunat: 0,
               igvSunat: 0,
               totalSunat: 0,
               comprobanteSistemaId: c.id,
-              baseSistema: Number(c.baseGravada),
-              igvSistema: Number(c.igv),
-              totalSistema: Number(c.total),
+              baseSistema: Money.toNumber(c.baseGravada || 0),
+              igvSistema: Money.toNumber(c.igv || 0),
+              totalSistema: Money.toNumber(c.total || 0),
               estadoConciliacion: 'SOLO_EN_SISTEMA',
-              diferenciaBase: Number(c.baseGravada),
-              diferenciaIgv: Number(c.igv),
-              diferenciaTotal: Number(c.total),
-              decision: 'PENDIENTE'
+              diferenciaBase: Money.toNumber(c.baseGravada || 0),
+              diferenciaIgv: Money.toNumber(c.igv || 0),
+              diferenciaTotal: Money.toNumber(c.total || 0),
+              decision: 'PENDIENTE',
+              car,
+              esNotaCredito: c.tipoComprobante === '07'
             });
           }
         }
@@ -526,7 +612,93 @@ export const conciliadorSireService = {
   },
 
   /**
-   * Acepta una línea individual de propuesta SOLO_EN_SUNAT aplicando el motor de reglas (Fase 9.2)
+   * Genera un Asiento de Ajuste Contable guiado para resolver diferencias de importe
+   * (redondeo, tipo de cambio o ajuste de gestión) cuadrando la contabilidad.
+   */
+  async generarAsientoAjusteDiferencia(
+    empresaId: string,
+    lineaId: string,
+    userId: string,
+    cuentaAjustePersonalizada?: string
+  ): Promise<{ success: boolean; asientoId: string; mensaje: string; advertencia?: string }> {
+    const conc = CONCILIACIONES_SIRE_MEMORIA.find(c => c.lineas.some(l => l.id === lineaId));
+    if (!conc) throw new Error('LINEA_NO_ENCONTRADA: La línea de conciliación no existe.');
+
+    const linea = conc.lineas.find(l => l.id === lineaId)!;
+    if (linea.estadoConciliacion !== 'DIFERENCIA_IMPORTE' && linea.diferenciaTotal === 0) {
+      throw new Error('LINEA_SIN_DIFERENCIA: La línea no presenta diferencias de importe para generar asiento de ajuste.');
+    }
+
+    const difTotal = Money.toNumber(Money.round(linea.diferenciaTotal).abs());
+    const difBase = Money.toNumber(Money.round(linea.diferenciaBase).abs());
+    const difIgv = Money.toNumber(Money.round(linea.diferenciaIgv).abs());
+
+    // Determinar cuentas de ajuste desde parametroRepository (cero hardcoding)
+    const fechaRef = `${conc.periodo}-15`;
+    const ctaGastoParam = String(await parametroRepository.obtenerValorNumerico('SIRE_CUENTA_AJUSTE_GASTO', 6591, fechaRef));
+    const ctaIngresoParam = String(await parametroRepository.obtenerValorNumerico('SIRE_CUENTA_AJUSTE_INGRESO', 7591, fechaRef));
+    const ctaProveedorParam = String(await parametroRepository.obtenerValorNumerico('SIRE_CUENTA_AJUSTE_PROVEEDOR', 4212, fechaRef));
+    const ctaClienteParam = String(await parametroRepository.obtenerValorNumerico('SIRE_CUENTA_AJUSTE_CLIENTE', 1212, fechaRef));
+
+    // Si ERP > SUNAT (diferencia positiva): gasto por ajuste
+    // Si SUNAT > ERP (diferencia negativa): ingreso por ajuste
+    const esGasto = linea.diferenciaTotal > 0;
+    const ctaGestion = cuentaAjustePersonalizada || (esGasto ? ctaGastoParam : ctaIngresoParam);
+    const ctaTerceros = linea.tipo === 'COMPRAS' ? ctaProveedorParam : ctaClienteParam;
+
+    const fechaAsiento = `${conc.periodo}-28`;
+
+    const detalles = esGasto
+      ? [
+          { linea: 1, cuentaId: ctaGestion, cuentaCodigo: ctaGestion, debe: difTotal, haber: 0 },
+          { linea: 2, cuentaId: ctaTerceros, cuentaCodigo: ctaTerceros, debe: 0, haber: difTotal }
+        ]
+      : [
+          { linea: 1, cuentaId: ctaTerceros, cuentaCodigo: ctaTerceros, debe: difTotal, haber: 0 },
+          { linea: 2, cuentaId: ctaGestion, cuentaCodigo: ctaGestion, debe: 0, haber: difTotal }
+        ];
+
+    const borrador = await asientoService.crearBorrador(empresaId, {
+      periodoId: `per-${conc.periodo}`,
+      subdiarioId: 'sub-01',
+      fecha: fechaAsiento,
+      glosa: `Ajuste provisional SIRE ${linea.tipo} ${linea.serie}-${linea.numero} (Dif: S/ ${Money.format(difTotal)}) - Requiere revisión del contador`,
+      detalles
+    }, userId);
+
+    const asientoContab = await asientoService.contabilizar(borrador.id, empresaId, userId);
+
+    linea.asientoAjusteId = asientoContab.id;
+    linea.decision = 'ACEPTADA';
+    linea.motivoDecision = `Resuelto mediante asiento de ajuste ${asientoContab.numero || asientoContab.id} (Requiere revisión del contador; no definitivo tributariamente).`;
+    linea.usuarioDecisionId = userId;
+    linea.fechaDecision = new Date().toISOString();
+
+    await auditoriaRepository.registrar({
+      empresaId,
+      usuarioId: userId,
+      tablaAfectada: 'sire_conciliacion_lineas',
+      registroId: linea.id,
+      accion: 'ASIENTO_AJUSTE_SIRE',
+      datosNuevos: { 
+        asientoId: asientoContab.id, 
+        difTotal, 
+        difBase, 
+        difIgv,
+        advertencia: 'Requiere revisión del contador - No constituye tratamiento tributario definitivo' 
+      }
+    });
+
+    return {
+      success: true,
+      asientoId: asientoContab.id,
+      mensaje: `Asiento de ajuste contable generado exitosamente (${asientoContab.id}). Nota: Requiere revisión del contador; no constituye tratamiento tributario definitivo.`,
+      advertencia: 'Requiere revisión del contador: ajuste preliminar de redondeo/gestión pendiente de validación de deducibilidad tributaria.'
+    };
+  },
+
+  /**
+   * Acepta una línea individual de propuesta SOLO_EN_SUNAT aplicando el motor de reglas
    */
   async aceptarPropuestaLinea(
     empresaId: string,
@@ -537,7 +709,6 @@ export const conciliadorSireService = {
     const conciliacion = CONCILIACIONES_SIRE_MEMORIA.find(c => c.lineas.some(l => l.id === lineaId));
     if (!conciliacion) throw new Error('LINEA_NO_ENCONTRADA: La línea de conciliación no existe.');
 
-    // Validar período abierto
     const cerrado = await periodoService.estaCerrado(empresaId, `per-${conciliacion.periodo}`);
     if (cerrado) {
       throw new Error('PERIODO_CERRADO: No se puede registrar comprobantes de la propuesta en un período cerrado.');
@@ -556,7 +727,6 @@ export const conciliadorSireService = {
     try {
       if (linea.estadoConciliacion === 'SOLO_EN_SUNAT') {
         if (linea.tipo === 'COMPRAS') {
-          // MOTOR DE REGLAS POR PROVEEDOR (9.2)
           const regla = opciones?.reglaPersonalizada || this.obtenerReglaProveedor(empresaId, linea.rucEmisor);
 
           const destinoCompra = regla?.destinoCompra || 'DESTINO_1';
@@ -582,7 +752,6 @@ export const conciliadorSireService = {
             glosa: `Aceptado SIRE RCE CAR ${linea.car || ''} [${destinoCompra}] [Cta: ${cuentaGasto}]`
           }, userId);
 
-          // Contabilizar de inmediato
           await compraService.registrarBorradorCompra(nuevo.id, userId, empresaId);
 
           linea.decision = 'ACEPTADA';
@@ -645,11 +814,6 @@ export const conciliadorSireService = {
     };
   },
 
-  /**
-   * Aceptación masiva de líneas SOLO_EN_SUNAT:
-   * Procesa automáticamente ÚNICAMENTE aquellas con regla de proveedor configurada.
-   * Las líneas sin regla quedan en cola de revisión (Fase 9.2).
-   */
   async aceptarPropuestasMasivo(empresaId: string, periodo: string, userId: string) {
     const conc = CONCILIACIONES_SIRE_MEMORIA.find(
       c => c.empresaId === empresaId && c.periodo === periodo && c.tipo === 'COMPRAS'
@@ -697,9 +861,6 @@ export const conciliadorSireService = {
     };
   },
 
-  /**
-   * Reversión de aceptación SIRE mediante asiento de extorno (Fase 9.2)
-   */
   async revertirAceptacionPropuesta(empresaId: string, lineaId: string, motivo: string, userId: string) {
     const conc = CONCILIACIONES_SIRE_MEMORIA.find(c => c.lineas.some(l => l.id === lineaId));
     if (!conc) throw new Error('LINEA_NO_ENCONTRADA: La línea no existe.');
@@ -709,7 +870,6 @@ export const conciliadorSireService = {
       throw new Error('NO_REVERSIBLE: La línea no se encuentra en estado ACEPTADA o no generó comprobante.');
     }
 
-    // Buscar comprobante de compra o venta generado
     const compra = COMPRAS_MEMORIA.find(c => c.id === linea.comprobanteGeneradoId);
     let extornoId = '';
 
@@ -744,9 +904,6 @@ export const conciliadorSireService = {
     };
   },
 
-  /**
-   * Procesa acciones en lote sobre líneas de conciliación SIRE
-   */
   async procesarLote(
     empresaId: string,
     accion: 'ACEPTAR' | 'OBSERVAR' | 'IGNORAR',
@@ -783,14 +940,13 @@ export const conciliadorSireService = {
     return { procesados, fallidos, detalles };
   },
 
-  /**
-   * CIERRE DEL CICLO SIRE: Aceptación de la Propuesta Oficial (Fase 9.3)
-   */
   async aceptarPropuestaSireOficial(empresaId: string, tipo: 'COMPRAS' | 'VENTAS', periodo: string, userId: string) {
     const propuesta = await sireService.obtenerPropuesta(empresaId, tipo, periodo);
     if (!propuesta) throw new Error('PROPUESTA_NO_ENCONTRADA: No existe propuesta descargada.');
+    if (propuesta.esSimulado) {
+      throw new Error('OPERACION_SIMULADA_BLOQUEADA: No se puede aceptar formalmente ni marcar como enviada ante SUNAT una propuesta en modo [SIMULADO]. Configure credenciales SOL reales.');
+    }
 
-    // Simulación de generación del Preliminar y Aceptación de Propuesta
     (propuesta as any).estado = 'ACEPTADA_OFICIAL';
     (propuesta as any).fechaAceptacion = new Date().toISOString();
     (propuesta as any).ticketAceptacion = `TCK-SUNAT-${Date.now()}`;
@@ -812,10 +968,6 @@ export const conciliadorSireService = {
     };
   },
 
-  /**
-   * CIERRE DEL CICLO SIRE: Reemplazo de Propuesta con archivo plano (Fase 9.3)
-   * Marcado como PENDIENTE_VERIFICAR_SUNAT para el protocolo live de envío de tickets ZIP
-   */
   async reemplazarPropuestaSireOficial(
     empresaId: string,
     tipo: 'COMPRAS' | 'VENTAS',
@@ -823,7 +975,18 @@ export const conciliadorSireService = {
     comprobantesReemplazo: any[],
     userId: string
   ) {
+    const propuesta = await sireService.obtenerPropuesta(empresaId, tipo, periodo);
+    if (propuesta?.esSimulado) {
+      throw new Error('OPERACION_SIMULADA_BLOQUEADA: No se puede exportar ni descargar para SOL un archivo de reemplazo basado en una propuesta en modo [SIMULADO]. Configure credenciales SOL reales.');
+    }
+
     const ticketReemplazo = `TCK-REEMP-${Date.now()}`;
+
+    // Generar archivo plano de reemplazo oficial con layout validado
+    const ruc = '20601234567';
+    const archivoGen = tipo === 'COMPRAS'
+      ? sireLayoutService.generarReemplazoRce(ruc, periodo, comprobantesReemplazo)
+      : sireLayoutService.generarReemplazoRvie(ruc, periodo, comprobantesReemplazo);
 
     await auditoriaRepository.registrar({
       empresaId,
@@ -836,6 +999,8 @@ export const conciliadorSireService = {
         periodo,
         totalComprobantes: comprobantesReemplazo.length,
         ticket: ticketReemplazo,
+        nombreArchivo: archivoGen.nombreArchivoTxt,
+        hashSha256: archivoGen.hashSha256,
         estadoApiSunat: 'PENDIENTE_VERIFICAR_SUNAT'
       }
     });
@@ -844,13 +1009,12 @@ export const conciliadorSireService = {
       success: true,
       mensaje: `Reemplazo de propuesta ${tipo} ${periodo} generado con ${comprobantesReemplazo.length} comprobante(s).`,
       ticket: ticketReemplazo,
+      archivoGenerado: archivoGen.nombreArchivoTxt,
+      hashSha256: archivoGen.hashSha256,
       estadoApiSunat: 'PENDIENTE_VERIFICAR_SUNAT'
     };
   },
 
-  /**
-   * CIERRE DEL CICLO SIRE: Ajustes Posteriores (Anexos 11, 12, 13) (Fase 9.3)
-   */
   async registrarAjustePosterior(
     empresaId: string,
     periodoAjuste: string,

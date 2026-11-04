@@ -1,27 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Plus, 
+  Calculator, 
+  ListFilter, 
   Search, 
+  Plus, 
+  Lock, 
   CheckCircle2, 
   AlertCircle, 
-  Trash2,
-  FileSpreadsheet,
-  Layers,
-  Calculator,
-  Calendar,
-  Sparkles,
-  BookOpen,
-  Copy,
+  Copy, 
+  RotateCcw, 
   Ban,
-  Clock,
-  RefreshCw,
-  Lock,
-  ArrowRight,
-  SlidersHorizontal,
-  ChevronRight
+  Eye,
+  Printer
 } from 'lucide-react';
-import { CodigoSubdiario, SUBDIARIOS_ESTANDAR } from '../../types';
-import { PLAN_CONTABLE_PCGE } from '../../data/pcgeAccounts';
+import { EmpresaCliente, CodigoSubdiario } from '../../types';
+import { EMPRESAS_CLIENTES_DEMO } from '../../data/empresasClientes';
 import { 
   useAsientosList, 
   useCrearAsiento, 
@@ -29,95 +22,274 @@ import {
   useAnularAsiento, 
   useDuplicarAsiento 
 } from '../../hooks/useAsientos';
-import { apiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
+import { 
+  VoucherHeader, 
+  VoucherGrid, 
+  VoucherTotals, 
+  VoucherStatusBar, 
+  CatalogoCuentasDialog,
+  FilaVoucherGrid,
+  PlantillaAsiento,
+  PLANTILLAS_ASIENTOS
+} from '../voucher';
+import { CuentaPCGE, buscarCuentaPCGE } from '../../data/pcgeAccounts';
+import { VisorReporteModal } from '../modals/VisorReporteModal';
+import { construirDefinicionVoucherContableEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 
 interface VouchersViewProps {
   empresaId: string;
   periodo: string;
   isPeriodoCerrado?: boolean;
+  empresa?: EmpresaCliente;
+  usuarioNombre?: string;
+  usuarioRol?: string;
 }
 
 export const VouchersView: React.FC<VouchersViewProps> = ({
   empresaId,
   periodo,
-  isPeriodoCerrado = false
+  isPeriodoCerrado = false,
+  empresa,
+  usuarioNombre = 'ADMINISTRADOR',
+  usuarioRol = 'ADMIN_ESTUDIO',
 }) => {
-  const { success, error, warning } = useToast();
-  const [subdiarioFiltro, setSubdiarioFiltro] = useState<string>('TODOS');
-  const [estadoFiltro, setEstadoFiltro] = useState<string>('TODOS');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isAnularModalOpen, setIsAnularModalOpen] = useState(false);
-  const [asientoAAnularId, setAsientoAAnularId] = useState<string | null>(null);
-  const [motivoAnulacion, setMotivoAnulacion] = useState('');
-  const [mensajeConflictoVersion, setMensajeConflictoVersion] = useState<string | null>(null);
+  const { success, error, warning, info } = useToast();
+  const empresaActual = empresa || EMPRESAS_CLIENTES_DEMO.find((e) => e.id === empresaId) || EMPRESAS_CLIENTES_DEMO[0];
 
-  // Queries y Mutaciones del Backend
-  const { data: asientosResponse, isLoading, refetch } = useAsientosList(empresaId, {
-    subdiarioId: subdiarioFiltro !== 'TODOS' ? subdiarioFiltro : undefined,
-    estado: estadoFiltro !== 'TODOS' ? estadoFiltro : undefined,
-    search: searchTerm || undefined
-  });
+  // Modo de vista: 'CAPTURA' (ventana de escritorio de alta densidad) o 'HISTORIAL' (lista de asientos)
+  const [vistaModo, setVistaModo] = useState<'CAPTURA' | 'HISTORIAL'>('CAPTURA');
 
+  // Queries del Backend
+  const { data: asientosResponse, isLoading: loadingAsientos, refetch } = useAsientosList(empresaId, {});
   const crearMutation = useCrearAsiento(empresaId);
   const contabilizarMutation = useContabilizarAsiento(empresaId);
   const anularMutation = useAnularAsiento(empresaId);
   const duplicarMutation = useDuplicarAsiento(empresaId);
 
-  const asientos = asientosResponse?.data || [];
+  const listaAsientos = asientosResponse?.data || [];
 
-  // Form State para Nuevo / Editar Voucher
-  const [modalSubdiario, setModalSubdiario] = useState<CodigoSubdiario>('01');
-  const [glosaGeneral, setGlosaGeneral] = useState('Por las operaciones del ejercicio');
-  const [fechaVoucher, setFechaVoucher] = useState('2026-09-15');
-  const [monedaVoucher, setMonedaVoucher] = useState<'PEN' | 'USD'>('PEN');
-  const [tipoCambioVoucher, setTipoCambioVoucher] = useState<number>(3.75);
+  // Estado del Voucher en Edición (Escritorio)
+  const [asientoId, setAsientoId] = useState<string | null>(null);
+  const [subdiario, setSubdiario] = useState<string>('01');
+  const [numeroVoucher, setNumeroVoucher] = useState<string>('01090001');
+  const [fechaContable, setFechaContable] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
+  const [fechaEmisionDocRef, setFechaEmisionDocRef] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
+  const [moneda, setMoneda] = useState<'PEN' | 'USD'>('PEN');
+  const [tipoCambioCompra, setTipoCambioCompra] = useState<number>(3.748);
+  const [tipoCambioVenta, setTipoCambioVenta] = useState<number>(3.752);
+  const [glosaGeneral, setGlosaGeneral] = useState<string>('Por la compra de mercaderías según factura del proveedor');
+  const [estadoVoucher, setEstadoVoucher] = useState<'BORRADOR' | 'CONTABILIZADO' | 'ANULADO'>('BORRADOR');
+  const [cuoVoucher, setCuoVoucher] = useState<string | undefined>(undefined);
 
-  const [itemsVoucher, setItemsVoucher] = useState<Array<{
-    linea: number;
-    codigo: string;
-    denominacion: string;
-    cuentaId: string;
-    anexoId?: string;
-    anexoNumero?: string;
-    debe: number;
-    haber: number;
-    glosa: string;
-    docSerie?: string;
-    docNumero?: string;
-  }>>([
-    { linea: 1, codigo: '6011', denominacion: 'Mercaderías manufacturadas', cuentaId: 'cta-6011', debe: 1000, haber: 0, glosa: 'Compra de mercadería' },
-    { linea: 2, codigo: '40111', denominacion: 'IGV - Cuenta propia', cuentaId: 'cta-40111', debe: 180, haber: 0, glosa: 'IGV crédito fiscal 18%' },
-    { linea: 3, codigo: '4212', denominacion: 'Facturas por pagar emitidas', cuentaId: 'cta-4212', debe: 0, haber: 1180, glosa: 'Comprobante de pago proveedor' },
-    { linea: 4, codigo: '20111', denominacion: 'Mercaderías manufacturadas - Costo', cuentaId: 'cta-20111', debe: 1000, haber: 0, glosa: 'Destino al almacén' },
-    { linea: 5, codigo: '6111', denominacion: 'Mercaderías', cuentaId: 'cta-6111', debe: 0, haber: 1000, glosa: 'Variación de existencias' }
+  // Filas del Voucher
+  const [filas, setFilas] = useState<FilaVoucherGrid[]>([
+    {
+      linea: 1,
+      codigoCuenta: '6011',
+      denominacion: 'Mercaderías manufacturadas',
+      permiteMovimiento: true,
+      requiereAnexo: true,
+      requiereDocumento: true,
+      requiereCentroCosto: false,
+      requiereVencimiento: false,
+      centroCosto: '',
+      anexoTipoDoc: '6',
+      anexoNumDoc: '20100035392',
+      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
+      tipoComprobante: '01',
+      serieComprobante: 'F001',
+      numeroComprobante: '0023451',
+      fechaEmisionDoc: '2026-09-02',
+      fechaVencimientoDoc: '2026-09-17',
+      glosaLinea: 'Compra de existencias para comercialización',
+      debe: 4200.00,
+      haber: 0.00,
+      debeUsd: 1119.40,
+      haberUsd: 0.00,
+    },
+    {
+      linea: 2,
+      codigoCuenta: '40111',
+      denominacion: 'IGV - Cuenta propia 18%',
+      permiteMovimiento: true,
+      requiereAnexo: true,
+      requiereDocumento: true,
+      requiereCentroCosto: false,
+      requiereVencimiento: false,
+      centroCosto: '',
+      anexoTipoDoc: '6',
+      anexoNumDoc: '20100035392',
+      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
+      tipoComprobante: '01',
+      serieComprobante: 'F001',
+      numeroComprobante: '0023451',
+      fechaEmisionDoc: '2026-09-02',
+      fechaVencimientoDoc: '',
+      glosaLinea: 'IGV crédito fiscal 18%',
+      debe: 756.00,
+      haber: 0.00,
+      debeUsd: 201.49,
+      haberUsd: 0.00,
+    },
+    {
+      linea: 3,
+      codigoCuenta: '4212',
+      denominacion: 'Facturas, boletas y otros comprobantes por pagar - Emitidas',
+      permiteMovimiento: true,
+      requiereAnexo: true,
+      requiereDocumento: true,
+      requiereCentroCosto: false,
+      requiereVencimiento: true,
+      centroCosto: '',
+      anexoTipoDoc: '6',
+      anexoNumDoc: '20100035392',
+      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
+      tipoComprobante: '01',
+      serieComprobante: 'F001',
+      numeroComprobante: '0023451',
+      fechaEmisionDoc: '2026-09-02',
+      fechaVencimientoDoc: '2026-09-17',
+      glosaLinea: 'Obligación comercial proveedor ferretería',
+      debe: 0.00,
+      haber: 4956.00,
+      debeUsd: 0.00,
+      haberUsd: 1320.89,
+    },
+    {
+      linea: 4,
+      codigoCuenta: '20111',
+      denominacion: 'Mercaderías manufacturadas - Costo',
+      permiteMovimiento: true,
+      requiereAnexo: false,
+      requiereDocumento: false,
+      requiereCentroCosto: false,
+      requiereVencimiento: false,
+      centroCosto: '',
+      anexoTipoDoc: '',
+      anexoNumDoc: '',
+      anexoNombre: '',
+      tipoComprobante: '',
+      serieComprobante: '',
+      numeroComprobante: '',
+      fechaEmisionDoc: '',
+      fechaVencimientoDoc: '',
+      glosaLinea: 'Destino al almacén mercaderías',
+      debe: 4200.00,
+      haber: 0.00,
+      debeUsd: 1119.40,
+      haberUsd: 0.00,
+    },
+    {
+      linea: 5,
+      codigoCuenta: '6111',
+      denominacion: 'Mercaderías manufacturadas',
+      permiteMovimiento: true,
+      requiereAnexo: false,
+      requiereDocumento: false,
+      requiereCentroCosto: false,
+      requiereVencimiento: false,
+      centroCosto: '',
+      anexoTipoDoc: '',
+      anexoNumDoc: '',
+      anexoNombre: '',
+      tipoComprobante: '',
+      serieComprobante: '',
+      numeroComprobante: '',
+      fechaEmisionDoc: '',
+      fechaVencimientoDoc: '',
+      glosaLinea: 'Variación de existencias mercaderías',
+      debe: 0.00,
+      haber: 4200.00,
+      debeUsd: 0.00,
+      haberUsd: 1119.40,
+    },
   ]);
 
-  // Búsqueda asistida de Cuentas (F2)
-  const [showF2Search, setShowF2Search] = useState(false);
-  const [activeRowIdx, setActiveRowIdx] = useState<number>(0);
-  const [f2SearchTerm, setF2SearchTerm] = useState('');
+  // Celda activa y navegación
+  const [activeCell, setActiveCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
 
-  // Cuadre en tiempo real
-  const totalDebe = Number(itemsVoucher.reduce((acc, it) => acc + (Number(it.debe) || 0), 0).toFixed(2));
-  const totalHaber = Number(itemsVoucher.reduce((acc, it) => acc + (Number(it.haber) || 0), 0).toFixed(2));
-  const diferencia = Number(Math.abs(totalDebe - totalHaber).toFixed(2));
-  const estaCuadradoModal = diferencia < 0.01 && totalDebe > 0;
+  // Diálogo de Catálogo PCGE (F2)
+  const [isCatalogoOpen, setIsCatalogoOpen] = useState(false);
+  const [catalogoRowIndex, setCatalogoRowIndex] = useState(0);
 
-  // Atajos de teclado en el formulario del modal
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isModalOpen) return;
+  // Modal de Impresión Estándar
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
-      // F2: Buscar Cuenta
-      if (e.key === 'F2') {
-        e.preventDefault();
-        setShowF2Search(true);
+  // Cálculo de Totales y Cuadre de Partida Doble
+  const totalDebePen = useMemo(() => Math.round(filas.reduce((acc, f) => acc + (Number(f.debe) || 0), 0) * 100) / 100, [filas]);
+  const totalHaberPen = useMemo(() => Math.round(filas.reduce((acc, f) => acc + (Number(f.haber) || 0), 0) * 100) / 100, [filas]);
+  const diferenciaPen = useMemo(() => Math.round((totalDebePen - totalHaberPen) * 100) / 100, [totalDebePen, totalHaberPen]);
+
+  const totalDebeUsd = useMemo(() => Math.round(filas.reduce((acc, f) => acc + (Number(f.debeUsd) || 0), 0) * 100) / 100, [filas]);
+  const totalHaberUsd = useMemo(() => Math.round(filas.reduce((acc, f) => acc + (Number(f.haberUsd) || 0), 0) * 100) / 100, [filas]);
+  const diferenciaUsd = useMemo(() => Math.round((totalDebeUsd - totalHaberUsd) * 100) / 100, [totalDebeUsd, totalHaberUsd]);
+
+  const estaCuadrado = Math.abs(diferenciaPen) < 0.001 && totalDebePen > 0;
+
+  // Validación de Reglas SUNAT en Tiempo Real por Fila
+  const { erroresPorFila, primerError } = useMemo(() => {
+    const errs: Record<number, Record<string, string>> = {};
+    let first: string | null = null;
+
+    filas.forEach((f, idx) => {
+      const rowErrs: Record<string, string> = {};
+      const cod = (f.codigoCuenta || '').trim();
+
+      if (!cod) {
+        rowErrs.codigoCuenta = `Línea ${idx + 1}: Ingrese cuenta contable PCGE.`;
+      } else if (cod.length <= 2) {
+        rowErrs.codigoCuenta = `Línea ${idx + 1}: CUENTA_NO_IMPUTABLE — La cuenta ${cod} es cuenta mayor. Elija una subcuenta analítica.`;
+      } else {
+        const cta = buscarCuentaPCGE(cod);
+        if (cta && !cta.permiteMovimiento) {
+          rowErrs.codigoCuenta = `Línea ${idx + 1}: CUENTA_NO_IMPUTABLE — La cuenta ${cod} no permite movimiento.`;
+        }
       }
 
-      // Ctrl + Enter: Guardar borrador / Contabilizar rápido
-      if (e.ctrlKey && e.key === 'Enter') {
+      if (f.requiereAnexo && !f.anexoNumDoc) {
+        rowErrs.anexoNumDoc = `Línea ${idx + 1}: La cuenta ${f.codigoCuenta} exige anexo RUC/DNI.`;
+      }
+
+      if (f.requiereDocumento && (!f.tipoComprobante || !f.numeroComprobante)) {
+        rowErrs.numeroComprobante = `Línea ${idx + 1}: La cuenta ${f.codigoCuenta} exige tipo y número de comprobante.`;
+      }
+
+      if (f.requiereCentroCosto && !f.centroCosto) {
+        rowErrs.centroCosto = `Línea ${idx + 1}: La cuenta ${f.codigoCuenta} exige centro de costo.`;
+      }
+
+      if (Object.keys(rowErrs).length > 0) {
+        errs[idx] = rowErrs;
+        if (!first) {
+          first = Object.values(rowErrs)[0];
+        }
+      }
+    });
+
+    return { erroresPorFila: errs, primerError: first };
+  }, [filas]);
+
+  const puedeContabilizar = estaCuadrado && !primerError && estadoVoucher !== 'CONTABILIZADO' && !isPeriodoCerrado;
+
+  // Atajos de Teclado Globales del Voucher
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Si hay un modal abierto, no interceptar
+      if (isCatalogoOpen || isPrintModalOpen) return;
+
+      if (e.key === 'F10') {
+        e.preventDefault();
+        handleNuevoVoucher();
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        if (puedeContabilizar) handleContabilizar();
+        else if (!estaCuadrado) warning(`No se puede contabilizar: Asiento descuadrado (Diferencia: S/ ${diferenciaPen.toFixed(2)})`);
+        else if (primerError) warning(`No se puede contabilizar: ${primerError}`);
+      } else if (e.key === 'F3') {
+        e.preventDefault();
+        setVistaModo((prev) => (prev === 'CAPTURA' ? 'HISTORIAL' : 'CAPTURA'));
+      } else if (e.ctrlKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleGuardarBorrador();
       }
@@ -125,338 +297,469 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isModalOpen, itemsVoucher, glosaGeneral, fechaVoucher]);
+  }, [isCatalogoOpen, isPrintModalOpen, puedeContabilizar, estaCuadrado, primerError, diferenciaPen]);
 
-  // Aplicar plantillas automáticas invocando al motor en el Backend
-  const aplicarPlantillaBackend = async (tipo: string, total = 1180) => {
-    try {
-      const res: any = await apiClient.post(`/empresas/${empresaId}/contabilizacion/previsualizar`, {
-        tipoOperacion: tipo,
-        total,
-        glosa: `Registro contable automático ${tipo}`
-      });
-
-      if (res.data?.lineas) {
-        setGlosaGeneral(res.data.glosaGeneral);
-        setItemsVoucher(res.data.lineas.map((l: any, idx: number) => ({
-          linea: idx + 1,
-          codigo: l.codigoCuenta,
-          denominacion: l.denominacionCuenta,
-          cuentaId: `cta-${l.codigoCuenta}`,
-          debe: l.debe,
-          haber: l.haber,
-          glosa: l.glosaLinea,
-          docSerie: l.docSerie || '',
-          docNumero: l.docNumero || ''
-        })));
-      }
-    } catch (err: any) {
-      console.warn('Error llamando previsualización:', err);
-    }
+  // Handlers de la Cuadrícula
+  const handleFilaChange = (rowIndex: number, campo: keyof FilaVoucherGrid, valor: any) => {
+    setFilas((prev) => {
+      const copy = [...prev];
+      copy[rowIndex] = { ...copy[rowIndex], [campo]: valor };
+      return copy;
+    });
   };
 
-  const handleAgregarLinea = () => {
-    setItemsVoucher(prev => [
+  const handleAgregarFila = () => {
+    setFilas((prev) => [
       ...prev,
       {
         linea: prev.length + 1,
-        codigo: '1212',
-        denominacion: 'Facturas por cobrar',
-        cuentaId: 'cta-1212',
+        codigoCuenta: '',
+        denominacion: '',
+        centroCosto: '',
+        anexoTipoDoc: '6',
+        anexoNumDoc: '',
+        anexoNombre: '',
+        tipoComprobante: '01',
+        serieComprobante: '',
+        numeroComprobante: '',
+        fechaEmisionDoc: fechaContable,
+        fechaVencimientoDoc: '',
+        glosaLinea: glosaGeneral,
         debe: 0,
         haber: 0,
-        glosa: glosaGeneral
-      }
+        debeUsd: 0,
+        haberUsd: 0,
+      },
     ]);
   };
 
-  const handleQuitarLinea = (index: number) => {
-    if (itemsVoucher.length <= 2) {
-      warning('Un asiento contable debe tener al menos 2 líneas para cumplir la partida doble.', 'Partida Doble');
+  const handleEliminarFila = (rowIndex: number) => {
+    if (filas.length <= 2) {
+      warning('El asiento contable requiere al menos 2 líneas para cumplir la partida doble.');
       return;
     }
-    setItemsVoucher(prev => prev.filter((_, idx) => idx !== index).map((item, idx) => ({ ...item, linea: idx + 1 })));
+    setFilas((prev) => {
+      const filtered = prev.filter((_, idx) => idx !== rowIndex);
+      return filtered.map((f, idx) => ({ ...f, linea: idx + 1 }));
+    });
+  };
+
+  const handleOpenF2Catalogo = (rowIndex: number) => {
+    setCatalogoRowIndex(rowIndex);
+    setIsCatalogoOpen(true);
+  };
+
+  const handleSelectCuenta = (cuenta: CuentaPCGE) => {
+    handleFilaChange(catalogoRowIndex, 'codigoCuenta', cuenta.codigo);
+    handleFilaChange(catalogoRowIndex, 'denominacion', cuenta.denominacion);
+    handleFilaChange(catalogoRowIndex, 'permiteMovimiento', cuenta.permiteMovimiento);
+    handleFilaChange(catalogoRowIndex, 'requiereAnexo', cuenta.requiereAnexo);
+    handleFilaChange(catalogoRowIndex, 'requiereDocumento', cuenta.requiereDocumento);
+    handleFilaChange(catalogoRowIndex, 'requiereCentroCosto', cuenta.requiereCentroCosto);
+    handleFilaChange(catalogoRowIndex, 'requiereVencimiento', cuenta.requiereVencimiento);
+  };
+
+  const handleSeleccionarPlantilla = (p: PlantillaAsiento) => {
+    setSubdiario(p.subdiario);
+    setGlosaGeneral(p.glosaGeneralSugerida);
+    setFilas(
+      p.lineas.map((l, idx) => ({
+        linea: idx + 1,
+        codigoCuenta: l.codigoCuenta,
+        denominacion: l.denominacion,
+        permiteMovimiento: true,
+        requiereAnexo: !!l.requiereAnexo,
+        requiereDocumento: !!l.requiereDocumento,
+        requiereCentroCosto: !!l.centroCostoSugerido,
+        requiereVencimiento: false,
+        centroCosto: l.centroCostoSugerido || '',
+        anexoTipoDoc: '6',
+        anexoNumDoc: '',
+        anexoNombre: '',
+        tipoComprobante: '01',
+        serieComprobante: '',
+        numeroComprobante: '',
+        fechaEmisionDoc: fechaContable,
+        fechaVencimientoDoc: '',
+        glosaLinea: l.glosaSugerida || p.glosaGeneralSugerida,
+        debe: 0,
+        haber: 0,
+        debeUsd: 0,
+        haberUsd: 0,
+      }))
+    );
+    info(`Plantilla cargada: ${p.nombre}. * Nota: ${p.avisoNormativo}`);
+  };
+
+  const handleNuevoVoucher = () => {
+    setAsientoId(null);
+    setEstadoVoucher('BORRADOR');
+    setCuoVoucher(undefined);
+    setNumeroVoucher(`0109${String(Math.floor(Math.random() * 9000) + 1000)}`);
+    setGlosaGeneral('Por las operaciones contables del período');
+    setFilas([
+      {
+        linea: 1,
+        codigoCuenta: '',
+        denominacion: '',
+        centroCosto: '',
+        anexoTipoDoc: '6',
+        anexoNumDoc: '',
+        anexoNombre: '',
+        tipoComprobante: '01',
+        serieComprobante: '',
+        numeroComprobante: '',
+        fechaEmisionDoc: fechaContable,
+        fechaVencimientoDoc: '',
+        glosaLinea: 'Por las operaciones contables del período',
+        debe: 0,
+        haber: 0,
+        debeUsd: 0,
+        haberUsd: 0,
+      },
+      {
+        linea: 2,
+        codigoCuenta: '',
+        denominacion: '',
+        centroCosto: '',
+        anexoTipoDoc: '6',
+        anexoNumDoc: '',
+        anexoNombre: '',
+        tipoComprobante: '01',
+        serieComprobante: '',
+        numeroComprobante: '',
+        fechaEmisionDoc: fechaContable,
+        fechaVencimientoDoc: '',
+        glosaLinea: 'Por las operaciones contables del período',
+        debe: 0,
+        haber: 0,
+        debeUsd: 0,
+        haberUsd: 0,
+      },
+    ]);
+    success('Nuevo voucher contable iniciado en blanco.');
   };
 
   const handleGuardarBorrador = async () => {
-    if (isPeriodoCerrado) {
-      error('Operación bloqueada: El período contable seleccionado se encuentra CERRADO.', 'Período Cerrado');
+    try {
+      const payload = {
+        subdiario,
+        periodo,
+        fechaContable,
+        fechaDocumento: fechaEmisionDocRef,
+        moneda,
+        tipoCambio: tipoCambioVenta,
+        glosaGeneral,
+        detalles: filas.map((f) => ({
+          cuentaCodigo: f.codigoCuenta,
+          cuentaDenominacion: f.denominacion,
+          centroCosto: f.centroCosto || undefined,
+          anexoTipoDoc: f.anexoTipoDoc || undefined,
+          anexoNumDoc: f.anexoNumDoc || undefined,
+          anexoNombre: f.anexoNombre || undefined,
+          tipoComprobante: f.tipoComprobante || undefined,
+          serieComprobante: f.serieComprobante || undefined,
+          numeroComprobante: f.numeroComprobante || undefined,
+          fechaEmisionDoc: f.fechaEmisionDoc || undefined,
+          fechaVencimientoDoc: f.fechaVencimientoDoc || undefined,
+          debe: Number(f.debe) || 0,
+          haber: Number(f.haber) || 0,
+          glosaLinea: f.glosaLinea,
+        })),
+      };
+
+      await crearMutation.mutateAsync(payload);
+      refetch();
+      success(`Borrador de voucher guardado en base de datos.`);
+    } catch (err: any) {
+      error(`Error guardando borrador: ${err.message}`);
+    }
+  };
+
+  const handleContabilizar = async () => {
+    if (!puedeContabilizar) {
+      warning('El asiento debe cuadrar a cero y tener todas las cuentas imputables completas.');
       return;
     }
-
     try {
-      await crearMutation.mutateAsync({
-        periodoId: 'per-2026-09',
-        subdiarioId: modalSubdiario,
-        fecha: fechaVoucher,
-        glosa: glosaGeneral,
-        moneda: monedaVoucher,
-        tipoCambio: tipoCambioVoucher,
-        detalles: itemsVoucher.map(it => ({
-          linea: it.linea,
-          cuentaId: it.cuentaId || `cta-${it.codigo}`,
-          anexoId: it.anexoId || null,
-          debe: Number(it.debe) || 0,
-          haber: Number(it.haber) || 0,
-          glosaLinea: it.glosa
-        }))
-      });
+      // Si no existe id en base de datos, guardar borrador primero
+      let idTarget = asientoId;
+      if (!idTarget) {
+        const payload = {
+          subdiario,
+          periodo,
+          fechaContable,
+          fechaDocumento: fechaEmisionDocRef,
+          moneda,
+          tipoCambio: tipoCambioVenta,
+          glosaGeneral,
+          detalles: filas.map((f) => ({
+            cuentaCodigo: f.codigoCuenta,
+            cuentaDenominacion: f.denominacion,
+            centroCosto: f.centroCosto || undefined,
+            anexoTipoDoc: f.anexoTipoDoc || undefined,
+            anexoNumDoc: f.anexoNumDoc || undefined,
+            anexoNombre: f.anexoNombre || undefined,
+            tipoComprobante: f.tipoComprobante || undefined,
+            serieComprobante: f.serieComprobante || undefined,
+            numeroComprobante: f.numeroComprobante || undefined,
+            fechaEmisionDoc: f.fechaEmisionDoc || undefined,
+            fechaVencimientoDoc: f.fechaVencimientoDoc || undefined,
+            debe: Number(f.debe) || 0,
+            haber: Number(f.haber) || 0,
+            glosaLinea: f.glosaLinea,
+          })),
+        };
+        const res = await crearMutation.mutateAsync(payload);
+        idTarget = res.id;
+        setAsientoId(res.id);
+      }
 
-      setIsModalOpen(false);
+      const resCont = await contabilizarMutation.mutateAsync(idTarget);
+      setEstadoVoucher('CONTABILIZADO');
+      setCuoVoucher(resCont.cuo || `CUO-${numeroVoucher}`);
+      setFilas((prev) => prev.map((f) => ({ ...f, cuo: resCont.cuo || `CUO-${numeroVoucher}` })));
       refetch();
-      success('Asiento contable guardado exitosamente.', 'Asiento Guardado');
+      success(`Voucher contabilizado formalmente con CUO ${resCont.cuo || numeroVoucher}. Correlativo inmutable.`);
     } catch (err: any) {
-      error(`Error al guardar asiento: ${err.message}`, 'Fallo al Guardar');
+      error(`Error contabilizando asiento: ${err.message}`);
     }
   };
 
-  const handleContabilizarAsiento = async (id: string) => {
-    if (isPeriodoCerrado) {
-      error('No se puede contabilizar: El período se encuentra CERRADO.', 'Período Cerrado');
-      return;
-    }
-    try {
-      await contabilizarMutation.mutateAsync(id);
-      refetch();
-      success('Asiento contabilizado formalmente en el Libro Diario.', 'Asiento Contabilizado');
-    } catch (err: any) {
-      error(`Error al contabilizar: ${err.message}`, 'Fallo al Contabilizar');
-    }
-  };
-
-  const handleConfirmarAnulacion = async () => {
-    if (!asientoAAnularId) return;
-    try {
-      await anularMutation.mutateAsync({
-        id: asientoAAnularId,
-        motivo: motivoAnulacion
-      });
-      setIsAnularModalOpen(false);
-      setAsientoAAnularId(null);
-      setMotivoAnulacion('');
-      refetch();
-      success('Asiento contable anulado con registro en auditoría.', 'Asiento Anulado');
-    } catch (err: any) {
-      error(`Error al anular: ${err.message}`, 'Fallo al Anular');
-    }
-  };
-
-  const handleDuplicar = async (id: string) => {
-    try {
-      await duplicarMutation.mutateAsync(id);
-      refetch();
-      success('Asiento duplicado en estado borrador listo para edición.', 'Asiento Duplicado');
-    } catch (err: any) {
-      error(`Error al duplicar: ${err.message}`, 'Fallo al Duplicar');
-    }
-  };
+  // Asiento para el Visor de Reporte Estándar
+  const definicionVoucherReporte = useMemo(() => {
+    return construirDefinicionVoucherContableEstandar(empresaActual, {
+      numeroAsiento: numeroVoucher,
+      subdiario,
+      fechaContable,
+      periodo,
+      glosaGeneral,
+      lineas: filas.map((f) => ({
+        linea: f.linea,
+        cuentaCodigo: f.codigoCuenta,
+        cuentaDenominacion: f.denominacion,
+        centroCosto: f.centroCosto,
+        docSerie: f.serieComprobante,
+        docNumero: f.numeroComprobante,
+        anexoNumDoc: f.anexoNumDoc,
+        glosa: f.glosaLinea,
+        debe: f.debe,
+        haber: f.haber,
+      })),
+    });
+  }, [empresaActual, numeroVoucher, subdiario, fechaContable, periodo, glosaGeneral, filas]);
 
   return (
-    <div className="space-y-6">
-      {/* Alerta de Período Cerrado */}
-      {isPeriodoCerrado && (
-        <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-3">
-            <Lock className="w-5 h-5 text-rose-600" />
-            <div>
-              <h4 className="font-extrabold text-rose-950 text-sm">Período Contable {periodo} CERRADO</h4>
-              <p className="text-xs text-rose-800">
-                Las operaciones de creación, edición, contabilización y anulación están bloqueadas para garantizar la inmutabilidad de los libros oficiales.
-              </p>
-            </div>
-          </div>
-          <span className="px-3 py-1 rounded-full bg-rose-200 text-rose-900 font-bold text-xs">
-            Modo Solo Lectura
-          </span>
+    <div className="flex flex-col h-[calc(100vh-125px)] min-h-[600px] bg-slate-200 border border-slate-300 rounded-none shadow-xs overflow-hidden">
+      {/* Selector de Modo: Captura de Escritorio vs Historial de Vouchers */}
+      <div className="bg-slate-800 text-white px-3 py-1 flex items-center justify-between border-b border-slate-700 text-xs font-mono">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-amber-400">ATLOB ERP CONTABLE</span>
+          <span className="text-slate-400">|</span>
+          <span className="text-white font-semibold">MÓDULO DE ASIENTOS Y VOUCHERS CONTABLES</span>
         </div>
-      )}
-
-      {/* Top Banner with Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-blue-600" />
-            Gestión de Vouchers & Asientos Contables
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Registro con partida doble en tiempo real, asignación atómica de correlativos, bloqueo de período y asientos de extorno.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => refetch()}
-            className="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-            title="Refrescar datos del servidor"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Actualizar
-          </button>
-
-          <button
-            onClick={() => setIsModalOpen(true)}
-            disabled={isPeriodoCerrado}
-            className={`px-4 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition ${
-              isPeriodoCerrado 
-                ? 'bg-slate-400 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+            onClick={() => setVistaModo('CAPTURA')}
+            className={`px-2.5 py-0.5 text-xs font-bold cursor-pointer transition ${
+              vistaModo === 'CAPTURA' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white'
             }`}
           >
-            <Plus className="w-4 h-4" />
-            Nuevo Voucher (F10)
+            [F2/F10] Captura de Voucher
+          </button>
+          <button
+            onClick={() => setVistaModo('HISTORIAL')}
+            className={`px-2.5 py-0.5 text-xs font-bold cursor-pointer transition ${
+              vistaModo === 'HISTORIAL' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white'
+            }`}
+          >
+            [F3] Lista de Asientos ({listaAsientos.length})
           </button>
         </div>
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative min-w-[240px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Buscar por correlativo o glosa..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            />
+      {/* Vista de Captura de Voucher (Ventana de Escritorio de Alta Densidad) */}
+      {vistaModo === 'CAPTURA' ? (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* 1. Header con Toolbar */}
+          <VoucherHeader
+            empresaRazonSocial={empresaActual.razonSocial}
+            empresaRuc={empresaActual.ruc}
+            periodo={periodo}
+            usuarioNombre={usuarioNombre}
+            subdiario={subdiario}
+            numeroVoucher={numeroVoucher}
+            fechaContable={fechaContable}
+            fechaEmisionDocRef={fechaEmisionDocRef}
+            moneda={moneda}
+            tipoCambioCompra={tipoCambioCompra}
+            tipoCambioVenta={tipoCambioVenta}
+            glosaGeneral={glosaGeneral}
+            estado={estadoVoucher}
+            cuo={cuoVoucher}
+            isPeriodoCerrado={isPeriodoCerrado}
+            onSubdiarioChange={setSubdiario}
+            onNumeroVoucherChange={setNumeroVoucher}
+            onFechaContableChange={setFechaContable}
+            onFechaEmisionDocRefChange={setFechaEmisionDocRef}
+            onMonedaChange={setMoneda}
+            onActualizarTipoCambio={() => {
+              setTipoCambioCompra(3.748);
+              setTipoCambioVenta(3.752);
+              success('Tipo de cambio SBS actualizado.');
+            }}
+            onGlosaGeneralChange={setGlosaGeneral}
+            onNuevo={handleNuevoVoucher}
+            onGuardarBorrador={handleGuardarBorrador}
+            onContabilizar={handleContabilizar}
+            onImprimirVoucher={() => setIsPrintModalOpen(true)}
+            onBuscar={() => setVistaModo('HISTORIAL')}
+            onSeleccionarPlantilla={handleSeleccionarPlantilla}
+            puedeContabilizar={puedeContabilizar}
+          />
+
+          {/* 2. Cuadrícula de 16 Columnas (Alta Densidad: 22-24px) */}
+          <VoucherGrid
+            filas={filas}
+            moneda={moneda}
+            tipoCambioVenta={tipoCambioVenta}
+            readOnly={estadoVoucher === 'CONTABILIZADO'}
+            activeCell={activeCell}
+            onActiveCellChange={setActiveCell}
+            onFilaChange={handleFilaChange}
+            onEliminarFila={handleEliminarFila}
+            onAgregarFila={handleAgregarFila}
+            onOpenF2Catalogo={handleOpenF2Catalogo}
+            erroresValidacionPorFila={erroresPorFila}
+          />
+
+          {/* 3. Totales de Partida Doble */}
+          <VoucherTotals
+            totalDebePen={totalDebePen}
+            totalHaberPen={totalHaberPen}
+            diferenciaPen={diferenciaPen}
+            totalDebeUsd={totalDebeUsd}
+            totalHaberUsd={totalHaberUsd}
+            diferenciaUsd={diferenciaUsd}
+            moneda={moneda}
+            estaCuadrado={estaCuadrado}
+            cantidadLineas={filas.length}
+          />
+
+          {/* 4. Barra de Estado de Escritorio */}
+          <VoucherStatusBar
+            empresaRuc={empresaActual.ruc}
+            empresaRazonSocial={empresaActual.razonSocial}
+            periodo={periodo}
+            usuarioNombre={usuarioNombre}
+            usuarioRol={usuarioRol}
+            tipoCambioVenta={tipoCambioVenta}
+            primerErrorValidacion={primerError}
+            mensajeEstado={
+              estadoVoucher === 'CONTABILIZADO'
+                ? `Voucher contabilizado con CUO ${cuoVoucher || numeroVoucher}. Correlativo inmutable.`
+                : undefined
+            }
+          />
+        </div>
+      ) : (
+        /* Vista de Historial de Asientos */
+        <div className="flex-1 p-4 bg-white overflow-y-auto">
+          <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2">
+            <h2 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-blue-600" />
+              Lista de Asientos Registrados en el Período {periodo}
+            </h2>
+            <button
+              onClick={() => {
+                handleNuevoVoucher();
+                setVistaModo('CAPTURA');
+              }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nuevo Voucher [F10]</span>
+            </button>
           </div>
 
-          {/* Subdiario Selector */}
-          <select
-            value={subdiarioFiltro}
-            onChange={(e) => setSubdiarioFiltro(e.target.value)}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none"
-          >
-            <option value="TODOS">Todos los Subdiarios (00 - 09)</option>
-            {SUBDIARIOS_ESTANDAR.map(s => (
-              <option key={s.codigo} value={s.codigo}>{s.descripcion}</option>
-            ))}
-          </select>
-
-          {/* Estado Selector */}
-          <select
-            value={estadoFiltro}
-            onChange={(e) => setEstadoFiltro(e.target.value)}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none"
-          >
-            <option value="TODOS">Todos los Estados</option>
-            <option value="CONTABILIZADO">Solo Contabilizados</option>
-            <option value="BORRADOR">Solo Borradores</option>
-            <option value="ANULADO">Solo Anulados</option>
-          </select>
-        </div>
-
-        <div className="text-xs text-slate-500 font-medium">
-          Total Vouchers: <strong className="text-slate-900">{asientos.length}</strong>
-        </div>
-      </div>
-
-      {/* Vouchers Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left border-collapse">
+          <table className="w-full border-collapse font-mono text-xs">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Correlativo</th>
-                <th className="py-3 px-3">Subdiario</th>
-                <th className="py-3 px-3">Fecha</th>
-                <th className="py-3 px-4">Glosa Principal</th>
-                <th className="py-3 px-3 text-right">Total Debe</th>
-                <th className="py-3 px-3 text-right">Total Haber</th>
-                <th className="py-3 px-3 text-center">Estado</th>
-                <th className="py-3 px-4 text-center">Acciones</th>
+              <tr className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold">
+                <th className="p-2 text-center">Nº Voucher</th>
+                <th className="p-2 text-center">Subd</th>
+                <th className="p-2 text-center">Fecha</th>
+                <th className="p-2 text-left">Glosa General</th>
+                <th className="p-2 text-right">Debe (S/)</th>
+                <th className="p-2 text-right">Haber (S/)</th>
+                <th className="p-2 text-center">Estado</th>
+                <th className="p-2 text-center">CUO</th>
+                <th className="p-2 text-center">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {isLoading ? (
+            <tbody>
+              {listaAsientos.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    <div className="flex items-center justify-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                      <span>Cargando vouchers desde la base de datos...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : asientos.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    No se encontraron vouchers registrados con los filtros aplicados.
+                  <td colSpan={9} className="p-8 text-center text-slate-400 font-sans">
+                    No hay asientos registrados en este período. Haga clic en &quot;Nuevo Voucher&quot; para registrar operaciones.
                   </td>
                 </tr>
               ) : (
-                asientos.map((a: any) => (
-                  <tr key={a.id} className="hover:bg-slate-50/80 transition group">
-                    <td className="py-3 px-4 font-mono font-bold text-blue-900">
-                      {a.numero || <span className="text-amber-600 font-sans italic font-normal">[Borrador sin número]</span>}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100 font-mono font-semibold text-slate-700">
-                        {a.subdiarioCodigo || a.subdiarioId || '01'}
+                listaAsientos.map((a: any) => (
+                  <tr key={a.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="p-2 text-center font-bold">{a.numero}</td>
+                    <td className="p-2 text-center">{a.subdiario}</td>
+                    <td className="p-2 text-center">{a.fechaContable}</td>
+                    <td className="p-2 font-sans text-slate-800">{a.glosaGeneral}</td>
+                    <td className="p-2 text-right font-bold">{Number(a.totalDebe || 0).toFixed(2)}</td>
+                    <td className="p-2 text-right font-bold">{Number(a.totalHaber || 0).toFixed(2)}</td>
+                    <td className="p-2 text-center">
+                      <span className={`px-2 py-0.5 text-[10px] font-bold ${
+                        a.estado === 'CONTABILIZADO' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {a.estado}
                       </span>
                     </td>
-                    <td className="py-3 px-3 font-mono text-slate-600">
-                      {a.fecha}
-                    </td>
-                    <td className="py-3 px-4 max-w-xs truncate" title={a.glosa}>
-                      {a.glosa}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-right font-bold text-slate-900">
-                      S/ {Number(a.totalDebe || 0).toFixed(2)}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-right font-bold text-slate-900">
-                      S/ {Number(a.totalHaber || 0).toFixed(2)}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      {a.estado === 'CONTABILIZADO' && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                          Contabilizado
-                        </span>
-                      )}
-                      {a.estado === 'BORRADOR' && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                          Borrador
-                        </span>
-                      )}
-                      {a.estado === 'ANULADO' && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800" title={`Extorno: ${a.asientoExtornoId}`}>
-                          Anulado (Extorno)
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {a.estado === 'BORRADOR' && !isPeriodoCerrado && (
-                          <button
-                            onClick={() => handleContabilizarAsiento(a.id)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition cursor-pointer"
-                            title="Contabilizar asiento y asignar correlativo atómico"
-                          >
-                            Contabilizar
-                          </button>
-                        )}
-
-                        {a.estado === 'CONTABILIZADO' && !isPeriodoCerrado && (
-                          <button
-                            onClick={() => {
-                              setAsientoAAnularId(a.id);
-                              setIsAnularModalOpen(true);
-                            }}
-                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                            title="Anular asiento mediante asiento de extorno"
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => handleDuplicar(a.id)}
-                          className="p-1 rounded-lg text-slate-500 hover:bg-slate-100 transition cursor-pointer"
-                          title="Duplicar asiento como nuevo borrador"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                      </div>
+                    <td className="p-2 text-center text-slate-500">{a.cuo || '-'}</td>
+                    <td className="p-2 text-center">
+                      <button
+                        onClick={() => {
+                          setAsientoId(a.id);
+                          setSubdiario(a.subdiario);
+                          setNumeroVoucher(a.numero);
+                          setFechaContable(a.fechaContable);
+                          setGlosaGeneral(a.glosaGeneral);
+                          setEstadoVoucher(a.estado);
+                          setCuoVoucher(a.cuo);
+                          if (a.detalles && a.detalles.length > 0) {
+                            setFilas(
+                              a.detalles.map((d: any, idx: number) => ({
+                                linea: idx + 1,
+                                codigoCuenta: d.cuentaCodigo || d.cuentaId,
+                                denominacion: d.cuentaDenominacion || '',
+                                centroCosto: d.centroCosto || '',
+                                anexoTipoDoc: d.anexoTipoDoc || '6',
+                                anexoNumDoc: d.anexoNumDoc || '',
+                                anexoNombre: d.anexoNombre || '',
+                                tipoComprobante: d.tipoComprobante || '01',
+                                serieComprobante: d.serieComprobante || '',
+                                numeroComprobante: d.numeroComprobante || '',
+                                fechaEmisionDoc: d.fechaEmisionDoc || a.fechaContable,
+                                fechaVencimientoDoc: d.fechaVencimientoDoc || '',
+                                glosaLinea: d.glosaLinea || a.glosaGeneral,
+                                debe: Number(d.debe) || 0,
+                                haber: Number(d.haber) || 0,
+                                debeUsd: 0,
+                                haberUsd: 0,
+                                cuo: a.cuo,
+                              }))
+                            );
+                          }
+                          setVistaModo('CAPTURA');
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-blue-100 text-blue-700 font-bold text-xs cursor-pointer"
+                      >
+                        Abrir
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -464,313 +767,22 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Modal de Ingreso de Voucher Ergonómico */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
-                  <Calculator className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                    Ingreso de Voucher Contable (Partida Doble)
-                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono">
-                      Subdiario {modalSubdiario}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Atajos: [Tab/Enter] avanzar celda, [F2] catálogo PCGE, [Ctrl+Enter] guardar borrador.
-                  </p>
-                </div>
-              </div>
-
-              {/* Botones de Plantillas Rápidas */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-500 mr-1">Plantilla:</span>
-                <button
-                  type="button"
-                  onClick={() => aplicarPlantillaBackend('COMPRA_MERCADERIA')}
-                  className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 transition"
-                >
-                  Compra Mercadería
-                </button>
-                <button
-                  type="button"
-                  onClick={() => aplicarPlantillaBackend('COMPRA_SERVICIO')}
-                  className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 transition"
-                >
-                  Servicio (94/95)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => aplicarPlantillaBackend('VENTA')}
-                  className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 transition"
-                >
-                  Venta (12/40/70)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => aplicarPlantillaBackend('HONORARIO')}
-                  className="px-2 py-1 rounded bg-slate-100 hover:bg-blue-50 text-[11px] font-semibold text-slate-700 transition"
-                >
-                  Honorarios 4ta
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
-              {/* Cabecera del Voucher */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200 text-xs">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Subdiario</label>
-                  <select
-                    value={modalSubdiario}
-                    onChange={(e) => setModalSubdiario(e.target.value as CodigoSubdiario)}
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl font-medium"
-                  >
-                    {SUBDIARIOS_ESTANDAR.map(s => (
-                      <option key={s.codigo} value={s.codigo}>{s.descripcion}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Fecha Contable</label>
-                  <input
-                    type="date"
-                    value={fechaVoucher}
-                    onChange={(e) => setFechaVoucher(e.target.value)}
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Moneda & Tipo Cambio</label>
-                  <div className="flex gap-2">
-                    <select
-                      value={monedaVoucher}
-                      onChange={(e) => setMonedaVoucher(e.target.value as any)}
-                      className="w-1/2 p-2 bg-white border border-slate-200 rounded-xl font-semibold"
-                    >
-                      <option value="PEN">PEN (Soles)</option>
-                      <option value="USD">USD (Dólares)</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={tipoCambioVoucher}
-                      onChange={(e) => setTipoCambioVoucher(parseFloat(e.target.value))}
-                      className="w-1/2 p-2 bg-white border border-slate-200 rounded-xl font-mono text-right"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Glosa Principal</label>
-                  <input
-                    type="text"
-                    value={glosaGeneral}
-                    onChange={(e) => setGlosaGeneral(e.target.value)}
-                    placeholder="Glosa general del voucher..."
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              {/* Grilla Detalle de Cuentas */}
-              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-700 uppercase font-semibold text-[10px]">
-                    <tr>
-                      <th className="py-2.5 px-3 w-10 text-center">#</th>
-                      <th className="py-2.5 px-3 w-28">Cuenta PCGE</th>
-                      <th className="py-2.5 px-3">Denominación</th>
-                      <th className="py-2.5 px-3 w-32 text-right">Debe (S/)</th>
-                      <th className="py-2.5 px-3 w-32 text-right">Haber (S/)</th>
-                      <th className="py-2.5 px-3">Glosa Línea</th>
-                      <th className="py-2.5 px-2 w-10 text-center"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {itemsVoucher.map((it, idx) => (
-                      <tr key={idx} className="hover:bg-blue-50/40 transition">
-                        <td className="py-2 px-3 font-mono text-center text-slate-400">{it.linea}</td>
-                        <td className="py-1 px-3">
-                          <input
-                            type="text"
-                            value={it.codigo}
-                            onFocus={() => setActiveRowIdx(idx)}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setItemsVoucher(prev => prev.map((item, i) => i === idx ? { ...item, codigo: val } : item));
-                            }}
-                            className="w-full p-1.5 font-mono font-bold bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
-                          />
-                        </td>
-                        <td className="py-1 px-3 font-medium text-slate-700 truncate max-w-[200px]">
-                          {it.denominacion || 'Cuenta analítica PCGE'}
-                        </td>
-                        <td className="py-1 px-3 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={it.debe || ''}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setItemsVoucher(prev => prev.map((item, i) => i === idx ? { ...item, debe: val, haber: val > 0 ? 0 : item.haber } : item));
-                            }}
-                            className="w-full p-1.5 font-mono text-right bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-900"
-                          />
-                        </td>
-                        <td className="py-1 px-3 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={it.haber || ''}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setItemsVoucher(prev => prev.map((item, i) => i === idx ? { ...item, haber: val, debe: val > 0 ? 0 : item.debe } : item));
-                            }}
-                            className="w-full p-1.5 font-mono text-right bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-900"
-                          />
-                        </td>
-                        <td className="py-1 px-3">
-                          <input
-                            type="text"
-                            value={it.glosa}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setItemsVoucher(prev => prev.map((item, i) => i === idx ? { ...item, glosa: val } : item));
-                            }}
-                            className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
-                          />
-                        </td>
-                        <td className="py-1 px-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleQuitarLinea(idx)}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={handleAgregarLinea}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Agregar Línea
-                </button>
-
-                {/* Semáforo de Cuadre */}
-                <div className="flex items-center gap-6 bg-slate-50 px-5 py-2.5 rounded-2xl border border-slate-200 font-mono text-xs">
-                  <div>
-                    <span className="text-slate-500 mr-2">TOTAL DEBE:</span>
-                    <strong className="text-slate-900 text-sm">S/ {totalDebe.toFixed(2)}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 mr-2">TOTAL HABER:</span>
-                    <strong className="text-slate-900 text-sm">S/ {totalHaber.toFixed(2)}</strong>
-                  </div>
-                  <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
-                    {estaCuadradoModal ? (
-                      <span className="flex items-center gap-1 text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded">
-                        <CheckCircle2 className="w-4 h-4" /> CUADRADO
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-rose-700 font-bold bg-rose-100 px-2 py-0.5 rounded">
-                        <AlertCircle className="w-4 h-4" /> DESCUADRE: S/ {diferencia.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between bg-slate-50">
-              <span className="text-xs text-slate-400">
-                Presiona <strong>Ctrl + Enter</strong> para guardar el borrador.
-              </span>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleGuardarBorrador}
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-sm cursor-pointer"
-                >
-                  Guardar Borrador
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
-      {/* Modal de Anulación y Extorno */}
-      {isAnularModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200">
-            <div className="flex items-center gap-3 text-rose-600">
-              <Ban className="w-6 h-6" />
-              <h3 className="font-bold text-slate-900 text-base">Anular Asiento Contable</h3>
-            </div>
-            <p className="text-xs text-slate-600">
-              Los asientos contabilizados son inmutables. La anulación generará automáticamente un <strong>Asiento de Extorno</strong> que invierte las cuentas y dejará ambos registros auditados.
-            </p>
-            <div>
-              <label className="font-semibold text-slate-700 text-xs block mb-1">Motivo de Anulación (Obligatorio)</label>
-              <textarea
-                value={motivoAnulacion}
-                onChange={(e) => setMotivoAnulacion(e.target.value)}
-                placeholder="Detalle el motivo del error o anulación..."
-                rows={3}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-              />
-            </div>
-            <div className="flex justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAnularModalOpen(false);
-                  setAsientoAAnularId(null);
-                }}
-                className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarAnulacion}
-                disabled={!motivoAnulacion.trim()}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-bold transition"
-              >
-                Confirmar Anulación & Extorno
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Diálogo F2 de Catálogo PCGE */}
+      <CatalogoCuentasDialog
+        isOpen={isCatalogoOpen}
+        onClose={() => setIsCatalogoOpen(false)}
+        onSelectCuenta={handleSelectCuenta}
+      />
+
+      {/* Modal de Impresión Oficial en Formato Estándar */}
+      {isPrintModalOpen && (
+        <VisorReporteModal
+          isOpen={isPrintModalOpen}
+          onClose={() => setIsPrintModalOpen(false)}
+          definicion={definicionVoucherReporte}
+        />
       )}
     </div>
   );

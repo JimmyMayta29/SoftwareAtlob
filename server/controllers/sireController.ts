@@ -2,15 +2,12 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { sireService } from '../services/sireService';
 import { conciliadorSireService } from '../services/conciliadorSireService';
-import { xmlImportService } from '../services/xmlImportService';
-import { pleExportService } from '../services/pleExportService';
-import { sunatJobsService } from '../services/sunatJobsService';
+import { sireLayoutService } from '../services/sireLayoutService';
+import { archivoValidadorService } from '../services/archivoValidadorService';
+import { historialGeneracionesService } from '../services/historialGeneracionesService';
 import { empresaDemoService } from '../services/empresaDemoService';
 import { successResponse, errorResponse } from '../utils/response';
 
-// ============================================================================
-// ESQUEMAS DE VALIDACIÓN ZOD
-// ============================================================================
 export const conexionSunatSchema = z.object({
   ruc: z.string().length(11, 'El RUC debe contener exactamente 11 dígitos'),
   usuarioSol: z.string().min(1, 'El usuario SOL es obligatorio'),
@@ -25,31 +22,42 @@ export const descargarSireSchema = z.object({
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM')
 });
 
+export const solicitarTicketSchema = z.object({
+  tipo: z.enum(['COMPRAS', 'VENTAS']),
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM')
+});
+
+export const consultarTicketSchema = z.object({
+  tipo: z.enum(['COMPRAS', 'VENTAS']),
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
+  numTicket: z.string().min(1, 'Número de ticket requerido')
+});
+
+export const importarPropuestaManualSchema = z.object({
+  tipo: z.enum(['COMPRAS', 'VENTAS']),
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
+  nombreArchivo: z.string().min(1),
+  contenidoBase64: z.string().min(1)
+});
+
 export const aplicarConciliacionSchema = z.object({
   accion: z.enum(['ACEPTAR', 'OBSERVAR', 'IGNORAR']),
   lineasIds: z.array(z.string()).min(1, 'Debe especificar al menos una línea'),
   motivo: z.string().optional()
 });
 
-export const importarXmlSchema = z.object({
-  archivos: z.array(z.object({
-    nombre: z.string().min(1),
-    contenidoBase64: z.string().min(1)
-  })).min(1, 'Debe adjuntar al menos un archivo XML')
-});
-
-export const exportarPleSchema = z.object({
-  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
-  codigoLibro: z.string().min(1, 'Código de libro requerido'),
-  ruc: z.string().length(11).optional()
+export const asientoAjusteSchema = z.object({
+  cuentaAjuste: z.string().optional()
 });
 
 export const guardarReglaProveedorSchema = z.object({
   proveedorRuc: z.string().length(11, 'El RUC debe tener 11 dígitos'),
-  proveedorRazonSocial: z.string().min(2),
-  destinoCompra: z.enum(['DESTINO_1', 'DESTINO_2', 'DESTINO_3', 'DESTINO_4']),
-  cuentaGasto: z.string().min(2),
-  centroCostoId: z.string().optional()
+  proveedorRazonSocial: z.string().min(2).optional().default('PROVEEDOR S.A.C.'),
+  destinoCompra: z.string(),
+  cuentaGasto: z.string().optional(),
+  cuentaContableDefault: z.string().optional(),
+  centroCostoId: z.string().optional(),
+  centroCostoDefault: z.string().optional()
 });
 
 export const aceptarPropuestaOficialSchema = z.object({
@@ -60,7 +68,8 @@ export const aceptarPropuestaOficialSchema = z.object({
 export const reemplazarPropuestaOficialSchema = z.object({
   tipo: z.enum(['COMPRAS', 'VENTAS']),
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
-  comprobantesReemplazo: z.array(z.any()).default([])
+  comprobantesReemplazo: z.array(z.any()).optional().default([]),
+  archivoContenidoTxt: z.string().optional()
 });
 
 export const ajustePosteriorSchema = z.object({
@@ -73,11 +82,13 @@ export const revertirLineaSchema = z.object({
   motivo: z.string().min(3, 'Debe especificar el motivo de la reversión')
 });
 
-// ============================================================================
-// CONTROLADOR
-// ============================================================================
-export const sunatSirePleController = {
-  // 1. CONEXIÓN Y CREDENCIALES
+export const validarSireTxtSchema = z.object({
+  contenidoTxt: z.string().min(1, 'Contenido del archivo TXT requerido'),
+  tipoLayout: z.enum(['RCE_REEMPLAZO', 'RVIE_REEMPLAZO', 'RCE_AJUSTE', 'RVIE_AJUSTE'])
+});
+
+export const sireController = {
+  // 1. Conexión y credenciales
   async guardarConexion(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
@@ -113,38 +124,95 @@ export const sunatSirePleController = {
     }
   },
 
-  // 2. SIRE (DESCARGA Y PROPUESTAS)
+  // 2. Descargas SIRE REST y Tickets
+  async solicitarTicket(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      empresaDemoService.validarOperacionOficialPermitida(empresaId, 'SIRE_ENVIO');
+      const data = solicitarTicketSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const result = await sireService.solicitarDescargaTicket(empresaId, data.tipo, data.periodo, userId);
+      return successResponse(res, result, 'Ticket de descarga SIRE solicitado ante SUNAT.', 202);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async consultarTicket(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const data = consultarTicketSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const result = await sireService.consultarTicketDescarga(empresaId, data.tipo, data.periodo, data.numTicket, userId);
+      return successResponse(res, result);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
   async descargarPropuesta(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
       empresaDemoService.validarOperacionOficialPermitida(empresaId, 'SIRE_ENVIO');
       const data = descargarSireSchema.parse(req.body);
-      const tipoTrabajo = data.tipo === 'COMPRAS' ? 'DESCARGA_SIRE_COMPRAS' : 'DESCARGA_SIRE_VENTAS';
-      const job = sunatJobsService.crearJob(empresaId, tipoTrabajo, { periodo: data.periodo });
-      return successResponse(res, { jobId: job.id, estado: job.estado }, 'Trabajo de descarga SIRE encolado', 202);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const propuesta = await sireService.descargarPropuesta(empresaId, data.tipo, data.periodo, userId);
+
+      await historialGeneracionesService.registrarGeneracion({
+        empresaId,
+        periodo: data.periodo,
+        modulo: 'SIRE',
+        tipoOperacion: 'PROPUESTA_DESCARGA',
+        subtipo: data.tipo,
+        nombreArchivo: `PROPUESTA_${data.tipo}_${data.periodo}.txt`,
+        hashSha256: propuesta.hashArchivo,
+        totalRegistros: propuesta.totalRegistros,
+        totalImporte: propuesta.totalImporte,
+        esOficial: true,
+        usuarioId: userId
+      });
+
+      return successResponse(res, propuesta, 'Propuesta SIRE descargada exitosamente.');
     } catch (err: any) {
       return errorResponse(res, err.message);
     }
   },
 
-  async consultarJob(req: Request, res: Response) {
+  async importarPropuestaManual(req: Request, res: Response) {
     try {
-      const jobId = req.params.id;
-      const job = sunatJobsService.obtenerJob(jobId);
-      if (!job || job.empresaId !== req.empresaId) return errorResponse(res, 'JOB_NO_ENCONTRADO: El trabajo solicitado no existe.', 404);
-      return successResponse(res, job);
+      const empresaId = req.params.id;
+      const data = importarPropuestaManualSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const buffer = Buffer.from(data.contenidoBase64, 'base64');
+      const propuesta = await sireService.importarPropuestaManual(empresaId, data.tipo, data.periodo, buffer, data.nombreArchivo, userId);
+
+      await historialGeneracionesService.registrarGeneracion({
+        empresaId,
+        periodo: data.periodo,
+        modulo: 'SIRE',
+        tipoOperacion: 'PROPUESTA_MANUAL',
+        subtipo: data.tipo,
+        nombreArchivo: data.nombreArchivo,
+        hashSha256: propuesta.hashArchivo,
+        totalRegistros: propuesta.totalRegistros,
+        totalImporte: propuesta.totalImporte,
+        esOficial: true,
+        usuarioId: userId
+      });
+
+      return successResponse(res, propuesta, 'Propuesta manual SIRE importada exitosamente.');
     } catch (err: any) {
       return errorResponse(res, err.message);
     }
   },
 
-  // 3. CONCILIACIÓN SIRE
+  // 3. Conciliación SIRE
   async obtenerConciliacion(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
       const tipo = (req.query.tipo as any) || 'COMPRAS';
       const periodo = (req.query.periodo as string) || '2026-09';
-      const tolerancia = req.query.tolerancia ? parseFloat(req.query.tolerancia as string) : 0.05;
+      const tolerancia = req.query.tolerancia ? parseFloat(req.query.tolerancia as string) : undefined;
 
       const resultado = await conciliadorSireService.conciliarPeriodo(empresaId, tipo, periodo, { toleranciaImporte: tolerancia });
       return successResponse(res, resultado);
@@ -172,87 +240,61 @@ export const sunatSirePleController = {
     }
   },
 
-  // 4. IMPORTACIÓN XML / CDR
-  async importarXml(req: Request, res: Response) {
+  async generarAsientoAjuste(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
-      const data = importarXmlSchema.parse(req.body);
+      const lineaId = req.params.lineaId;
+      const data = asientoAjusteSchema.parse(req.body);
       const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
 
-      const archivos = data.archivos.map(a => ({
-        nombre: a.nombre,
-        buffer: Buffer.from(a.contenidoBase64, 'base64')
-      }));
+      const resultado = await conciliadorSireService.generarAsientoAjusteDiferencia(
+        empresaId,
+        lineaId,
+        userId,
+        data.cuentaAjuste
+      );
+      return successResponse(res, resultado, 'Asiento de ajuste generado con éxito.');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
 
-      const resultado = await xmlImportService.importarLote(empresaId, archivos, userId);
+  async revertirAceptacionLinea(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const lineaId = req.params.lineaId;
+      const data = revertirLineaSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const resultado = await conciliadorSireService.revertirAceptacionPropuesta(
+        empresaId,
+        lineaId,
+        data.motivo,
+        userId
+      );
       return successResponse(res, resultado);
     } catch (err: any) {
       return errorResponse(res, err.message);
     }
   },
 
-  async listarComprobantesXml(req: Request, res: Response) {
-    try {
-      const empresaId = req.params.id;
-      const items = await xmlImportService.listarComprobantesXml(empresaId);
-      return successResponse(res, items);
-    } catch (err: any) {
-      return errorResponse(res, err.message);
-    }
-  },
-
-  // 5. LIBROS ELECTRÓNICOS PLE
-  async listarLibrosPle(req: Request, res: Response) {
-    try {
-      const libros = pleExportService.listarLibrosConfig();
-      return successResponse(res, libros);
-    } catch (err: any) {
-      return errorResponse(res, err.message);
-    }
-  },
-
-  async exportarPle(req: Request, res: Response) {
-    try {
-      const empresaId = req.params.id;
-      empresaDemoService.validarOperacionOficialPermitida(empresaId, 'PLE_ENVIO');
-      const data = exportarPleSchema.parse(req.body);
-      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
-
-      const job = sunatJobsService.crearJob(empresaId, 'GENERACION_PLE', {
-        periodo: data.periodo,
-        codigoLibro: data.codigoLibro,
-        ruc: data.ruc
-      });
-
-      return successResponse(res, { jobId: job.id, estado: job.estado }, 'Generación de archivo PLE encolada.', 202);
-    } catch (err: any) {
-      return errorResponse(res, err.message);
-    }
-  },
-
-  async obtenerExportacionPle(req: Request, res: Response) {
-    try {
-      const id = req.params.id;
-      const exportacion = pleExportService.obtenerExportacion(id);
-      if (!exportacion || exportacion.empresaId !== req.empresaId) return errorResponse(res, 'EXPORTACION_NO_ENCONTRADA', 404);
-      return successResponse(res, exportacion);
-    } catch (err: any) {
-      return errorResponse(res, err.message);
-    }
-  },
-
-  // 6. REGLAS DE PROVEEDOR SIRE (FASE 9.2)
+  // 4. Reglas de proveedor
   async guardarReglaProveedor(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
       const data = guardarReglaProveedorSchema.parse(req.body);
+      const destinoNorm = data.destinoCompra.startsWith('DESTINO_')
+        ? data.destinoCompra as any
+        : `DESTINO_${data.destinoCompra}` as any;
+      const cuenta = data.cuentaGasto || data.cuentaContableDefault || '60111';
+      const cc = data.centroCostoId || data.centroCostoDefault;
+
       const resultado = await conciliadorSireService.guardarReglaProveedor(empresaId, {
         empresaId,
         proveedorRuc: data.proveedorRuc,
         proveedorRazonSocial: data.proveedorRazonSocial,
-        destinoCompra: data.destinoCompra,
-        cuentaGasto: data.cuentaGasto,
-        centroCostoId: data.centroCostoId,
+        destinoCompra: destinoNorm,
+        cuentaGasto: cuenta,
+        centroCostoId: cc,
         formaPagoDefault: 'CONTADO',
         aprobacionAutomatica: true
       });
@@ -272,7 +314,7 @@ export const sunatSirePleController = {
     }
   },
 
-  // 7. CIERRE OFICIAL SIRE Y AJUSTES POSTERIORES (FASE 9.3)
+  // 5. Cierre, Reemplazo y Ajustes SIRE
   async aceptarPropuestaOficial(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
@@ -323,21 +365,27 @@ export const sunatSirePleController = {
     }
   },
 
-  async revertirAceptacionLinea(req: Request, res: Response) {
+  // 6. Validación de archivos planos SIRE
+  async validarTxtSire(req: Request, res: Response) {
+    try {
+      const data = validarSireTxtSchema.parse(req.body);
+      const resultado = sireLayoutService.validarLayoutTxt(data.contenidoTxt, data.tipoLayout);
+      return successResponse(res, resultado);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  // 7. Historial SIRE
+  async listarHistorial(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
-      const lineaId = req.params.lineaId;
-      const data = revertirLineaSchema.parse(req.body);
-      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
-      const resultado = await conciliadorSireService.revertirAceptacionPropuesta(
-        empresaId,
-        lineaId,
-        data.motivo,
-        userId
-      );
-      return successResponse(res, resultado);
+      const periodo = req.query.periodo as string | undefined;
+      const historial = historialGeneracionesService.listarPorEmpresa(empresaId, { modulo: 'SIRE', periodo });
+      return successResponse(res, historial);
     } catch (err: any) {
       return errorResponse(res, err.message);
     }
   }
 };
+
