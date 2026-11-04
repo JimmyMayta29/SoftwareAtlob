@@ -1,3 +1,4 @@
+import { empresaRepository } from '../repositories/empresaRepository';
 import { Money } from '../utils/decimal';
 import { db } from '../config/database';
 
@@ -90,6 +91,42 @@ export interface ResultadoPrevisualizacion {
   totalHaber: number;
   cuadrado: boolean;
   diferencia: number;
+}
+
+
+export interface CompraAutomatizadaInput {
+  proveedorId: string;
+  docTipo: string;
+  docSerie: string;
+  docNumero: string;
+  fechaEmision: string;
+  fechaContable?: string;
+  baseImponible: number;
+  cuentaCompra?: string;
+  destino: '1' | '2' | '3' | '4';
+  moneda?: 'PEN' | 'USD';
+  tipoCambio?: number;
+  tieneDetraccion?: boolean;
+  montoDetraccion?: number;
+  tieneRetencion?: boolean;
+  montoRetencion?: number;
+  glosa?: string;
+}
+
+export interface VentaAutomatizadaInput {
+  clienteId: string;
+  docTipo: string;
+  docSerie: string;
+  docNumero: string;
+  fechaEmision: string;
+  fechaContable?: string;
+  baseImponible: number;
+  igv?: number;
+  cuentaVenta?: string;
+  costoVenta?: number;
+  moneda?: 'PEN' | 'USD';
+  tipoCambio?: number;
+  glosa?: string;
 }
 
 export const contabilizacionService = {
@@ -714,5 +751,347 @@ export const contabilizacionService = {
       cuadrado: Money.isEqual(sumDebe, sumHaber),
       diferencia: Money.toNumber(dif)
     };
+  },
+
+  /**
+   * Genera el asiento automatizado de compra evaluando el método de inventario y el destino SUNAT (1, 2, 3 o 4).
+   * - En destinos 3 o 4: el IGV NO se separa en 40111, se suma al costo/gasto (cuentaCompra).
+   * - Si el método es PERMANENTE: genera asiento de destino al almacén (20111 / 6111).
+   * - Si el método es PERIODICO: omite el destino en la compra (se calcula en la consolidación mensual).
+   */
+  async generarAsientoCompraAutomatizada(
+    empresaId: string,
+    input: CompraAutomatizadaInput
+  ): Promise<ResultadoPrevisualizacion & { metodoInventario: 'PERIODICO' | 'PERMANENTE'; costoTotal: number }> {
+    const empresa = await empresaRepository.obtenerPorId(empresaId);
+    if (!empresa?.metodoInventario) {
+      throw new Error('METODO_INVENTARIO_REQUERIDO: La empresa no tiene definido un método de inventario (PERIODICO o PERMANENTE). Debe ser configurado por un Administrador del estudio antes de generar asientos automáticos.');
+    }
+
+    const metodoInventario = empresa.metodoInventario;
+    const base = Money.create(input.baseImponible);
+    const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
+    const esDolares = input.moneda === 'USD';
+    const ctaCompra = input.cuentaCompra || '6011';
+
+    // Validación preventiva de cuenta de mayor (2 dígitos)
+    if (ctaCompra.length === 2 || ['10', '12', '14', '16', '20', '33', '40', '42', '50', '60', '70'].includes(ctaCompra)) {
+      throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta de compra ${ctaCompra} es una cuenta de mayor y no permite apuntes directos.`);
+    }
+
+    const lineas: LineaAsientoPropuesta[] = [];
+    let lineaNum = 1;
+
+    let igv = Money.create(0);
+    let costoCompra = base;
+    let totalComprobante = base;
+
+    if (input.destino === '1' || input.destino === '2') {
+      // Destinos 1 y 2: Derecho a crédito fiscal
+      igv = Money.round(base.times(0.18));
+      costoCompra = base;
+      totalComprobante = Money.add(base, igv);
+
+      // 1. Cuenta de compra (Gasto / Costo)
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: ctaCompra,
+        denominacionCuenta: 'Mercaderías manufacturadas - Costo',
+        debe: Money.toNumber(costoCompra),
+        haber: 0.00,
+        glosaLinea: `Compra comprobante ${input.docSerie}-${input.docNumero} (Destino ${input.destino})`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+
+      // 2. Crédito Fiscal IGV
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '40111',
+        denominacionCuenta: 'IGV - Cuenta propia',
+        debe: Money.toNumber(igv),
+        haber: 0.00,
+        glosaLinea: `Crédito fiscal IGV 18% compra ${input.docSerie}-${input.docNumero}`
+      });
+
+      // 3. Destino al Almacén (SOLO en método PERMANENTE)
+      if (metodoInventario === 'PERMANENTE') {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: Money.toNumber(costoCompra),
+          haber: 0.00,
+          glosaLinea: 'Destino de mercaderías ingresadas al almacén'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '6111',
+          denominacionCuenta: 'Mercaderías',
+          debe: 0.00,
+          haber: Money.toNumber(costoCompra),
+          glosaLinea: 'Variación de existencias - Mercaderías'
+        });
+      }
+    } else if (input.destino === '3') {
+      // Destino 3: Sin derecho a crédito fiscal -> IGV sumado al costo en cuentaCompra (6011)
+      igv = Money.round(base.times(0.18));
+      costoCompra = Money.add(base, igv); // IGV sumado al costo
+      totalComprobante = costoCompra;
+
+      // 1. Costo con IGV incluido en 6011
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: ctaCompra,
+        denominacionCuenta: 'Mercaderías manufacturadas (Costo + IGV no recuperable)',
+        debe: Money.toNumber(costoCompra),
+        haber: 0.00,
+        glosaLinea: `Compra con IGV al costo (Destino 3) ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+
+      // Destino al Almacén por el valor total de costo (SOLO en método PERMANENTE)
+      if (metodoInventario === 'PERMANENTE') {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: Money.toNumber(costoCompra),
+          haber: 0.00,
+          glosaLinea: 'Destino al almacén por costo total (Base + IGV sin crédito fiscal)'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '6111',
+          denominacionCuenta: 'Mercaderías',
+          debe: 0.00,
+          haber: Money.toNumber(costoCompra),
+          glosaLinea: 'Variación de existencias - Mercaderías'
+        });
+      }
+    } else {
+      // Destino 4: No gravado (exonerado / inafecto)
+      costoCompra = base;
+      totalComprobante = base;
+
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: ctaCompra,
+        denominacionCuenta: 'Mercaderías no gravadas / exoneradas',
+        debe: Money.toNumber(costoCompra),
+        haber: 0.00,
+        glosaLinea: `Compra no gravada (Destino 4) ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+
+      if (metodoInventario === 'PERMANENTE') {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: Money.toNumber(costoCompra),
+          haber: 0.00,
+          glosaLinea: 'Destino al almacén mercaderías'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '6111',
+          denominacionCuenta: 'Mercaderías',
+          debe: 0.00,
+          haber: Money.toNumber(costoCompra),
+          glosaLinea: 'Variación de existencias - Mercaderías'
+        });
+      }
+    }
+
+    // Obligación comercial al Proveedor
+    if (input.tieneDetraccion && input.montoDetraccion && input.montoDetraccion > 0) {
+      const montoDet = Money.create(input.montoDetraccion);
+      const netoPagar = Money.sub(totalComprobante, montoDet);
+
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '4212',
+        denominacionCuenta: 'Facturas por pagar - Emitidas (Neto proveedor)',
+        debe: 0.00,
+        haber: Money.toNumber(netoPagar),
+        glosaLinea: `Obligación neta a pagar ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '4213',
+        denominacionCuenta: 'Detracciones por pagar (SPOT)',
+        debe: 0.00,
+        haber: Money.toNumber(montoDet),
+        glosaLinea: `Detracción SPOT ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+    } else {
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '4212',
+        denominacionCuenta: 'Facturas, boletas y otros comprobantes por pagar - Emitidas',
+        debe: 0.00,
+        haber: Money.toNumber(totalComprobante),
+        glosaLinea: `Obligación por compra ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+    }
+
+    // Calcular totales y verificar cuadre
+    let sumDebe = Money.create(0);
+    let sumHaber = Money.create(0);
+
+    for (const l of lineas) {
+      if (esDolares) {
+        l.debeMe = l.debe;
+        l.haberMe = l.haber;
+        l.debe = Money.toNumber(Money.mul(l.debe, tipoCambio));
+        l.haber = Money.toNumber(Money.mul(l.haber, tipoCambio));
+      }
+      sumDebe = Money.add(sumDebe, l.debe);
+      sumHaber = Money.add(sumHaber, l.haber);
+    }
+
+    const dif = Money.sub(sumDebe, sumHaber);
+
+    return {
+      glosaGeneral: input.glosa || `Compra automática ${input.docTipo} ${input.docSerie}-${input.docNumero}`,
+      lineas,
+      totalDebe: Money.toNumber(sumDebe),
+      totalHaber: Money.toNumber(sumHaber),
+      cuadrado: Money.isEqual(sumDebe, sumHaber),
+      diferencia: Money.toNumber(dif),
+      metodoInventario,
+      costoTotal: Money.toNumber(costoCompra)
+    };
+  },
+
+  /**
+   * Genera el asiento automatizado de venta evaluando el método de inventario.
+   * - Si es PERMANENTE: genera asiento de costo de ventas D 69111 / H 20111 si se provee costo de ventas o salida de kardex.
+   * - Si es PERIODICO: omite el costo en la venta y se registra en la consolidación mensual.
+   */
+  async generarAsientoVentaAutomatizada(
+    empresaId: string,
+    input: VentaAutomatizadaInput
+  ): Promise<ResultadoPrevisualizacion & { metodoInventario: 'PERIODICO' | 'PERMANENTE' }> {
+    const empresa = await empresaRepository.obtenerPorId(empresaId);
+    if (!empresa?.metodoInventario) {
+      throw new Error('METODO_INVENTARIO_REQUERIDO: La empresa no tiene definido un método de inventario (PERIODICO o PERMANENTE). Debe ser configurado por un Administrador del estudio antes de generar asientos automáticos.');
+    }
+
+    const metodoInventario = empresa.metodoInventario;
+    const base = Money.create(input.baseImponible);
+    const igv = input.igv !== undefined ? Money.create(input.igv) : Money.round(base.times(0.18));
+    const total = Money.add(base, igv);
+    const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
+    const esDolares = input.moneda === 'USD';
+    const ctaVenta = input.cuentaVenta || '70111';
+
+    const lineas: LineaAsientoPropuesta[] = [];
+    let lineaNum = 1;
+
+    // 1. Cliente
+    lineas.push({
+      linea: lineaNum++,
+      codigoCuenta: '1212',
+      denominacionCuenta: 'Facturas, boletas y otros comprobantes por cobrar - Emitidas en cartera',
+      debe: Money.toNumber(total),
+      haber: 0.00,
+      glosaLinea: `Cobro según comprobante ${input.docSerie}-${input.docNumero}`,
+      docTipo: input.docTipo,
+      docSerie: input.docSerie,
+      docNumero: input.docNumero,
+      anexoId: input.clienteId
+    });
+
+    // 2. Débito Fiscal IGV
+    lineas.push({
+      linea: lineaNum++,
+      codigoCuenta: '40111',
+      denominacionCuenta: 'IGV - Cuenta propia',
+      debe: 0.00,
+      haber: Money.toNumber(igv),
+      glosaLinea: `Débito fiscal IGV 18% venta ${input.docSerie}-${input.docNumero}`
+    });
+
+    // 3. Ingreso por Venta
+    lineas.push({
+      linea: lineaNum++,
+      codigoCuenta: ctaVenta,
+      denominacionCuenta: 'Mercaderías manufacturadas - Venta local',
+      debe: 0.00,
+      haber: Money.toNumber(base),
+      glosaLinea: `Venta de mercaderías comprobante ${input.docSerie}-${input.docNumero}`
+    });
+
+    // 4 y 5. Costo de ventas (SOLO si método PERMANENTE y costoVenta > 0)
+    if (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0) {
+      const costo = Money.create(input.costoVenta);
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '69111',
+        denominacionCuenta: 'Mercaderías manufacturadas - Terceros (Costo de ventas)',
+        debe: Money.toNumber(costo),
+        haber: 0.00,
+        glosaLinea: `Costo de ventas salida de almacén según kardex ${input.docSerie}-${input.docNumero}`
+      });
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '20111',
+        denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+        debe: 0.00,
+        haber: Money.toNumber(costo),
+        glosaLinea: `Descargo de existencias por venta ${input.docSerie}-${input.docNumero}`
+      });
+    }
+
+    // Calcular totales y verificar cuadre
+    let sumDebe = Money.create(0);
+    let sumHaber = Money.create(0);
+
+    for (const l of lineas) {
+      if (esDolares) {
+        l.debeMe = l.debe;
+        l.haberMe = l.haber;
+        l.debe = Money.toNumber(Money.mul(l.debe, tipoCambio));
+        l.haber = Money.toNumber(Money.mul(l.haber, tipoCambio));
+      }
+      sumDebe = Money.add(sumDebe, l.debe);
+      sumHaber = Money.add(sumHaber, l.haber);
+    }
+
+    const dif = Money.sub(sumDebe, sumHaber);
+
+    return {
+      glosaGeneral: input.glosa || `Venta automática ${input.docTipo} ${input.docSerie}-${input.docNumero}`,
+      lineas,
+      totalDebe: Money.toNumber(sumDebe),
+      totalHaber: Money.toNumber(sumHaber),
+      cuadrado: Money.isEqual(sumDebe, sumHaber),
+      diferencia: Money.toNumber(dif),
+      metodoInventario
+    };
   }
+
 };

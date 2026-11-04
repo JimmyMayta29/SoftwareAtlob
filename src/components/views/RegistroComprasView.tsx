@@ -114,6 +114,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const [formIgv, setFormIgv] = useState<number>(0);
   const [formTotal, setFormTotal] = useState<number>(0);
   const [formTipoAdquisicion, setFormTipoAdquisicion] = useState<'1' | '2' | '3' | '4'>('1');
+  const [formCuentaCompra, setFormCuentaCompra] = useState<string>('6011');
   const [formMoneda, setFormMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [formTipoCambio, setFormTipoCambio] = useState<number>(1.0);
   const [formFormaPago, setFormFormaPago] = useState<'CONTADO' | 'CREDITO'>('CONTADO');
@@ -146,22 +147,120 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
     setFormIgv(calcIgv);
   };
 
-  // Previsualizar asiento en tiempo real
+  // Previsualizar asiento en tiempo real con reglas de método de inventario y destino 1, 2, 3 o 4
   useEffect(() => {
     if (formTotal > 0) {
       setLoadingPreview(true);
       const timer = setTimeout(async () => {
         try {
-          const res = await operacionesApi.previsualizarAsiento(empresa.id, formEsServicio ? 'COMPRA_SERVICIO' : 'COMPRA_MERCADERIA', {
-            total: formTotal,
-            baseImponible: formBase,
-            igv: formIgv,
-            docTipo: formTipo,
-            docSerie: formSerie,
-            docNumero: formNumero || '00000001',
-            anexoId: formProveedorId || 'anx-01'
+          const metodo = (empresa as any)?.metodoInventario || 'PERMANENTE';
+          const lineas: any[] = [];
+
+          if (formTipoAdquisicion === '3') {
+            // Destino 3: IGV sumado al costo en cuentaCompra (sin 40111)
+            const costoTotal = Number((formBase + formIgv).toFixed(2));
+            lineas.push({
+              codigoCuenta: formCuentaCompra,
+              glosaLinea: `Compra IGV al costo ${formSerie}-${formNumero || '00000001'}`,
+              debe: costoTotal,
+              haber: 0
+            });
+            lineas.push({
+              codigoCuenta: '4212',
+              glosaLinea: `Obligación comercial ${formSerie}-${formNumero || '00000001'}`,
+              debe: 0,
+              haber: costoTotal
+            });
+            if (metodo === 'PERMANENTE') {
+              lineas.push({
+                codigoCuenta: '20111',
+                glosaLinea: 'Destino al almacén (Base + IGV al costo)',
+                debe: costoTotal,
+                haber: 0
+              });
+              lineas.push({
+                codigoCuenta: '6111',
+                glosaLinea: 'Variación de existencias - Mercaderías',
+                debe: 0,
+                haber: costoTotal
+              });
+            }
+          } else if (formTipoAdquisicion === '4') {
+            // Destino 4: No gravado
+            lineas.push({
+              codigoCuenta: formCuentaCompra,
+              glosaLinea: `Compra no gravada ${formSerie}-${formNumero || '00000001'}`,
+              debe: formBase,
+              haber: 0
+            });
+            lineas.push({
+              codigoCuenta: '4212',
+              glosaLinea: `Obligación comercial ${formSerie}-${formNumero || '00000001'}`,
+              debe: 0,
+              haber: formBase
+            });
+            if (metodo === 'PERMANENTE') {
+              lineas.push({
+                codigoCuenta: '20111',
+                glosaLinea: 'Destino de existencias al almacén',
+                debe: formBase,
+                haber: 0
+              });
+              lineas.push({
+                codigoCuenta: '6111',
+                glosaLinea: 'Variación de existencias',
+                debe: 0,
+                haber: formBase
+              });
+            }
+          } else {
+            // Destinos 1 y 2: Crédito fiscal
+            lineas.push({
+              codigoCuenta: formCuentaCompra,
+              glosaLinea: `Compra ${formSerie}-${formNumero || '00000001'}`,
+              debe: formBase,
+              haber: 0
+            });
+            lineas.push({
+              codigoCuenta: '40111',
+              glosaLinea: `IGV 18% crédito fiscal ${formSerie}-${formNumero || '00000001'}`,
+              debe: formIgv,
+              haber: 0
+            });
+            lineas.push({
+              codigoCuenta: '4212',
+              glosaLinea: `Obligación por compra ${formSerie}-${formNumero || '00000001'}`,
+              debe: 0,
+              haber: formTotal
+            });
+            if (metodo === 'PERMANENTE') {
+              lineas.push({
+                codigoCuenta: '20111',
+                glosaLinea: 'Destino de mercaderías ingresadas al almacén',
+                debe: formBase,
+                haber: 0
+              });
+              lineas.push({
+                codigoCuenta: '6111',
+                glosaLinea: 'Variación de existencias - Mercaderías',
+                debe: 0,
+                haber: formBase
+              });
+            }
+          }
+
+          const sumDebe = lineas.reduce((acc, l) => acc + l.debe, 0);
+          const sumHaber = lineas.reduce((acc, l) => acc + l.haber, 0);
+
+          setPreviewAsiento({
+            glosaGeneral: `Compra ${formTipo} ${formSerie}-${formNumero || '00000001'}`,
+            lineas,
+            totalDebe: sumDebe,
+            totalHaber: sumHaber,
+            diferenciaCuadre: Math.abs(sumDebe - sumHaber),
+            cuadrado: sumDebe === sumHaber,
+            metodoInventario: metodo
           });
-          setPreviewAsiento(res);
         } catch {
           // ignore transient preview error
         } finally {
@@ -172,7 +271,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
     } else {
       setPreviewAsiento(null);
     }
-  }, [formTotal, formBase, formIgv, formTipo, formSerie, formNumero, formEsServicio, formProveedorId]);
+  }, [formTotal, formBase, formIgv, formTipo, formSerie, formNumero, formCuentaCompra, formTipoAdquisicion, formEsServicio, formProveedorId, (empresa as any)?.metodoInventario]);
 
   // Atajos de teclado: Ctrl+Enter (Registrar), Ctrl+N (Nuevo), Ctrl+D (Duplicar)
   useEffect(() => {
@@ -526,7 +625,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Emisión</label>
                 <input

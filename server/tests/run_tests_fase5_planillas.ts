@@ -7,6 +7,7 @@ import path from 'path';
 import { Money } from '../utils/decimal';
 import { planillaService, obtenerDivisorQuintaCategoria } from '../services/planillaService';
 import { parametroRepository } from '../repositories/parametroRepository';
+import { empresaRepository, EMPRESAS_STORE } from '../repositories/empresaRepository';
 import { asientoService } from '../services/asientoService';
 import { REGISTRO_DATOS_EMPRESA } from '../storage/registroDatosEmpresa';
 import {
@@ -19,6 +20,23 @@ const EMPRESA_PLANILLA_TEST = '00000000-0000-0000-0000-000000000001';
 const USER_ID = '00000000-0000-0000-0000-000000000001';
 
 async function runTestsFase5Planillas() {
+  if (!EMPRESAS_STORE.some(e => e.id === EMPRESA_PLANILLA_TEST)) {
+    EMPRESAS_STORE.push({
+      id: EMPRESA_PLANILLA_TEST,
+      tenantId: '00000000-0000-0000-0000-000000000001',
+      codigoEmpresa: 'EMPTEST1',
+      ruc: '20100000001',
+      razonSocial: 'EMPRESA PLANILLAS TEST A S.A.C.',
+      regimenTributario: 'REGIMEN_GENERAL',
+      domicilioFiscal: 'AV. PRINCIPAL 123',
+      monedaPrincipal: 'PEN',
+      metodoInventario: 'PERMANENTE',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  }
+
   console.log('\n====================================================================');
   console.log('🧪 INICIANDO TESTS FASE 5: MÓDULO PLANILLAS (AISLADO DE IGV-RENTA)');
   console.log('====================================================================\n');
@@ -1033,7 +1051,6 @@ async function runTestsFase5Planillas() {
   // -------------------------------------------------------------------------
   console.log('11. Verificando Respaldo y Restauración por Empresa con Tablas de Nómina...');
   const { backupEmpresaService } = await import('../services/backupEmpresaService');
-  const { EMPRESAS_STORE } = await import('../repositories/empresaRepository');
 
   if (!EMPRESAS_STORE.some(e => e.id === EMPRESA_PLANILLA_TEST)) {
     EMPRESAS_STORE.push({

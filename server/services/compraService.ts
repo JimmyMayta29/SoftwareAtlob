@@ -454,21 +454,42 @@ export const compraService = {
     if (esActivo) tipoOp = 'COMPRA_ACTIVO';
     else if (esServicio) tipoOp = 'COMPRA_SERVICIO';
 
-    // 3. Generar propuesta de asiento mediante ContabilizacionService
-    const prop = await contabilizacionService.generar(empresaId, tipoOp, {
-      total: input.total,
-      baseImponible: input.baseGravada,
-      igv: input.igv,
-      glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`,
-      docTipo: input.tipoComprobante,
-      docSerie: input.serie,
-      docNumero: input.numero,
-      anexoId: input.proveedorId,
-      moneda,
-      tipoCambio,
-      porcentajeAdmin: input.porcentajeAdmin,
-      porcentajeVentas: input.porcentajeVentas
-    });
+    // 3. Generar propuesta de asiento mediante ContabilizacionService evaluando método de inventario y destino
+    let prop: any;
+    if (!esActivo && !esServicio) {
+      prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+        proveedorId: input.proveedorId,
+        docTipo: input.tipoComprobante,
+        docSerie: input.serie,
+        docNumero: input.numero,
+        fechaEmision: input.fechaEmision,
+        fechaContable: input.fechaContable,
+        baseImponible: input.baseGravada,
+        cuentaCompra: '6011',
+        destino: input.tipoAdquisicion || '1',
+        moneda,
+        tipoCambio,
+        tieneDetraccion: input.tieneDetraccion,
+        montoDetraccion: input.tieneDetraccion ? Money.toNumber(Money.mul(input.total, (input.porcentajeDetraccion || 10) / 100)) : undefined,
+        tieneRetencion: input.tieneRetencion,
+        glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`
+      });
+    } else {
+      prop = await contabilizacionService.generar(empresaId, tipoOp, {
+        total: input.total,
+        baseImponible: input.baseGravada,
+        igv: input.igv,
+        glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`,
+        docTipo: input.tipoComprobante,
+        docSerie: input.serie,
+        docNumero: input.numero,
+        anexoId: input.proveedorId,
+        moneda,
+        tipoCambio,
+        porcentajeAdmin: input.porcentajeAdmin,
+        porcentajeVentas: input.porcentajeVentas
+      });
+    }
 
     // 4. Crear Asiento y Contabilizarlo mediante AsientoService
     const asientoBorrador = await asientoService.crearBorrador(empresaId, {
@@ -478,8 +499,9 @@ export const compraService = {
       glosa: prop.glosaGeneral,
       moneda,
       tipoCambio,
-      origen: 'COMPRA',
-      detalles: prop.lineas.map(l => ({
+      origen: 'AUTOMATICO',
+      origenId: `${input.serie}-${input.numero}`,
+      detalles: prop.lineas.map((l: any) => ({
         linea: l.linea,
         cuentaId: l.cuentaId || `cta-${l.codigoCuenta}`,
         anexoId: l.anexoId || input.proveedorId,

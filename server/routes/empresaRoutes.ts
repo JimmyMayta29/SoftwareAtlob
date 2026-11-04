@@ -27,4 +27,10 @@ router.post(
   empresaController.actualizarCredencialesSunat
 );
 
+router.put(
+  '/:id/metodo-inventario',
+  requireRol(['ADMINISTRADOR']),
+  empresaController.actualizarMetodoInventario
+);
+
 export const empresaRoutes = router;

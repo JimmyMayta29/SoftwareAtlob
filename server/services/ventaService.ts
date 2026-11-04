@@ -397,18 +397,20 @@ export const ventaService = {
     const tipoCambio = input.tipoCambio || 1.0;
     const formaPago = input.formaPago || 'CONTADO';
 
-    // Generar asiento contable mediante ContabilizacionService y AsientoService
-    const prop = await contabilizacionService.generar(empresaId, 'VENTA', {
-      total: input.total,
-      baseImponible: input.baseGravada,
-      igv: input.igv,
-      glosa: input.glosa || `Venta ${input.tipoComprobante} ${input.serie}-${input.numero}`,
+    // Generar asiento contable mediante ContabilizacionService y AsientoService evaluando método de inventario
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: input.clienteId,
       docTipo: input.tipoComprobante,
       docSerie: input.serie,
       docNumero: input.numero,
-      anexoId: input.clienteId,
+      fechaEmision: input.fechaEmision,
+      fechaContable: input.fechaContable,
+      baseImponible: input.baseGravada,
+      igv: input.igv,
+      cuentaVenta: '70111',
       moneda,
-      tipoCambio
+      tipoCambio,
+      glosa: input.glosa || `Venta ${input.tipoComprobante} ${input.serie}-${input.numero}`
     });
 
     const asientoBorrador = await asientoService.crearBorrador(empresaId, {
@@ -418,8 +420,9 @@ export const ventaService = {
       glosa: prop.glosaGeneral,
       moneda,
       tipoCambio,
-      origen: 'VENTA',
-      detalles: prop.lineas.map(l => ({
+      origen: 'AUTOMATICO',
+      origenId: `${input.serie}-${input.numero}`,
+      detalles: prop.lineas.map((l: any) => ({
         linea: l.linea,
         cuentaId: l.cuentaId || `cta-${l.codigoCuenta}`,
         anexoId: l.anexoId || input.clienteId,

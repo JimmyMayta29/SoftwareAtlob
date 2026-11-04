@@ -140,6 +140,13 @@ export const MENU_DATA: MenuGroup[] = [
         label: 'Ajustes y cierres',
         children: [
           {
+            id: 'consolidar-mes',
+            label: 'Consolidar mes',
+            estado: 'activo',
+            vista: 'ConsolidarMesView',
+            rolesPermitidos: ['ADMIN_ESTUDIO', 'ADMINISTRADOR', 'CONTADOR']
+          },
+          {
             id: 'dif-cambio',
             label: 'Diferencia de cambio',
             estado: 'activo',

@@ -177,5 +177,22 @@ export const empresaController = {
     } catch (error: any) {
       return errorResponse(res, error.message || 'Error al restablecer la empresa demo');
     }
+  },
+
+  async actualizarMetodoInventario(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { metodoInventario } = req.body;
+      if (req.user?.rolGlobal !== 'ADMINISTRADOR') {
+        return errorResponse(res, 'Solo el rol ADMINISTRADOR o ADMIN_ESTUDIO tiene autorización para configurar el método de inventario.', 403);
+      }
+      if (!['PERIODICO', 'PERMANENTE'].includes(metodoInventario)) {
+        return errorResponse(res, 'El método de inventario debe ser PERIODICO o PERMANENTE.', 400);
+      }
+      await empresaRepository.actualizarMetodoInventario(id, metodoInventario, req.user.id);
+      return successResponse(res, { id, metodoInventario }, 'Método de inventario actualizado con éxito.');
+    } catch (error: any) {
+      return errorResponse(res, error.message || 'Error al actualizar método de inventario');
+    }
   }
 };

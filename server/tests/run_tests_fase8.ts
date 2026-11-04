@@ -1,3 +1,6 @@
+process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = '';
+
 import { asientoService, ASIENTOS_MEMORIA } from '../services/asientoService';
 import { librosEEFFService } from '../services/librosEEFFService';
 import { conciliadorSireService, CONCILIACIONES_SIRE_MEMORIA } from '../services/conciliadorSireService';

@@ -175,6 +175,7 @@ export interface EmpresaCliente {
   contactoEmail: string;
   regimenTributario: 'MYPE_TRIBUTARIO' | 'REGIMEN_GENERAL' | 'REGIMEN_ESPECIAL' | 'NRUS';
   tasaRentaMensual: number;
+  metodoInventario?: 'PERIODICO' | 'PERMANENTE' | null;
   
   // Credenciales SUNAT Clave SOL
   usuarioSol: string;

@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   BookOpen,
-  FilePlus2,
   GitCompare,
   Search,
-  Archive,
-  Calculator,
-  Printer,
   Terminal,
+  ShoppingCart,
+  TrendingUp,
+  Layers,
   ChevronRight,
 } from 'lucide-react';
 import { MENU_DATA, MenuGroup, MenuItem, tienePermisoMenu } from '../../types/menu';
@@ -468,13 +467,52 @@ export const TopBar: React.FC<TopBarProps> = ({
         })}
       </nav>
 
-      {/* 3. BARRA DE HERRAMIENTAS EN UNA SOLA FILA (BUG-04 CORREGIDO: overflow-x-auto no-scrollbar sin flex-wrap) */}
+      {/* 3. BARRA DE HERRAMIENTAS EN UNA SOLA FILA: EXACTAMENTE 7 ACCESOS */}
       <div
         role="toolbar"
         aria-label="Barra de herramientas de acceso rápido"
         className="flex items-center justify-between px-2 py-1 bg-[#F5F7FA] overflow-x-auto no-scrollbar whitespace-nowrap gap-2"
       >
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* 1. Registrar compra */}
+          <button
+            type="button"
+            disabled={esAuditor}
+            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Registrar compra'}
+            onClick={() => {
+              closeAllMenus();
+              onAction('Compras y Ventas › Registro de compras', 'reg-compras');
+            }}
+            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
+              esAuditor
+                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
+                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Registrar compra</span>
+          </button>
+
+          {/* 2. Registrar venta */}
+          <button
+            type="button"
+            disabled={esAuditor}
+            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Registrar venta'}
+            onClick={() => {
+              closeAllMenus();
+              onAction('Compras y Ventas › Registro de ventas', 'reg-ventas');
+            }}
+            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
+              esAuditor
+                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
+                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Registrar venta</span>
+          </button>
+
+          {/* 3. Asiento nuevo [F2] */}
           <button
             type="button"
             disabled={esAuditor}
@@ -494,13 +532,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="text-[10px] font-mono text-[#4B5563]">[F2]</span>
           </button>
 
+          {/* 4. Consolidar mes */}
           <button
             type="button"
             disabled={esAuditor}
-            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Emitir factura o boleta electrónica [F3]'}
+            title={esAuditor ? 'Rol Auditor: solo lectura' : 'Consolidación mensual de inventarios y asientos'}
             onClick={() => {
               closeAllMenus();
-              onAction('Facturación › Emitir factura o boleta', 'emitir-cp');
+              onAction('Contabilidad › Consolidar mes', 'consolidar-mes');
             }}
             className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
               esAuditor
@@ -508,11 +547,11 @@ export const TopBar: React.FC<TopBarProps> = ({
                 : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
             }`}
           >
-            <FilePlus2 className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
-            <span>Emitir comprobante</span>
-            <span className="text-[10px] font-mono text-[#4B5563]">[F3]</span>
+            <Layers className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
+            <span>Consolidar mes</span>
           </button>
 
+          {/* 5. Conciliar SIRE [F4] */}
           <button
             type="button"
             title="Conciliador SIRE RCE / RVIE [F4]"
@@ -529,6 +568,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           <div className="w-[1px] h-4 bg-[#D1D5DB] mx-0.5" />
 
+          {/* 6. Cambiar empresa [Ctrl+K] */}
           <button
             type="button"
             title="Abrir o cambiar empresa activa [Ctrl+K]"
@@ -539,59 +579,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
           >
             <Search className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
-            <span>Buscar empresa</span>
+            <span>Cambiar empresa</span>
             <span className="text-[10px] font-mono text-[#4B5563]">[Ctrl+K]</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={!esAdmin}
-            title={!esAdmin ? 'Exclusivo para rol ADMINISTRADOR' : 'Respaldo y restauración de empresa [Ctrl+B]'}
-            onClick={() => {
-              closeAllMenus();
-              onAction('Herramientas › Respaldo y restauración', 'respaldo-restauracion');
-            }}
-            className={`h-6 px-2 text-[12px] inline-flex items-center gap-1.5 border ${
-              !esAdmin
-                ? 'bg-[#F5F7FA] text-[#9CA3AF] border-[#D1D5DB] cursor-not-allowed'
-                : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]'
-            }`}
-          >
-            <Archive className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
-            <span>Respaldar</span>
-            <span className="text-[10px] font-mono text-[#4B5563]">[Ctrl+B]</span>
-          </button>
-
-          <div className="w-[1px] h-4 bg-[#D1D5DB] mx-0.5" />
-
-          <button
-            type="button"
-            title="Calculadora contable y tributaria [Ctrl+Shift+C]"
-            onClick={() => {
-              closeAllMenus();
-              onAction('Herramientas › Calculadora tributaria', 'calculadora-tributaria');
-            }}
-            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
-          >
-            <Calculator className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
-            <span>Calculadora</span>
-          </button>
-
-          <button
-            type="button"
-            title="Exportar e imprimir reportes oficiales [Ctrl+P]"
-            onClick={() => {
-              closeAllMenus();
-              onAction('Barra › Imprimir', 'imprimir');
-            }}
-            className="h-6 px-2 text-[12px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#111827] border border-[#D1D5DB] hover:bg-[#E8ECF1] hover:border-[#1E3A5F]"
-          >
-            <Printer className="w-3.5 h-3.5 text-[#1E3A5F]" strokeWidth={1.5} />
-            <span>Imprimir</span>
           </button>
         </div>
 
-        {/* Botón de Paleta de Comandos [Ctrl+Shift+P] */}
+        {/* 7. Paleta de comandos [Ctrl+Shift+P] */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
@@ -604,10 +597,10 @@ export const TopBar: React.FC<TopBarProps> = ({
               }
             }}
             className="h-6 px-2.5 text-[11px] inline-flex items-center gap-1.5 bg-[#FFFFFF] text-[#1E3A5F] border border-[#D1D5DB] hover:border-[#1E3A5F]"
-            title="Buscar cualquier comando o módulo del sistema [Ctrl+Shift+P]"
+            title="Paleta de comandos [Ctrl+Shift+P]"
           >
             <Terminal className="w-3.5 h-3.5" strokeWidth={1.5} />
-            <span>Ir a comando o vista…</span>
+            <span>Paleta de comandos</span>
             <kbd className="font-mono text-[10px] text-[#4B5563]">Ctrl+Shift+P</kbd>
           </button>
         </div>

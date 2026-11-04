@@ -1,6 +1,7 @@
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { empresaRepository } from '../repositories/empresaRepository';
 import { buscarCuentaPCGE } from '../../src/data/pcgeAccounts';
 
 export interface DetalleInput {
@@ -192,6 +193,13 @@ export const asientoService = {
       const cod = (d.cuentaCodigo || d.cuentaId || '').replace(/^cta-/, '');
       if (cod.length === 2 || ['10', '12', '14', '16', '20', '33', '40', '42', '50', '60', '70'].includes(cod)) {
         throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta ${cod} es una cuenta de mayor y no permite apuntes directos.`);
+      }
+    }
+
+    if (input.origen === 'AUTOMATICO' || input.origen === 'CONSOLIDACION') {
+      const emp = await empresaRepository.obtenerPorId(empresaId);
+      if (!emp?.metodoInventario) {
+        throw new Error('METODO_INVENTARIO_REQUERIDO: La empresa no tiene definido un método de inventario (PERIODICO o PERMANENTE). Debe ser configurado por un Administrador del estudio antes de generar asientos automáticos.');
       }
     }
 

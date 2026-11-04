@@ -29,6 +29,7 @@ import { CajaBancosView } from './components/views/CajaBancosView';
 import { DiferenciaCambioView } from './components/views/DiferenciaCambioView';
 import { CierreMensualView } from './components/views/CierreMensualView';
 import { CierreAnualView } from './components/views/CierreAnualView';
+import { ConsolidarMesView } from './components/views/ConsolidarMesView';
 import { RegistroComprasView } from './components/views/RegistroComprasView';
 import { RegistroVentasView } from './components/views/RegistroVentasView';
 import { DetraccionesRetencionesView } from './components/views/DetraccionesRetencionesView';
@@ -292,11 +293,11 @@ function DesktopWorkspaceContent() {
               <button
                 type="button"
                 onClick={handleCerrarModulo}
-                className="flex items-center gap-1 h-5 px-2 bg-[#FFFFFF] border border-[#D1D5DB] hover:bg-[#FEE2E2] hover:border-[#B91C1C] hover:text-[#B91C1C] text-[#111827] text-[11px]"
+                className="flex items-center justify-center w-5 h-5 bg-[#FFFFFF] border border-[#D1D5DB] hover:bg-[#FEE2E2] hover:border-[#B91C1C] hover:text-[#B91C1C] text-[#111827]"
                 title="Cerrar ventana de trabajo"
+                aria-label="Cerrar ventana de trabajo"
               >
-                <X className="w-3 h-3" strokeWidth={1.5} />
-                <span>Cerrar</span>
+                <X className="w-3.5 h-3.5" strokeWidth={1.5} />
               </button>
             </div>
 
@@ -341,6 +342,14 @@ function DesktopWorkspaceContent() {
                 />
               )}
               {(activeModuleId === 'dif-cambio' || activeModuleId === 'diferencia-cambio') && <DiferenciaCambioView />}
+              {activeModuleId === 'consolidar-mes' && (
+                <ConsolidarMesView
+                  empresaId={empresaId}
+                  periodo={periodo}
+                  isPeriodoCerrado={isPeriodoCerrado}
+                  empresa={empresaActual}
+                />
+              )}
               {activeModuleId === 'cierre-mensual' && <CierreMensualView />}
               {activeModuleId === 'cierre-anual' && <CierreAnualView />}
 

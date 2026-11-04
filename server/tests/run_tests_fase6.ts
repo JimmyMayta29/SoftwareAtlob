@@ -1,3 +1,6 @@
+process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = '';
+
 import { cryptoService } from '../services/cryptoService';
 import { obtenerSunatGateway, MockSunatGateway } from '../services/sunatGateway';
 import { sireService, CONEXIONES_SUNAT_MEMORIA, SIRE_PROPUESTAS_MEMORIA } from '../services/sireService';
