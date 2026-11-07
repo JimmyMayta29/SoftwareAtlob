@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
-import { db } from '../config/database';
+import { db, establecerContextoUsuario } from '../config/database';
 import { env } from '../config/env';
 import { totpService } from './totpService';
 
@@ -70,10 +70,11 @@ export const USUARIOS_EMPRESA_MEMORIA: UsuarioEmpresaModel[] = [];
  * Fixture exclusivo para pruebas automatizadas (Fase 7, 7B, 13)
  * Solo se invoca en contextos de testing, nunca en arranque de producción.
  */
-export function sembrarUsuariosPrueba() {
+export function sembrarUsuariosPrueba(passwordPlano: string) {
+  if (env.NODE_ENV === 'production') throw new Error('FIXTURE_NO_PERMITIDO');
   if (USUARIOS_ESTUDIO_MEMORIA.length > 0) return;
-  const HASH_DEFAULT = bcrypt.hashSync('Atlob2026!', 8);
-  const MFA_SECRET_ADMIN_DEMO = 'JBSWY3DPEHPK3PXP'; // Base32 predeterminado para pruebas
+  const HASH_DEFAULT = bcrypt.hashSync(passwordPlano, 8);
+  const mfaSecret = totpService.encodeBase32(Buffer.from(env.MFA_SEED_SECRET, 'hex'));
 
   USUARIOS_ESTUDIO_MEMORIA.push(
     {
@@ -82,7 +83,7 @@ export function sembrarUsuariosPrueba() {
       passwordHash: HASH_DEFAULT,
       nombre: 'Administrador General',
       rolGlobal: 'ADMINISTRADOR',
-      mfaSecret: MFA_SECRET_ADMIN_DEMO,
+      mfaSecret,
       mfaActivado: true,
       isActive: true,
       createdAt: '2026-01-01T00:00:00.000Z'
@@ -176,6 +177,8 @@ export const authJwtService = {
   async obtenerMembresias(usuarioId: string, client?: PoolClient): Promise<UsuarioEmpresaModel[]> {
     exigirAlmacenDisponible();
     if (db.isPostgresConnected()) {
+      if (!client) return db.withUsuarioTransaction(usuarioId, conexion => this.obtenerMembresias(usuarioId, conexion));
+      await establecerContextoUsuario(client, usuarioId);
       const resultado = await consultarControl(`
         SELECT COALESCE(ue.id, e.id) AS id, u.id AS "usuarioId", e.id AS "empresaId",
                CASE WHEN u.rol_global = 'ADMINISTRADOR' THEN 'ADMINISTRADOR' ELSE ue.rol_en_empresa END AS "rolEnEmpresa",
@@ -204,6 +207,9 @@ export const authJwtService = {
   },
 
   async emitirSesion(usuario: UsuarioEstudioModel, mfaVerificado: boolean, empresaPreferencia?: string, client?: PoolClient): Promise<SesionUsuario> {
+    if (db.isPostgresConnected() && !client) {
+      return db.withUsuarioTransaction(usuario.id, conexion => this.emitirSesion(usuario, mfaVerificado, empresaPreferencia, conexion));
+    }
     const membresias = await this.obtenerMembresias(usuario.id, client);
     if (!membresias.length && usuario.rolGlobal !== 'ADMINISTRADOR') {
       throw new Error('SIN_EMPRESAS_ASIGNADAS: El usuario no tiene empresas asignadas en el estudio contable.');
@@ -274,33 +280,37 @@ export const authJwtService = {
     try {
       const decoded = jwt.verify(refreshToken, REFRESH_SECRET, { algorithms: ['HS256'] });
       if (typeof decoded === 'string' || decoded.tokenType !== 'refresh' || !decoded.sub || !decoded.jti) throw new Error('REFRESH_TOKEN_INVALIDO: Estructura de sesión inválida.');
-      let tokenStored: RefreshTokenModel | undefined;
-      if (db.isPostgresConnected()) {
-        const resultado = await db.query(`
-          SELECT token_id AS "tokenId", usuario_id AS "usuarioId", empresa_id AS "empresaId",
-                 expires_at AS "expiresAt", revoked, mfa_verificado AS "mfaVerificado"
-          FROM refresh_tokens WHERE token_id = $1 AND usuario_id = $2 AND revoked = FALSE
-        `, [decoded.jti, decoded.sub]);
-        if (resultado.rows[0]) tokenStored = { ...resultado.rows[0], expiresAt: new Date(resultado.rows[0].expiresAt).getTime() };
-      } else {
-        tokenStored = REFRESH_TOKENS_MEMORIA.find(r => r.tokenId === decoded.jti && r.usuarioId === decoded.sub && !r.revoked);
-      }
-      if (!tokenStored || tokenStored.expiresAt <= Date.now() || tokenStored.empresaId !== decoded.empresaId) throw new Error('REFRESH_TOKEN_INVALIDO: Sesión expirada o revocada.');
-      const usuario = await this.obtenerUsuarioPorId(decoded.sub);
-      if (!usuario) throw new Error('USUARIO_INACTIVO: El usuario ha sido dado de baja.');
-      const membresias = await this.obtenerMembresias(usuario.id);
-      const empresasPermitidas = membresias.map(m => m.empresaId);
-      if (tokenStored.empresaId && !empresasPermitidas.includes(tokenStored.empresaId)) throw new Error('REFRESH_TOKEN_INVALIDO: Se ha revocado el acceso a la empresa de esta sesión.');
-      if (!tokenStored.empresaId && usuario.rolGlobal !== 'ADMINISTRADOR') throw new Error('SIN_EMPRESAS_ASIGNADAS: El usuario no tiene empresa activa.');
-      const rolEnEmpresa = membresias.find(m => m.empresaId === tokenStored.empresaId)?.rolEnEmpresa || usuario.rolGlobal;
-      const claims: AccessTokenClaims = {
-        tokenType: 'access', sub: usuario.id, email: usuario.email, nombre: usuario.nombre, rolGlobal: usuario.rolGlobal,
-        empresaId: tokenStored.empresaId, rolEnEmpresa, mfaVerificado: tokenStored.mfaVerificado, empresasPermitidas
+      const usuarioId = decoded.sub;
+      const renovar = async (client?: PoolClient) => {
+        let tokenStored: RefreshTokenModel | undefined;
+        if (client) {
+          const resultado = await client.query(`
+            SELECT token_id AS "tokenId", usuario_id AS "usuarioId", empresa_id AS "empresaId",
+                   expires_at AS "expiresAt", revoked, mfa_verificado AS "mfaVerificado"
+            FROM refresh_tokens WHERE token_id = $1 AND usuario_id = $2 AND revoked = FALSE
+          `, [decoded.jti, usuarioId]);
+          if (resultado.rows[0]) tokenStored = { ...resultado.rows[0], expiresAt: new Date(resultado.rows[0].expiresAt).getTime() };
+        } else {
+          tokenStored = REFRESH_TOKENS_MEMORIA.find(r => r.tokenId === decoded.jti && r.usuarioId === decoded.sub && !r.revoked);
+        }
+        if (!tokenStored || tokenStored.expiresAt <= Date.now() || tokenStored.empresaId !== decoded.empresaId) throw new Error('REFRESH_TOKEN_INVALIDO: Sesión expirada o revocada.');
+        const usuario = await this.obtenerUsuarioPorId(usuarioId, client);
+        if (!usuario) throw new Error('USUARIO_INACTIVO: El usuario ha sido dado de baja.');
+        const membresias = await this.obtenerMembresias(usuario.id, client);
+        const empresasPermitidas = membresias.map(m => m.empresaId);
+        if (tokenStored.empresaId && !empresasPermitidas.includes(tokenStored.empresaId)) throw new Error('REFRESH_TOKEN_INVALIDO: Se ha revocado el acceso a la empresa de esta sesión.');
+        if (!tokenStored.empresaId && usuario.rolGlobal !== 'ADMINISTRADOR') throw new Error('SIN_EMPRESAS_ASIGNADAS: El usuario no tiene empresa activa.');
+        const rolEnEmpresa = membresias.find(m => m.empresaId === tokenStored.empresaId)?.rolEnEmpresa || usuario.rolGlobal;
+        const claims: AccessTokenClaims = {
+          tokenType: 'access', sub: usuario.id, email: usuario.email, nombre: usuario.nombre, rolGlobal: usuario.rolGlobal,
+          empresaId: tokenStored.empresaId, rolEnEmpresa, mfaVerificado: tokenStored.mfaVerificado, empresasPermitidas
+        };
+        return {
+          accessToken: jwt.sign(claims, ACCESS_SECRET, { algorithm: 'HS256', expiresIn: this.ACCESS_EXPIRATION_SECONDS }),
+          expiresIn: this.ACCESS_EXPIRATION_SECONDS
+        };
       };
-      return {
-        accessToken: jwt.sign(claims, ACCESS_SECRET, { algorithm: 'HS256', expiresIn: this.ACCESS_EXPIRATION_SECONDS }),
-        expiresIn: this.ACCESS_EXPIRATION_SECONDS
-      };
+      return db.isPostgresConnected() ? await db.withUsuarioTransaction(usuarioId, renovar) : await renovar();
     } catch (err: any) {
       throw new Error(`REFRESH_FALLIDO: ${err.message || 'Token de refresco inválido'}`);
     }
@@ -311,7 +321,8 @@ export const authJwtService = {
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET, { algorithms: ['HS256'] });
     if (typeof decoded === 'string' || decoded.tokenType !== 'refresh' || decoded.sub !== usuarioId || !decoded.jti) throw new Error('REFRESH_TOKEN_INVALIDO: La sesión no pertenece al usuario autenticado.');
     if (db.isPostgresConnected()) {
-      await db.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_id = $1 AND usuario_id = $2', [decoded.jti, usuarioId]);
+      await db.withUsuarioTransaction(usuarioId, client =>
+        client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_id = $1 AND usuario_id = $2', [decoded.jti, usuarioId]));
     } else {
       const registro = REFRESH_TOKENS_MEMORIA.find(r => r.tokenId === decoded.jti && r.usuarioId === usuarioId);
       if (registro) registro.revoked = true;

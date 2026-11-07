@@ -5,6 +5,7 @@ import { cryptoService } from './cryptoService';
 import { obtenerSunatGateway, CredencialesSunat, ComprobantePropuestaSire, TicketSireResponse } from './sunatGateway';
 import { sireLayoutService } from './sireLayoutService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 export interface SunatConexionModel {
   empresaId: string;
@@ -105,8 +106,15 @@ export const sireService = {
       usuarioId: userId,
       tablaAfectada: 'sunat_conexiones',
       registroId: empresaId,
-      accion: 'ACTUALIZAR_CREDENCIALES',
-      datosNuevos: { ruc: datos.ruc, modoSimulado: conexion.modoSimulado } // NUNCA valores de claves
+      accion: 'UPDATE',
+      datosNuevos: {
+        operacionAuditoria: 'ACTUALIZAR_CREDENCIALES',
+        cambioUsuarioSol: true,
+        cambioClaveSol: true,
+        cambioIdentificadorSire: Boolean(datos.clientId),
+        cambioSecretoSire: Boolean(datos.clientSecret),
+        modoSimulado: conexion.modoSimulado
+      }
     });
 
     return {
@@ -154,7 +162,7 @@ export const sireService = {
       estado: conexion.estado,
       modoSimulado: conexion.modoSimulado,
       ultimoChequeo: conexion.ultimoChequeo,
-      ultimoError: conexion.ultimoError
+      ultimoError: conexion.ultimoError ? sanitizarMensaje(conexion.ultimoError) : undefined
     };
   },
 
@@ -187,11 +195,11 @@ export const sireService = {
       usuarioId: userId,
       tablaAfectada: 'sunat_conexiones',
       registroId: empresaId,
-      accion: 'VALIDAR_CONEXION',
-      datosNuevos: { estado: conexion.estado, valido: resultado.valido }
+      accion: 'UPDATE',
+      datosNuevos: { operacionAuditoria: 'VALIDAR_CONEXION', estado: conexion.estado, valido: resultado.valido }
     });
 
-    return resultado;
+    return { valido: resultado.valido, estado: resultado.estado, mensaje: sanitizarMensaje(resultado.mensaje) };
   },
 
   /**

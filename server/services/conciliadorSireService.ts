@@ -1,4 +1,5 @@
 import { db } from '../config/database';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { Money } from '../utils/decimal';
 import { sireService, SirePropuestaModel } from './sireService';
 import { compraService, COMPRAS_MEMORIA } from './compraService';
@@ -837,7 +838,7 @@ export const conciliadorSireService = {
           detalles.push({ id: l.id, ruc: l.rucEmisor, comprobante: `${l.serie}-${l.numero}`, estado: 'ACEPTADA' });
         } catch (e: any) {
           enColaRevision++;
-          detalles.push({ id: l.id, ruc: l.rucEmisor, comprobante: `${l.serie}-${l.numero}`, estado: 'ERROR', motivo: e.message });
+          detalles.push({ id: l.id, ruc: l.rucEmisor, comprobante: `${l.serie}-${l.numero}`, estado: 'ERROR', motivo: sanitizarMensaje(e) });
         }
       } else {
         l.decision = 'COLA_REVISION';
@@ -933,7 +934,7 @@ export const conciliadorSireService = {
         }
       } catch (err: any) {
         fallidos++;
-        detalles.push({ id, success: false, error: err.message });
+        detalles.push({ id, success: false, error: sanitizarMensaje(err) });
       }
     }
 

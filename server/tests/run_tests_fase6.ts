@@ -561,12 +561,12 @@ async function ejecutarSuiteFase6() {
   // --------------------------------------------------------------------------
   console.log('\n🔹 Test 8: Cola Asíncrona de Trabajos SUNAT (Jobs) con Reintentos');
   {
-    const job = sunatJobsService.crearJob(EMPRESA_A, 'DESCARGA_SIRE_COMPRAS', { periodo: PERIODO_TEST });
+    const job = await sunatJobsService.crearJob(EMPRESA_A, 'DESCARGA_SIRE_COMPRAS', { periodo: PERIODO_TEST });
     assert(job.id.startsWith('job-'), 'Trabajo encolado con ID único');
 
     await new Promise(r => setTimeout(r, 200));
 
-    const jobActualizado = sunatJobsService.obtenerJob(job.id)!;
+    const jobActualizado = (await sunatJobsService.obtenerJob(job.id))!;
     assert(jobActualizado.estado === 'COMPLETADO', 'Trabajo completado asíncronamente');
     assert(jobActualizado.progreso === 100, 'Progreso al 100%');
     assert(Boolean(jobActualizado.resultado.hash), 'Resultado contiene hash SHA-256');

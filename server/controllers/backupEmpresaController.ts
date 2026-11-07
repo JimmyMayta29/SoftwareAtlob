@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { backupEmpresaService, OrigenBackup } from '../services/backupEmpresaService';
 import { successResponse, errorResponse } from '../utils/response';
 
@@ -9,7 +10,7 @@ export const backupEmpresaController = {
       const backups = backupEmpresaService.listarBackupsEmpresa(empresaId);
       return successResponse(res, backups);
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error al listar respaldos');
+      return errorResponse(res, sanitizarMensaje(err, 'Error al listar respaldos'));
     }
   },
 
@@ -29,7 +30,7 @@ export const backupEmpresaController = {
       const { archivoZipBuffer, ...metadata } = backup;
       return successResponse(res, metadata, 'Respaldo ZIP generado y cifrado exitosamente.', 201);
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error generando respaldo de empresa');
+      return errorResponse(res, sanitizarMensaje(err, 'Error generando respaldo de empresa'));
     }
   },
 
@@ -40,7 +41,7 @@ export const backupEmpresaController = {
       const disparado = await backupEmpresaService.verificarYDispararAutoBackup(empresaId, userId);
       return successResponse(res, { autoBackupEjecutado: disparado });
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error en verificación de backup automático');
+      return errorResponse(res, sanitizarMensaje(err, 'Error en verificación de backup automático'));
     }
   },
 
@@ -56,7 +57,7 @@ export const backupEmpresaController = {
       res.setHeader('Content-Disposition', `attachment; filename="${item.nombreArchivo}"`);
       return res.send(item.archivoZipBuffer);
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error al descargar respaldo');
+      return errorResponse(res, sanitizarMensaje(err, 'Error al descargar respaldo'));
     }
   },
 
@@ -80,7 +81,7 @@ export const backupEmpresaController = {
       const resultado = backupEmpresaService.verificarIntegridadBackup(buffer, passwordCifrado);
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error verificando integridad del respaldo');
+      return errorResponse(res, sanitizarMensaje(err, 'Error verificando integridad del respaldo'));
     }
   },
 
@@ -116,7 +117,7 @@ export const backupEmpresaController = {
 
       return successResponse(res, resultado, resultado.mensaje);
     } catch (err: any) {
-      return errorResponse(res, err.message || 'Error al restaurar respaldo');
+      return errorResponse(res, sanitizarMensaje(err, 'Error al restaurar respaldo'));
     }
   }
 };

@@ -26,14 +26,6 @@ export const empresasApi = {
     return res.data;
   },
 
-  async guardarCredencialesSunat(
-    empresaId: string, 
-    data: { usuarioSol: string; claveSol: string; clientIdSire?: string; clientSecretSire?: string }
-  ) {
-    const res: any = await apiClient.post(`/empresas/${empresaId}/credenciales-sunat`, data);
-    return res.data;
-  },
-
   async listarParametros(): Promise<ParametroTributarioDto[]> {
     const res: any = await apiClient.get('/parametros');
     return res.data || [];

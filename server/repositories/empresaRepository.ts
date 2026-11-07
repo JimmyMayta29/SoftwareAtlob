@@ -1,4 +1,5 @@
-import { db } from '../config/database';
+import { db, establecerContextoEmpresa } from '../config/database';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { env } from '../config/env';
 import crypto from 'crypto';
 import { USUARIOS_ESTUDIO_MEMORIA, USUARIOS_EMPRESA_MEMORIA } from '../services/authJwtService';
@@ -53,7 +54,7 @@ export const EMPRESAS_STORE: EmpresaModel[] = [DATOS_EMPRESA_DEMO];
 export const empresaRepository = {
   async listarPorUsuario(userId: string): Promise<EmpresaModel[]> {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
+      const res = await db.withUsuarioTransaction(userId, client => client.query(`
         SELECT e.id, e.tenant_id as "tenantId", e.codigo_empresa as "codigoEmpresa",
                e.ruc, e.razon_social as "razonSocial", e.nombre_comercial as "nombreComercial",
                e.regimen_tributario as "regimenTributario", e.domicilio_fiscal as "domicilioFiscal",
@@ -69,7 +70,7 @@ export const empresaRepository = {
           SELECT 1 FROM usuario_empresa m WHERE m.empresa_id = e.id AND m.usuario_id = u.id AND m.estado = 'ACTIVO'
         ))
         ORDER BY e.razon_social ASC
-      `, [userId]);
+      `, [userId]));
 
       return res.rows;
     }
@@ -151,6 +152,7 @@ export const empresaRepository = {
         ]);
 
         const nuevaEmpresa = insertRes.rows[0];
+        await establecerContextoEmpresa(client, nuevaEmpresa.id, empresaData.usuarioId);
 
         // 2. Asignar Membresía al creador (ADMINISTRADOR)
         await client.query(`
@@ -190,7 +192,7 @@ export const empresaRepository = {
         return nuevaEmpresa;
       } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error creando empresa en PostgreSQL:', err);
+        console.error('Error creando empresa en PostgreSQL:', sanitizarMensaje(err));
         throw err;
       } finally {
         client.release();

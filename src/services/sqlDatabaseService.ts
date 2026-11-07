@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS empresas (
     direccion_fiscal TEXT,
     regimen_tributario VARCHAR(50) DEFAULT 'MYPE_TRIBUTARIO',
     tasa_renta_mensual DECIMAL(5, 4) DEFAULT 0.0100,
-    usuario_sol VARCHAR(50),
     ambiente_sunat VARCHAR(20) DEFAULT 'PRODUCCION',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,8 +126,8 @@ export function generarSqlDumpCompleto(
   dump += `-- ====================================================================\n\n`;
 
   // Empresa
-  dump += `INSERT INTO empresas (ruc, razon_social, nombre_comercial, direccion_fiscal, regimen_tributario, tasa_renta_mensual, usuario_sol, ambiente_sunat)\n`;
-  dump += `VALUES ('${empresa.ruc}', '${empresa.razonSocial.replace(/'/g, "''")}', '${empresa.nombreComercial.replace(/'/g, "''")}', '${empresa.direccionFiscal.replace(/'/g, "''")}', '${empresa.regimenTributario}', ${empresa.tasaRentaMensual}, '${empresa.usuarioSol}', '${empresa.ambienteSunat}')\n`;
+  dump += `INSERT INTO empresas (ruc, razon_social, nombre_comercial, direccion_fiscal, regimen_tributario, tasa_renta_mensual, ambiente_sunat)\n`;
+  dump += `VALUES ('${empresa.ruc}', '${empresa.razonSocial.replace(/'/g, "''")}', '${empresa.nombreComercial.replace(/'/g, "''")}', '${empresa.direccionFiscal.replace(/'/g, "''")}', '${empresa.regimenTributario}', ${empresa.tasaRentaMensual}, '${empresa.ambienteSunat}')\n`;
   dump += `ON CONFLICT (ruc) DO UPDATE SET razon_social = EXCLUDED.razon_social;\n\n`;
 
   // Compras

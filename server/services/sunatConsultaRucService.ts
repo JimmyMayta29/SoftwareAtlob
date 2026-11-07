@@ -1,4 +1,5 @@
 import { anexoService, AnexoModel } from './anexoService';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { db } from '../config/database';
 
 export interface SunatRucResult {
@@ -247,7 +248,7 @@ export class SunatConsultaRucService {
       });
       datosSunat.anexoId = anexoGuardado.id;
     } catch (err) {
-      console.warn('No se pudo auto-sincronizar anexo tras consulta RUC:', err);
+      console.warn('No se pudo auto-sincronizar anexo tras consulta RUC:', sanitizarMensaje(err));
     }
 
     return datosSunat;

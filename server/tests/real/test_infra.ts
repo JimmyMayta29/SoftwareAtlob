@@ -4,13 +4,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { Pool } from 'pg';
 import { MIGRATION_FILES } from '../../db/migrate';
+import { NOMBRES_SECRETOS_SERVIDOR } from '../../config/env';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 assert(databaseUrl, 'TEST_DATABASE_URL debe apuntar a PostgreSQL real descartable.');
 const admin = new Pool({ connectionString: databaseUrl });
 const prefix = `infra_${crypto.randomUUID().replaceAll('-', '')}`;
 const databases = [`${prefix}_ok`, `${prefix}_fallo`, `${prefix}_legado`];
-const secrets = { JWT_SECRET: crypto.randomBytes(32).toString('hex'), JWT_REFRESH_SECRET: crypto.randomBytes(32).toString('hex'), SUNAT_ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex') };
+const secrets = Object.fromEntries(NOMBRES_SECRETOS_SERVIDOR.map(nombre => [nombre, crypto.randomBytes(32).toString('hex')]));
 const migrate = `const d=await import('./server/config/database.ts');try{await d.initializeDatabase();await(await import('./server/db/migrate.ts')).runMigrations()}finally{await d.closeDatabase()}`;
 
 function run(code: string, url: string) {

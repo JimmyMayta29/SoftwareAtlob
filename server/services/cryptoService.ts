@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { env } from '../config/env';
+import { sanitizarDatos, sanitizarMensaje } from '../utils/seguridadDatos';
 
 /**
  * Proveedor abstracto de Llaves Maestras (KEK - Key Encryption Key)
@@ -10,12 +12,11 @@ export interface KeyProvider {
   descifrarDek(encryptedDek: string, keyVersion: number): Promise<Buffer>;
 }
 
-const DEFAULT_KEY_V1 = 'ATLOB_AES256_ERP_KEY_V1_SECRET_2026_MASTER!';
-const MASTER_KEY_V1 = crypto.createHash('sha256').update(process.env.SUNAT_ENCRYPTION_KEY || DEFAULT_KEY_V1).digest();
+const MASTER_KEY_V1 = crypto.createHash('sha256').update(env.SUNAT_ENCRYPTION_KEY).digest();
 
 const KEY_REGISTRY: Record<number, Buffer> = {
   1: MASTER_KEY_V1,
-  2: crypto.createHash('sha256').update((process.env.SUNAT_ENCRYPTION_KEY || DEFAULT_KEY_V1) + '_V2_ROTATED').digest()
+  2: crypto.createHash('sha256').update((env.SUNAT_ENCRYPTION_KEY) + '_V2_ROTATED').digest()
 };
 
 /**
@@ -233,33 +234,12 @@ export const cryptoService = {
     return { nuevoPayload, nuevaVersion };
   },
 
-  sanitizarError(error: any): string {
-    if (!error) return 'Error desconocido';
-    let msg = typeof error === 'string' ? error : error?.message || String(error);
-
-    msg = msg.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTADO]');
-    msg = msg.replace(/(clave_sol|claveSol|client_secret|clientSecret|password|token)=\S+/gi, '$1=[REDACTADO]');
-    msg = msg.replace(/"(claveSol|clientSecret|token|password)":\s*"[^"]+"/gi, '"$1":"[REDACTADO]"');
-    return msg;
+  sanitizarError(error: unknown): string {
+    return sanitizarMensaje(error);
   },
 
   sanitizarObjeto<T extends Record<string, any>>(obj: T): Partial<T> {
-    if (!obj || typeof obj !== 'object') return obj;
-    const clon: Record<string, any> = { ...obj };
-    const camposSensibles = [
-      'claveSol', 'clave_sol', 'clientSecret', 'client_secret',
-      'clave_sol_encrypted', 'client_secret_encrypted', 'access_token',
-      'accessToken', 'token', 'tokenSunat', 'authTag'
-    ];
-
-    for (const key of Object.keys(clon)) {
-      if (camposSensibles.includes(key)) {
-        delete clon[key];
-      } else if (typeof clon[key] === 'object' && clon[key] !== null) {
-        clon[key] = this.sanitizarObjeto(clon[key]) as any;
-      }
-    }
-    return clon as Partial<T>;
+    return sanitizarDatos(obj) as Partial<T>;
   },
 
   /**

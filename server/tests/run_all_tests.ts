@@ -13,6 +13,8 @@ const suites = [
   { name: 'Fase 4: Tesorería, Conciliación Bancaria, 4ta & Planilla', path: 'server/tests/run_tests_fase4.ts' },
   { name: 'Fase 5: Libros Oficiales, Balance Comprobación & EEFF', path: 'server/tests/run_tests_fase5.ts' },
   { name: 'Fase 6: Integración SUNAT/SIRE, XML UBL/CDR & PLE', path: 'server/tests/run_tests_fase6.ts' },
+  { name: 'Escaneo de secretos en el frontend', path: 'server/tests/test_secretos_frontend.ts' },
+  { name: 'Sonda SUNAT de auditoría y respaldo', path: 'server/tests/test_sonda_sunat.ts' },
   { name: 'Fase 7: Seguridad, RBAC, RLS, Envelope Encryption & Auditoría', path: 'server/tests/run_tests_fase7.ts' },
   { name: 'Fase 7B: Navegación por Empresa, Entorno Aislado & Selector Multi-Nivel', path: 'server/tests/run_tests_fase7b.ts' },
   { name: 'Fase 7C-2: Reportes ESTANDAR (Hoja de Trabajo 10 Columnas & Libro Diario)', path: 'server/tests/run_tests_fase7c2.ts' },

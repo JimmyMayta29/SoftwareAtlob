@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { z } from 'zod';
 import { asientoService } from '../services/asientoService';
 import { contabilizacionService, TipoOperacionContable } from '../services/contabilizacionService';
@@ -229,7 +230,7 @@ export const asientoController = {
       const registros = await auditoriaRepository.listarPorEmpresa(empresaId, limit);
       return successResponse(res, registros);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 

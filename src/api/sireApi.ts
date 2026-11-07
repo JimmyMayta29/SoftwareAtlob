@@ -75,9 +75,15 @@ export const sireApi = {
     return res.data;
   },
 
-  async guardarConexion(empresaId: string, datos: any) {
-    const res = await apiClient.put(`/empresas/${empresaId}/sire/conexion`, datos);
-    return res.data;
+  async guardarConexion(empresaId: string, datos: {
+    ruc: string;
+    usuarioSol: string;
+    claveSol: string;
+    clientId?: string;
+    clientSecret?: string;
+    modoSimulado: boolean;
+  }): Promise<void> {
+    await apiClient.put(`/empresas/${empresaId}/sire/conexion`, datos);
   },
 
   async validarConexion(empresaId: string) {

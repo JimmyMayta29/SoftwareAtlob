@@ -1,22 +1,19 @@
-version: '3.8'
-
 services:
   postgres-test:
-    image: postgres:15-alpine
-    container_name: atlob_postgres_test
+    image: postgres:18-alpine
     environment:
-      POSTGRES_USER: atlob_test
-      POSTGRES_PASSWORD: atlob_test_2026!
-      POSTGRES_DB: atlob_test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ATLOB_TEST_ADMIN_PASSWORD:?Ejecute el lanzador de PostgreSQL de pruebas}
+      POSTGRES_DB: atlob_test
+      ATLOB_TEST_APP_PASSWORD: ${ATLOB_TEST_APP_PASSWORD:?Ejecute el lanzador de PostgreSQL de pruebas}
     ports:
-      - "5433:5432"
+      - "127.0.0.1::5432"
+    tmpfs:
+      - /var/lib/postgresql
     volumes:
-      - pg_test_data:/var/lib/postgresql/data
+      - ./server/tests/real/postgres_test_init.sh:/docker-entrypoint-initdb.d/10-atlob.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U atlob_test -d atlob_test_db"]
-      interval: 5s
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "contabilidad_app", "-d", "atlob_test"]
+      interval: 2s
       timeout: 5s
-      retries: 5
-
-volumes:
-  pg_test_data:
+      retries: 15

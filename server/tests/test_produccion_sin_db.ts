@@ -1,102 +1,103 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import path from 'node:path';
-import { initializeDatabase, db } from '../config/database';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { initializeDatabase } from '../config/database';
+import { NOMBRES_SECRETOS_SERVIDOR } from '../config/env';
 import { empresaRepository } from '../repositories/empresaRepository';
 
-export async function runTestProduccionSinDb() {
-  console.log('========================================================================');
-  console.log('🧪 PRUEBA AUTOMATIZADA A3: NODE_ENV=production SIN DATABASE_URL');
-  console.log('   (Verificación de fallo estricto y bloqueo de motor en memoria)');
-  console.log('========================================================================\n');
+const fuentesHistoricas = {
+  JWT_SECRET: ['server/config/env.ts', /JWT_SECRET:.*?\.default\(['"]([^'"]+)/],
+  JWT_REFRESH_SECRET: ['server/config/env.ts', /JWT_REFRESH_SECRET:.*?\.default\(['"]([^'"]+)/],
+  SUNAT_ENCRYPTION_KEY: ['server/config/env.ts', /SUNAT_ENCRYPTION_KEY:.*?\.default\(['"]([^'"]+)/],
+  MFA_SEED_SECRET: ['server/services/authJwtService.ts', /const MFA_SECRET_ADMIN_DEMO = ['"]([^'"]+)/],
+  BACKUP_ENCRYPTION_KEY: ['server/services/backupEmpresaService.ts', /const CLAVE_DERIVACION_DEFAULT = ['"]([^'"]+)/],
+} as const;
 
-  // 1. Probar que initializeDatabase() en producción sin DATABASE_URL lanza error
+export async function runTestProduccionSinDb() {
   const envOriginalNode = process.env.NODE_ENV;
   const envOriginalDb = process.env.DATABASE_URL;
 
   try {
     process.env.NODE_ENV = 'production';
     process.env.DATABASE_URL = '';
+    await assert.rejects(initializeDatabase, /DATABASE_URL_REQUERIDA/);
+    await assert.rejects(() => empresaRepository.obtenerPorId('emp-demo-sac'), /DATABASE_NO_DISPONIBLE/);
+    console.log('A3: PostgreSQL obligatorio y sin fallback en producción.');
 
-    // A) Verificación directa en el inicializador de base de datos
-    let lanzoErrorInit = false;
-    try {
-      await initializeDatabase();
-    } catch (err: any) {
-      lanzoErrorInit = true;
-      assert.match(
-        err.message,
-        /DATABASE_URL_REQUERIDA/,
-        'El mensaje de error debe exigir DATABASE_URL_REQUERIDA en producción'
-      );
+    const secretosValidos = Object.fromEntries(
+      NOMBRES_SECRETOS_SERVIDOR.map(nombre => [nombre, randomBytes(32).toString('hex')])
+    );
+    const entornoProduccion = {
+      ...process.env,
+      ...secretosValidos,
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://127.0.0.1/atlob_test',
+    };
+
+    const ejecutar = (args: string[], variables: NodeJS.ProcessEnv) => spawnSync(
+      process.execPath, ['--import', 'tsx', ...args],
+      { env: { ...entornoProduccion, ...variables }, encoding: 'utf8', timeout: 20000, windowsHide: true }
+    );
+    const validarConfiguracion = ['--input-type=module', '-e', "await import('./server/config/env.ts');"];
+    const serverSinDb = ejecutar(['server.ts'], { DATABASE_URL: '' });
+    assert.equal(serverSinDb.status, 1, 'El servidor debe terminar si falta DATABASE_URL');
+    assert(/DATABASE_URL_REQUERIDA/.test(serverSinDb.stderr), 'Debe indicar el problema de configuración');
+    assert.equal(ejecutar(validarConfiguracion, {}).status, 0, 'La configuración válida debe cargar');
+
+    for (const nombre of NOMBRES_SECRETOS_SERVIDOR) {
+      const [ruta, patron] = fuentesHistoricas[nombre];
+      const historico = execFileSync('git', ['show', `392737c:${ruta}`], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      }).match(patron)?.[1];
+      assert(historico, `El fixture histórico de ${nombre} debe existir`);
+
+      for (const [motivo, valor] of [
+        ['AUSENTE', ''],
+        ['FORMATO_32_BYTES', randomBytes(31).toString('hex')],
+        ['BAJA_DIVERSIDAD', 'ab'.repeat(32)],
+        ['HISTORICO', historico],
+      ]) {
+        const resultado = ejecutar(validarConfiguracion, { [nombre]: valor });
+        assert.equal(resultado.status, 1, `Debe abortar para ${nombre} (${motivo})`);
+        assert(resultado.stderr.includes(`${nombre} (${motivo})`), 'Debe indicar el motivo del rechazo');
+        assert(!valor || !(resultado.stdout + resultado.stderr).includes(valor), 'El diagnóstico debe omitir el valor');
+        console.log(`A3: ${nombre} (${motivo}) → EXIT=${resultado.status}`);
+      }
     }
-    assert.equal(lanzoErrorInit, true, 'initializeDatabase() debe abortar con excepción en producción sin DATABASE_URL');
-    console.log('  ✔ initializeDatabase() aborta inmediatamente con DATABASE_URL_REQUERIDA.');
 
-    // B) Probar que empresaRepository en producción no permite fallback a memoria
-    let lanzoErrorRepo = false;
-    try {
-      await empresaRepository.obtenerPorId('emp-demo-sac');
-    } catch (err: any) {
-      lanzoErrorRepo = true;
-      assert.match(
-        err.message,
-        /DATABASE_NO_DISPONIBLE/,
-        'El repositorio debe rechazar fallback en memoria en producción'
-      );
+    for (const modo of ['development', 'test']) {
+      const script = [
+        "const {createHash}=await import('node:crypto');",
+        "const {env,NOMBRES_SECRETOS_SERVIDOR}=await import('./server/config/env.ts');",
+        "const secretos=NOMBRES_SECRETOS_SERVIDOR.map(n=>env[n]);",
+        "if (!secretos.every(s=>/^[0-9a-f]{64}$/.test(s))) process.exit(1);",
+        "console.log(JSON.stringify(secretos.map(s=>createHash('sha256').update(s).digest('hex'))));",
+      ].join('');
+      const variables = { NODE_ENV: modo, ...Object.fromEntries(NOMBRES_SECRETOS_SERVIDOR.map(nombre => [nombre, ''])) };
+      const primero = ejecutar(['--input-type=module', '-e', script], variables);
+      const segundo = ejecutar(['--input-type=module', '-e', script], variables);
+      assert.equal(primero.status, 0);
+      assert.equal(segundo.status, 0);
+      const huellas = JSON.parse(primero.stdout) as string[];
+      const otras = JSON.parse(segundo.stdout) as string[];
+      assert.equal(huellas.length, NOMBRES_SECRETOS_SERVIDOR.length);
+      assert(huellas.every((huella, indice) => huella !== otras[indice]), 'Los secretos deben ser efímeros por proceso');
+      assert(/Secretos efímeros/.test(primero.stderr), 'El proceso debe advertir de las claves efímeras');
+      assert(!/[0-9a-f]{64}/i.test(primero.stderr), 'El aviso debe omitir los valores');
+      console.log(`A3: ${modo} con secretos efímeros distintos por proceso → EXIT=0`);
     }
-    assert.equal(lanzoErrorRepo, true, 'empresaRepository debe fallar en producción si no hay PostgreSQL');
-    console.log('  ✔ empresaRepository rechaza fallback silencioso en memoria (DATABASE_NO_DISPONIBLE).');
-
-    // C) Probar ejecución real de server.ts en subproceso con NODE_ENV=production
-    console.log('  Ejecutando proceso server.ts con NODE_ENV=production...');
-    const childExitCode = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', 'server.ts'], {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          NODE_ENV: 'production',
-          DATABASE_URL: '',
-          PORT: '3999'
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: true
-      });
-
-      let stdout = '';
-      let stderr = '';
-      child.stdout.on('data', d => { stdout += d.toString(); });
-      child.stderr.on('data', d => { stderr += d.toString(); });
-
-      child.on('close', (code) => {
-        const fullOutput = stdout + stderr;
-        assert.match(
-          fullOutput,
-          /DATABASE_URL/,
-          'La salida del servidor debe reportar error por falta de DATABASE_URL'
-        );
-        resolve(code ?? 1);
-      });
-    });
-
-    assert.equal(childExitCode, 1, 'El servidor debe finalizar con código 1 en producción sin DATABASE_URL');
-    console.log('  ✔ Proceso server.ts finalizó con código 1 y mensaje DATABASE_URL_REQUERIDA.');
-
   } finally {
-    process.env.NODE_ENV = envOriginalNode;
-    if (envOriginalDb !== undefined) {
-      process.env.DATABASE_URL = envOriginalDb;
-    } else {
-      delete process.env.DATABASE_URL;
-    }
+    if (envOriginalNode === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = envOriginalNode;
+    if (envOriginalDb === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = envOriginalDb;
   }
-
-  console.log('\n✅ PRUEBA A3 COMPLETADA: Servidor y repositorios protegidos contra fallos silenciosos en producción.\n');
+  console.log('PRUEBA A3 COMPLETADA');
 }
 
 if (process.argv[1]?.endsWith('test_produccion_sin_db.ts')) {
   runTestProduccionSinDb().catch(err => {
-    console.error('❌ Error en test_produccion_sin_db:', err);
-    process.exit(1);
+    console.error('Error en test_produccion_sin_db:', err.message);
+    process.exitCode = 1;
   });
 }

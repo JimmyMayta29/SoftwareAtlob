@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { z } from 'zod';
 import { sireService } from '../services/sireService';
 import { conciliadorSireService } from '../services/conciliadorSireService';
@@ -98,7 +99,10 @@ export const sireController = {
       const result = await sireService.guardarConexion(empresaId, data, userId);
       return successResponse(res, result, 'Credenciales SUNAT guardadas y cifradas exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      const mensaje = sanitizarMensaje(err);
+      return errorResponse(res, mensaje.startsWith('EMPRESA_DEMO_BLOQUEO_SUNAT:')
+        ? 'EMPRESA_DEMO_BLOQUEO_SUNAT: La empresa demo no admite credenciales SUNAT.'
+        : 'Error al guardar credenciales SUNAT');
     }
   },
 
@@ -108,7 +112,7 @@ export const sireController = {
       const estado = await sireService.obtenerEstadoConexion(empresaId);
       return successResponse(res, estado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -120,7 +124,7 @@ export const sireController = {
       const resultado = await sireService.validarConexion(empresaId, userId);
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -134,7 +138,7 @@ export const sireController = {
       const result = await sireService.solicitarDescargaTicket(empresaId, data.tipo, data.periodo, userId);
       return successResponse(res, result, 'Ticket de descarga SIRE solicitado ante SUNAT.', 202);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -146,7 +150,7 @@ export const sireController = {
       const result = await sireService.consultarTicketDescarga(empresaId, data.tipo, data.periodo, data.numTicket, userId);
       return successResponse(res, result);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -174,7 +178,7 @@ export const sireController = {
 
       return successResponse(res, propuesta, 'Propuesta SIRE descargada exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -202,7 +206,7 @@ export const sireController = {
 
       return successResponse(res, propuesta, 'Propuesta manual SIRE importada exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -217,7 +221,7 @@ export const sireController = {
       const resultado = await conciliadorSireService.conciliarPeriodo(empresaId, tipo, periodo, { toleranciaImporte: tolerancia });
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -236,7 +240,7 @@ export const sireController = {
       );
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -255,7 +259,7 @@ export const sireController = {
       );
       return successResponse(res, resultado, 'Asiento de ajuste generado con éxito.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -273,7 +277,7 @@ export const sireController = {
       );
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -300,7 +304,7 @@ export const sireController = {
       });
       return successResponse(res, resultado, 'Regla de contabilización por proveedor guardada exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -310,7 +314,7 @@ export const sireController = {
       const reglas = conciliadorSireService.listarReglasProveedor(empresaId);
       return successResponse(res, reglas);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -324,7 +328,7 @@ export const sireController = {
       const resultado = await conciliadorSireService.aceptarPropuestaSireOficial(empresaId, data.tipo, data.periodo, userId);
       return successResponse(res, resultado, 'Propuesta oficial SIRE aceptada ante SUNAT.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -343,7 +347,7 @@ export const sireController = {
       );
       return successResponse(res, resultado, 'Propuesta oficial SIRE reemplazada exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -361,7 +365,7 @@ export const sireController = {
       );
       return successResponse(res, resultado, 'Ajuste posterior SIRE registrado.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -372,7 +376,7 @@ export const sireController = {
       const resultado = sireLayoutService.validarLayoutTxt(data.contenidoTxt, data.tipoLayout);
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -384,7 +388,7 @@ export const sireController = {
       const historial = historialGeneracionesService.listarPorEmpresa(empresaId, { modulo: 'SIRE', periodo });
       return successResponse(res, historial);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   }
 };

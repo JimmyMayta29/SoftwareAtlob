@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
+import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
 
 export interface AuditoriaLogEntry {
   id: string;
@@ -54,6 +55,8 @@ export const auditoriaChainService = {
   }): Promise<AuditoriaLogEntry> {
     const id = `aud-chain-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
+    const datosAnteriores = filtrarDetalleAuditoria(params.tablaAfectada, params.datosAnteriores);
+    const datosNuevos = filtrarDetalleAuditoria(params.tablaAfectada, params.datosNuevos);
 
     // Obtener el último hash de la empresa
     const logsEmpresa = AUDITORIA_LOG_CHAIN_MEMORIA.filter(l => l.empresaId === params.empresaId);
@@ -68,7 +71,7 @@ export const auditoriaChainService = {
       params.tablaAfectada,
       params.registroId,
       params.accion,
-      params.datosNuevos,
+      datosNuevos,
       hashPrevio
     );
 
@@ -79,8 +82,8 @@ export const auditoriaChainService = {
       tablaAfectada: params.tablaAfectada,
       registroId: params.registroId,
       accion: params.accion,
-      datosAnteriores: params.datosAnteriores,
-      datosNuevos: params.datosNuevos,
+      datosAnteriores,
+      datosNuevos,
       hashPrevio,
       hashActual,
       createdAt: now
@@ -99,7 +102,7 @@ export const auditoriaChainService = {
           entrada.hashPrevio, entrada.hashActual, entrada.createdAt
         ]);
       } catch (err) {
-        console.error('Error insertando en auditoria_log (Postgres):', err);
+        console.error('Error insertando en auditoria_log (Postgres):', sanitizarMensaje(err));
       }
     }
 

@@ -8,28 +8,41 @@ export interface DatabaseService {
   isPostgresConnected(): boolean;
   withTenantAndEmpresa<T>(userId: string, empresaId: string, action: (client: PoolClient) => Promise<T>): Promise<T>;
   withEmpresaTransaction<T>(empresaId: string, action: (client: PoolClient) => Promise<T>): Promise<T>;
+  withUsuarioTransaction<T>(userId: string, action: (client: PoolClient) => Promise<T>): Promise<T>;
 }
 
 let pool: Pool | null = null;
 let isConnected = false;
-const contextoEmpresa = new AsyncLocalStorage<{ empresaId: string; userId: string }>();
+const contexto = new AsyncLocalStorage<{ empresaId?: string; userId: string }>();
+
+export function conContextoUsuario<T>(userId: string, action: () => T): T {
+  const actual = contexto.getStore();
+  if (actual && actual.userId !== userId) throw new Error('CONTEXTO_USUARIO_INCOMPATIBLE');
+  return actual ? action() : contexto.run({ userId }, action);
+}
 
 export function conContextoEmpresa<T>(empresaId: string, userId: string, action: () => T): T {
-  const actual = contextoEmpresa.getStore();
-  if (actual && (actual.empresaId !== empresaId || actual.userId !== userId)) {
+  const actual = contexto.getStore();
+  if (actual && ((actual.empresaId && actual.empresaId !== empresaId) || actual.userId !== userId)) {
     throw new Error('CONTEXTO_EMPRESA_INCOMPATIBLE');
   }
-  return contextoEmpresa.run({ empresaId, userId }, action);
+  return contexto.run({ empresaId, userId }, action);
+}
+
+export async function establecerContextoUsuario(client: PoolClient, userId: string) {
+  const actual = contexto.getStore();
+  if (actual && actual.userId !== userId) throw new Error('CONTEXTO_USUARIO_INCOMPATIBLE');
+  await client.query("SELECT set_config('app.current_user_id', $1, true), set_config('app.usuario_id', $1, true)", [userId]);
 }
 
 export async function establecerContextoEmpresa(client: PoolClient, empresaId: string, userId?: string) {
-  const actual = contextoEmpresa.getStore();
-  if (actual && (actual.empresaId !== empresaId || (userId && actual.userId !== userId))) {
+  const actual = contexto.getStore();
+  if (actual && ((actual.empresaId && actual.empresaId !== empresaId) || (userId && actual.userId !== userId))) {
     throw new Error('CONTEXTO_EMPRESA_INCOMPATIBLE');
   }
   await client.query("SELECT set_config('app.current_empresa_id', $1, true), set_config('app.empresa_id', $1, true)", [empresaId]);
   const actor = actual?.userId ?? userId;
-  if (actor) await client.query("SELECT set_config('app.current_user_id', $1, true)", [actor]);
+  if (actor) await establecerContextoUsuario(client, actor);
 }
 
 export async function initializeDatabase(): Promise<void> {
@@ -72,7 +85,7 @@ export function setPostgresPool(customPool: Pool | any, connected = true) {
   isConnected = connected && customPool !== null;
 }
 
-async function transaction<T>(empresaId: string, userId: string | undefined, action: (client: PoolClient) => Promise<T>): Promise<T> {
+async function transaction<T>(empresaId: string | undefined, userId: string | undefined, action: (client: PoolClient) => Promise<T>): Promise<T> {
   if (!pool || !isConnected) {
     if (env.NODE_ENV !== 'production') return action({} as PoolClient);
     throw new Error('DATABASE_NO_DISPONIBLE');
@@ -80,7 +93,8 @@ async function transaction<T>(empresaId: string, userId: string | undefined, act
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await establecerContextoEmpresa(client, empresaId, userId);
+    if (empresaId) await establecerContextoEmpresa(client, empresaId, userId);
+    else if (userId) await establecerContextoUsuario(client, userId);
     const result = await action(client);
     await client.query('COMMIT');
     return result;
@@ -101,7 +115,7 @@ export const db: DatabaseService = {
       }
       throw new Error('DATABASE_NO_DISPONIBLE');
     }
-    const actual = contextoEmpresa.getStore();
+    const actual = contexto.getStore();
     if (actual) return transaction(actual.empresaId, actual.userId, client => client.query<T>(text, params));
     return pool.query<T>(text, params);
   },
@@ -118,5 +132,6 @@ export const db: DatabaseService = {
     return pool.connect();
   },
   withTenantAndEmpresa: (userId, empresaId, action) => transaction(empresaId, userId, action),
-  withEmpresaTransaction: (empresaId, action) => transaction(empresaId, undefined, action)
+  withEmpresaTransaction: (empresaId, action) => transaction(empresaId, undefined, action),
+  withUsuarioTransaction: (userId, action) => transaction(contexto.getStore()?.empresaId, userId, action)
 };

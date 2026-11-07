@@ -177,11 +177,6 @@ export interface EmpresaCliente {
   tasaRentaMensual: number;
   metodoInventario?: 'PERIODICO' | 'PERMANENTE' | null;
   
-  // Credenciales SUNAT Clave SOL
-  usuarioSol: string;
-  claveSol: string;
-  clientIdSire: string;
-  clientSecretSire: string;
   ambienteSunat: 'PRODUCCION' | 'BETA_TEST';
 
   // Fechas y Vencimientos

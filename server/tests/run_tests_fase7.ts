@@ -1,4 +1,5 @@
-import { authJwtService, sembrarUsuariosPrueba } from '../services/authJwtService';
+import { randomBytes } from 'node:crypto';
+import { authJwtService, sembrarUsuariosPrueba, USUARIOS_ESTUDIO_MEMORIA } from '../services/authJwtService';
 import { totpService } from '../services/totpService';
 import { cryptoService } from '../services/cryptoService';
 import { auditoriaChainService, AUDITORIA_LOG_CHAIN_MEMORIA } from '../services/auditoriaChainService';
@@ -8,7 +9,8 @@ import { periodoService } from '../services/periodoService';
 import { db } from '../config/database';
 
 async function ejecutarSuiteFase7() {
-  sembrarUsuariosPrueba();
+  const passwordFixture = randomBytes(24).toString('hex');
+  sembrarUsuariosPrueba(passwordFixture);
   console.log('======================================================');
   console.log('🧪 SUITE DE PRUEBAS AUTOMATIZADAS — FASE 7: SEGURIDAD, RBAC, RLS, ENVELOPE ENCRYPTION & AUDITORÍA');
   console.log('======================================================\n');
@@ -43,27 +45,30 @@ async function ejecutarSuiteFase7() {
     // 1.1 Intentar login de ADMINISTRADOR sin TOTP debe fallar
     let falloSinMfa = false;
     try {
-      await authJwtService.login('admin@atlob.pe', 'Atlob2026!');
+      await authJwtService.login('admin@atlob.pe', passwordFixture);
     } catch (err: any) {
       falloSinMfa = err.message.includes('MFA_REQUERIDO');
     }
     assert(falloSinMfa, 'Login de ADMINISTRADOR rechaza acceso sin código TOTP obligatorio');
 
+    const secretoFixture = USUARIOS_ESTUDIO_MEMORIA.find(u => u.id === 'usr-admin-01')!.mfaSecret!;
     // 1.2 TOTP inválido debe ser rechazado
     let falloTotpInvalido = false;
     try {
-      await authJwtService.login('admin@atlob.pe', 'Atlob2026!', '000000');
+      const codigosVigentes = [-1, 0, 1].map(offset => totpService.generarToken(secretoFixture, offset));
+      const codigoInvalido = ['000000', '000001', '000002', '000003'].find(codigo => !codigosVigentes.includes(codigo));
+      await authJwtService.login('admin@atlob.pe', passwordFixture, codigoInvalido);
     } catch (err: any) {
       falloTotpInvalido = err.message.includes('MFA_CODIGO_INVALIDO');
     }
     assert(falloTotpInvalido, 'Login de ADMINISTRADOR rechaza código TOTP incorrecto');
 
     // 1.3 Generar código TOTP RFC 6238 válido
-    const codigoValido = totpService.generarToken('JBSWY3DPEHPK3PXP');
+    const codigoValido = totpService.generarToken(secretoFixture);
     assert(codigoValido.length === 6, 'Código TOTP generado tiene 6 dígitos numéricos');
 
     // 1.4 Login exitoso con TOTP
-    const loginRes = await authJwtService.login('admin@atlob.pe', 'Atlob2026!', codigoValido);
+    const loginRes = await authJwtService.login('admin@atlob.pe', passwordFixture, codigoValido);
     assert(Boolean(loginRes.accessToken), 'Access Token JWT generado');
     assert(Boolean(loginRes.refreshToken), 'Refresh Token generado');
     assert(loginRes.usuario.rolGlobal === 'ADMINISTRADOR', 'Rol verificado como ADMINISTRADOR');

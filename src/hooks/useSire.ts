@@ -18,16 +18,6 @@ export function useSireConexionEstado(empresaId: string) {
   });
 }
 
-export function useGuardarConexionSire(empresaId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (datos: any) => sireApi.guardarConexion(empresaId, datos),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sireConexionEstado', empresaId] });
-    }
-  });
-}
-
 export function useValidarConexionSire(empresaId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -219,6 +209,5 @@ export function useImportarComprobantesXml(empresaId: string) {
 
 // Compatibilidad retroactiva
 export const useSunatConexionEstado = useSireConexionEstado;
-export const useGuardarConexionSunat = useGuardarConexionSire;
 export const useValidarConexionSunat = useValidarConexionSire;
 

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { z } from 'zod';
 import { pleExportService } from '../services/pleExportService';
 import { archivoValidadorService } from '../services/archivoValidadorService';
@@ -34,7 +35,7 @@ export const pleController = {
       const libros = pleExportService.listarLibrosConfig();
       return successResponse(res, libros);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -48,7 +49,7 @@ export const pleController = {
       const prev = await pleExportService.prevalidar(empresaId, periodo, codigoLibro);
       return successResponse(res, prev);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -87,7 +88,7 @@ export const pleController = {
 
       return successResponse(res, exp, 'Archivo plano de libro electrónico PLE generado exitosamente.');
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -98,15 +99,15 @@ export const pleController = {
       empresaDemoService.validarOperacionOficialPermitida(empresaId, 'PLE_ENVIO');
       const data = exportarPleSchema.parse(req.body);
 
-      const job = sunatJobsService.crearJob(empresaId, 'GENERACION_PLE', {
+      const job = await sunatJobsService.crearJob(empresaId, 'GENERACION_PLE', {
         periodo: data.periodo,
         codigoLibro: data.codigoLibro,
         ruc: data.ruc
-      });
+      }, req.user?.id);
 
       return successResponse(res, { jobId: job.id, estado: job.estado }, 'Generación de archivo PLE encolada.', 202);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -118,7 +119,7 @@ export const pleController = {
       if (!exportacion) return errorResponse(res, 'EXPORTACION_NO_ENCONTRADA', 404);
       return successResponse(res, exportacion);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -128,7 +129,7 @@ export const pleController = {
       const exportaciones = pleExportService.listarExportaciones(empresaId);
       return successResponse(res, exportaciones);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -143,7 +144,7 @@ export const pleController = {
       );
       return successResponse(res, resultado);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -155,7 +156,7 @@ export const pleController = {
       const historial = historialGeneracionesService.listarPorEmpresa(empresaId, { modulo: 'PLE', periodo });
       return successResponse(res, historial);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   },
 
@@ -163,11 +164,11 @@ export const pleController = {
   async consultarJob(req: Request, res: Response) {
     try {
       const jobId = req.params.id;
-      const job = sunatJobsService.obtenerJob(jobId);
+      const job = await sunatJobsService.obtenerJob(jobId, req.empresaId);
       if (!job) return errorResponse(res, 'Trabajo no encontrado.', 404);
       return successResponse(res, job);
     } catch (err: any) {
-      return errorResponse(res, err.message);
+      return errorResponse(res, sanitizarMensaje(err));
     }
   }
 };

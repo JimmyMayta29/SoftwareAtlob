@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import express from 'express';
 import jwt from 'jsonwebtoken';
@@ -10,12 +11,13 @@ import { env } from '../config/env';
 async function main() {
   assert.equal(env.NODE_ENV, 'test', 'Esta prueba requiere NODE_ENV=test');
   assert.equal(env.DATABASE_URL, '', 'Esta prueba HTTP usa exclusivamente fixtures aislados');
-  sembrarUsuariosPrueba();
+  const passwordFixture = randomBytes(24).toString('hex');
+  sembrarUsuariosPrueba(passwordFixture);
   for (const id of ['emp-01', 'empresa-ajena']) {
     EMPRESAS_STORE.push({ ...DATOS_EMPRESA_DEMO, id, esDemo: false, razonSocial: id });
   }
-  const contador = await authJwtService.login('contador@atlob.pe', 'Atlob2026!');
-  const auditor = await authJwtService.login('auditor@atlob.pe', 'Atlob2026!');
+  const contador = await authJwtService.login('contador@atlob.pe', passwordFixture);
+  const auditor = await authJwtService.login('auditor@atlob.pe', passwordFixture);
   const app = express();
   app.use(express.json());
   app.use('/api', apiRoutes);

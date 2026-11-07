@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { conContextoEmpresa } from '../config/database';
+import { conContextoEmpresa, conContextoUsuario } from '../config/database';
 import { errorResponse } from '../utils/response';
 import { authJwtService, RolEstudio } from '../services/authJwtService';
 import { totpService } from '../services/totpService';
@@ -30,7 +30,7 @@ export const ROLES_ESCRITURA: RolEstudio[] = ['ADMINISTRADOR', 'CONTADOR_SENIOR'
 export const ROLES_LECTURA: RolEstudio[] = [...ROLES_ESCRITURA, 'AUDITOR_REVISOR'];
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.user) return next();
+  if (req.user) return conContextoUsuario(req.user.id, next);
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return errorResponse(res, 'AUTENTICACION_REQUERIDA', 401);
   try {
@@ -44,7 +44,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     };
     req.empresaId = claims.empresaId;
     req.userRolEnEmpresa = undefined;
-    return next();
+    return conContextoUsuario(usuario.id, next);
   } catch {
     return errorResponse(res, 'SESION_INVALIDA: Inicie sesión de nuevo.', 401);
   }

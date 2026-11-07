@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { authJwtService } from '../services/authJwtService';
 import { auditoriaChainService } from '../services/auditoriaChainService';
 import { cryptoService } from '../services/cryptoService';
@@ -140,7 +141,7 @@ router.post('/sunat/recifrar-v2', requireAuth, requireEmpresaMembership(['ADMINI
       estado: 'COMPLETADO_SIN_DOWNTIME'
     }, 'Credenciales migradas exitosamente a Envelope Encryption v2.');
   } catch (err: any) {
-    return errorResponse(res, err.message, 500);
+    return errorResponse(res, sanitizarMensaje(err), 500);
   }
 });
 

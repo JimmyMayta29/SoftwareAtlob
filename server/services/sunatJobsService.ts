@@ -1,4 +1,6 @@
-import { db } from '../config/database';
+import { randomUUID } from 'node:crypto';
+import { conContextoEmpresa, db } from '../config/database';
+import { authJwtService } from './authJwtService';
 import { sireService } from './sireService';
 import { xmlImportService } from './xmlImportService';
 import { pleExportService } from './pleExportService';
@@ -21,17 +23,28 @@ export interface SunatJobModel {
 
 export const SUNAT_JOBS_MEMORIA: SunatJobModel[] = [];
 
+async function guardarAvance(job: SunatJobModel, userId: string) {
+  if (!db.isPostgresConnected()) return;
+  await db.withTenantAndEmpresa(userId, job.empresaId, client => client.query(`
+    UPDATE sunat_jobs SET estado=$3, progreso=$4, reintentos=$5, resultado=$6, error_mensaje=$7, updated_at=CURRENT_TIMESTAMP
+    WHERE id=$1 AND empresa_id=$2
+  `, [job.id, job.empresaId, job.estado, job.progreso, job.reintentos,
+    job.resultado === undefined ? null : JSON.stringify(cryptoService.sanitizarObjeto(job.resultado)), job.errorMensaje ?? null]));
+}
+
 export const sunatJobsService = {
   /**
    * Crea un nuevo trabajo en segundo plano
    */
-  crearJob(
+  async crearJob(
     empresaId: string,
     tipoTrabajo: SunatJobModel['tipoTrabajo'],
-    parametros: any
-  ): SunatJobModel {
+    parametros: any,
+    userId?: string
+  ): Promise<SunatJobModel> {
+    const postgres = db.isPostgresConnected();
     const job: SunatJobModel = {
-      id: `job-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: postgres ? randomUUID() : `job-${randomUUID()}`,
       empresaId,
       tipoTrabajo,
       parametros: cryptoService.sanitizarObjeto(parametros),
@@ -43,32 +56,62 @@ export const sunatJobsService = {
       updatedAt: new Date().toISOString()
     };
 
-    SUNAT_JOBS_MEMORIA.push(job);
+    if (postgres) {
+      if (!userId) throw new Error('USUARIO_REQUERIDO');
+      await db.withTenantAndEmpresa(userId, empresaId, client => client.query(`
+        INSERT INTO sunat_jobs (id, empresa_id, tipo_trabajo, parametros) VALUES ($1,$2,$3,$4)
+      `, [job.id, empresaId, tipoTrabajo, JSON.stringify(job.parametros)]));
+    } else {
+      SUNAT_JOBS_MEMORIA.push(job);
+    }
 
     // Ejecutar procesamiento asíncrono
     setTimeout(() => {
-      this.procesarJob(job.id, 'SISTEMA_JOB_RUNNER').catch(() => {});
+      this.procesarJob(job, userId || 'SISTEMA_JOB_RUNNER').catch(() => {});
     }, 50);
 
     return job;
   },
 
-  obtenerJob(jobId: string): SunatJobModel | null {
-    return SUNAT_JOBS_MEMORIA.find(j => j.id === jobId) || null;
+  async obtenerJob(jobId: string, empresaId?: string): Promise<SunatJobModel | null> {
+    if (db.isPostgresConnected()) {
+      if (!empresaId || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(jobId)) return null;
+      const res = await db.query<SunatJobModel>(`
+        SELECT id, empresa_id AS "empresaId", tipo_trabajo AS "tipoTrabajo", estado, progreso, reintentos,
+          max_reintentos AS "maxReintentos", resultado, error_mensaje AS "errorMensaje",
+          created_at AS "createdAt", updated_at AS "updatedAt"
+        FROM sunat_jobs WHERE id=$1 AND empresa_id=$2
+      `, [jobId, empresaId]);
+      return res.rows[0] ?? null;
+    }
+    return SUNAT_JOBS_MEMORIA.find(j => j.id === jobId && (!empresaId || j.empresaId === empresaId)) || null;
   },
 
   /**
    * Procesa un trabajo en la cola con reintentos y retroceso exponencial
    */
-  async procesarJob(jobId: string, userId: string) {
-    const job = this.obtenerJob(jobId);
-    if (!job || job.estado === 'COMPLETADO') return;
+  async procesarJob(job: SunatJobModel, userId: string) {
+    if (job.estado === 'COMPLETADO' || job.estado === 'ERROR') return;
+    if (db.isPostgresConnected()) {
+      const membresias = await authJwtService.obtenerMembresias(userId);
+      if (!membresias.some(m => m.empresaId === job.empresaId && m.estado === 'ACTIVO' && m.rolEnEmpresa !== 'AUDITOR_REVISOR')) {
+        job.estado = 'ERROR';
+        job.errorMensaje = 'PERMISO_INSUFICIENTE';
+        await guardarAvance(job, userId);
+        return;
+      }
+    }
+    return conContextoEmpresa(job.empresaId, userId, () => this.ejecutarJob(job, userId));
+  },
+
+  async ejecutarJob(job: SunatJobModel, userId: string) {
 
     job.estado = 'PROCESANDO';
     job.progreso = 25;
     job.updatedAt = new Date().toISOString();
 
     try {
+      await guardarAvance(job, userId);
       if (job.tipoTrabajo === 'DESCARGA_SIRE_COMPRAS') {
         job.progreso = 50;
         const res = await sireService.descargarPropuesta(job.empresaId, 'COMPRAS', job.parametros.periodo, userId);
@@ -117,13 +160,13 @@ export const sunatJobsService = {
       }
     } catch (err: any) {
       job.reintentos++;
-      const sanitizado = cryptoService.sanitizarError(err.message);
+      const sanitizado = cryptoService.sanitizarError(err);
       if (job.reintentos < job.maxReintentos) {
         job.estado = 'EN_COLA';
         job.errorMensaje = `Reintento ${job.reintentos}/${job.maxReintentos}: ${sanitizado}`;
         const backoffMs = Math.pow(2, job.reintentos) * 1000;
         setTimeout(() => {
-          this.procesarJob(jobId, userId).catch(() => {});
+          this.procesarJob(job, userId).catch(() => {});
         }, backoffMs);
       } else {
         job.estado = 'ERROR';
@@ -131,6 +174,7 @@ export const sunatJobsService = {
       }
     } finally {
       job.updatedAt = new Date().toISOString();
+      await guardarAvance(job, userId);
     }
   }
 };

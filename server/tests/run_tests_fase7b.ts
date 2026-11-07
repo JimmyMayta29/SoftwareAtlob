@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import assert from 'assert';
 import { authJwtService, sembrarUsuariosPrueba } from '../services/authJwtService';
 import { periodoService } from '../services/periodoService';
@@ -9,7 +10,8 @@ import { requireAuth, requireEmpresaMembership } from '../middlewares/auth';
 import { Request, Response } from 'express';
 
 async function ejecutarSuiteFase7B() {
-  sembrarUsuariosPrueba();
+  const passwordFixture = randomBytes(24).toString('hex');
+  sembrarUsuariosPrueba(passwordFixture);
   console.log('========================================================================');
   console.log('🧪 SUITE DE PRUEBAS AUTOMATIZADAS — FASE 7B: NAVEGACIÓN POR EMPRESA');
   console.log('   (Selector de Empresa, Entorno Aislado Nivel 1/2, RBAC & 403)');
@@ -47,7 +49,7 @@ async function ejecutarSuiteFase7B() {
   console.log('🔹 Test 1: Usuario sin acceso a Empresa B recibe 403 por API y Guard');
   {
     // usr-contador-01 tiene acceso a EMPRESA_A y emp-01, pero NO a EMPRESA_B
-    const loginContador = await authJwtService.login('contador@atlob.pe', 'Atlob2026!');
+    const loginContador = await authJwtService.login('contador@atlob.pe', passwordFixture);
     const tokenContador = loginContador.accessToken;
     testAssert(loginContador.empresasPermitidas.includes(EMPRESA_A), 'Contador tiene acceso a Empresa A');
     testAssert(!loginContador.empresasPermitidas.includes(EMPRESA_B), 'Contador NO tiene acceso a Empresa B en membresías');

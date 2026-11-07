@@ -531,8 +531,8 @@ export const xmlImportService = {
       usuarioId: userId,
       tablaAfectada: 'comprobantes_xml',
       registroId: `batch-${Date.now()}`,
-      accion: 'IMPORTACION_XML_LOTE',
-      datosNuevos: { totalArchivos: archivos.length, exitosos, fallidos }
+      accion: 'INSERT',
+      datosNuevos: { operacionAuditoria: 'IMPORTACION_XML_LOTE', totalArchivos: archivos.length, exitosos, fallidos }
     });
 
     return {

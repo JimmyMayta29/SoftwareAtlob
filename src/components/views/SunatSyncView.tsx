@@ -15,9 +15,9 @@ import {
   Info
 } from 'lucide-react';
 import { EmpresaCliente } from '../../types';
+import { sireApi } from '../../api/sireApi';
 import { 
   useSunatConexionEstado, 
-  useGuardarConexionSunat, 
   useValidarConexionSunat,
   useComprobantesXmlList,
   useImportarComprobantesXml
@@ -41,11 +41,7 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
   const { success, error, warning, info } = useToast();
   const [activeTab, setActiveTab] = useState<'conexion' | 'xml' | 'ple'>('conexion');
 
-  // Form states for credentials (write-only for passwords, never prefilled from server)
-  const [usuarioSol, setUsuarioSol] = useState('');
-  const [claveSol, setClaveSol] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
+  const [guardandoConexion, setGuardandoConexion] = useState(false);
   const [modoSimulado, setModoSimulado] = useState(true);
 
   // XML uploader state
@@ -57,35 +53,38 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
 
   // Queries & Mutations
   const { data: estadoConexion, isLoading: loadingEstado, refetch: refetchEstado } = useSunatConexionEstado(empresa.id);
-  const guardarMutation = useGuardarConexionSunat(empresa.id);
   const validarMutation = useValidarConexionSunat(empresa.id);
   const { data: xmlList = [], refetch: refetchXml } = useComprobantesXmlList(empresa.id);
   const importarXmlMutation = useImportarComprobantesXml(empresa.id);
   const { data: pleLibros = [] } = usePleLibrosCatalogo(empresa.id);
   const exportarPleMutation = useExportarPle(empresa.id);
 
-  const handleGuardarCredenciales = async (e: React.FormEvent) => {
+  const handleGuardarCredenciales = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!usuarioSol || !claveSol) {
+    if (guardandoConexion) return;
+    const formulario = e.currentTarget;
+    const datos = new FormData(formulario);
+    if (!datos.get('identificadorSol') || !datos.get('claveSol')) {
       warning('Debe ingresar Usuario SOL y Clave SOL para configurar el acceso.', 'Credenciales Incompletas');
       return;
     }
+    formulario.reset();
+    setGuardandoConexion(true);
     try {
-      await guardarMutation.mutateAsync({
+      await sireApi.guardarConexion(empresa.id, {
         ruc: empresa.ruc,
-        usuarioSol,
-        claveSol,
-        clientId: clientId || undefined,
-        clientSecret: clientSecret || undefined,
+        usuarioSol: String(datos.get('identificadorSol')),
+        claveSol: String(datos.get('claveSol')),
+        clientId: String(datos.get('identificadorApi') || '') || undefined,
+        clientSecret: String(datos.get('secretoApi') || '') || undefined,
         modoSimulado
       });
-      // Limpiar campos sensibles de la memoria
-      setClaveSol('');
-      setClientSecret('');
       await refetchEstado();
       success('Credenciales cifradas con AES-256-GCM y guardadas exitosamente.', 'Seguridad SUNAT');
-    } catch (err: any) {
-      error('Error guardando credenciales: ' + (err.message || 'Error'), 'Fallo de Cifrado');
+    } catch {
+      error('No se pudieron guardar las credenciales.', 'Conexión SUNAT');
+    } finally {
+      setGuardandoConexion(false);
     }
   };
 
@@ -205,7 +204,7 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
       {activeTab === 'conexion' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-6 space-y-4">
-            <form onSubmit={handleGuardarCredenciales} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+            <form key={empresa.id} autoComplete="off" onSubmit={handleGuardarCredenciales} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Lock className="w-4 h-4 text-emerald-600" />
@@ -231,10 +230,9 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">Usuario SOL:</label>
                     <input
-                      type="text"
-                      value={usuarioSol}
-                      onChange={(e) => setUsuarioSol(e.target.value)}
-                      placeholder="MODDATOS"
+                      type="password"
+                      name="identificadorSol"
+                      autoComplete="new-password"
                       required
                       className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2 text-slate-900 font-mono"
                     />
@@ -243,9 +241,8 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
                     <label className="block text-slate-700 font-semibold mb-1">Clave SOL:</label>
                     <input
                       type="password"
-                      value={claveSol}
-                      onChange={(e) => setClaveSol(e.target.value)}
-                      placeholder="••••••••"
+                      name="claveSol"
+                      autoComplete="new-password"
                       required
                       className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2 text-slate-900 font-mono"
                     />
@@ -256,10 +253,9 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">Client ID (Opcional):</label>
                     <input
-                      type="text"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      placeholder="ID API SUNAT"
+                      type="password"
+                      name="identificadorApi"
+                      autoComplete="new-password"
                       className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2 text-slate-900 font-mono text-[11px]"
                     />
                   </div>
@@ -267,9 +263,8 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
                     <label className="block text-slate-700 font-semibold mb-1">Client Secret (Opcional):</label>
                     <input
                       type="password"
-                      value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="Secret API SUNAT"
+                      name="secretoApi"
+                      autoComplete="new-password"
                       className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2 text-slate-900 font-mono text-[11px]"
                     />
                   </div>
@@ -296,10 +291,10 @@ export const SunatSyncView: React.FC<SunatSyncViewProps> = ({ empresa }) => {
                 <div className="flex gap-2 pt-2">
                   <button
                     type="submit"
-                    disabled={guardarMutation.isPending}
+                    disabled={guardandoConexion}
                     className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-semibold text-xs transition cursor-pointer"
                   >
-                    {guardarMutation.isPending ? 'Guardando...' : 'Guardar Credenciales Cifradas'}
+                    {guardandoConexion ? 'Guardando...' : 'Guardar Credenciales Cifradas'}
                   </button>
                   <button
                     type="button"

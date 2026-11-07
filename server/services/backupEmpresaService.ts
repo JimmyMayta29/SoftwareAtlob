@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import AdmZip from 'adm-zip';
 import { db } from '../config/database';
+import { env } from '../config/env';
 import { empresaRepository, EmpresaModel } from '../repositories/empresaRepository';
 import { ASIENTOS_MEMORIA, AsientoContableModel } from './asientoService';
 import { COMPRAS_MEMORIA, CXP_MEMORIA, CompraModel, CuentaPorPagarModel } from './compraService';
@@ -29,6 +30,7 @@ import { DECLARACIONES_RENTA_ANUAL_MEMORIA, CalculoDjAnualRenta } from './djRent
 import { DAOT_EXCLUSIONES_MEMORIA, ExclusionDaotItem } from './daotService';
 import { AUDITORIA_LOG_CHAIN_MEMORIA, AuditoriaChainLog } from './auditoriaChainService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
 
 export type OrigenBackup = 'MANUAL' | 'AUTO_ENTRADA' | 'PREVIO_CIERRE' | 'PREVIO_IMPORTACION' | 'PREVIO_RESET_DEMO';
 
@@ -66,7 +68,6 @@ export interface EstadoMarcaAguaEmpresa {
 const BACKUPS_MEMORIA: MetadatosBackupItem[] = [];
 const MARCAS_AGUA_EMPRESA = new Map<string, EstadoMarcaAguaEmpresa>();
 const RETENCION_MAXIMA_BACKUPS = 10;
-const CLAVE_DERIVACION_DEFAULT = 'Atlob_ERP_Master_Backup_Key_2026!';
 
 export const backupEmpresaService = {
   /**
@@ -93,7 +94,7 @@ export const backupEmpresaService = {
         await this.generarBackupZip(empresaId, 'AUTO_ENTRADA', userId);
         return true;
       } catch (err) {
-        console.warn(`[AutoBackup] Advertencia generando backup automático para empresa ${empresaId}:`, err);
+        console.warn(`[AutoBackup] Advertencia generando backup automático para empresa ${empresaId}:`, sanitizarMensaje(err));
         return false;
       }
     }
@@ -103,7 +104,7 @@ export const backupEmpresaService = {
   /**
    * Genera clave criptográfica simétrica AES-256 de 32 bytes derivada con PBKDF2
    */
-  derivarClave(passphrase = CLAVE_DERIVACION_DEFAULT, salt = 'atlob_estudio_salt_2026'): Buffer {
+  derivarClave(passphrase = env.BACKUP_ENCRYPTION_KEY, salt = 'atlob_estudio_salt_2026'): Buffer {
     return crypto.pbkdf2Sync(passphrase, salt, 10000, 32, 'sha256');
   },
 
@@ -188,7 +189,19 @@ export const backupEmpresaService = {
       'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
       'declaraciones_renta_anual.ndjson': DECLARACIONES_RENTA_ANUAL_MEMORIA.filter(d => d.empresaId === empresaId),
       'daot_exclusiones.ndjson': DAOT_EXCLUSIONES_MEMORIA.filter(d => d.empresaId === empresaId),
-      'auditoria.ndjson': AUDITORIA_LOG_CHAIN_MEMORIA.filter(a => a.empresaId === empresaId)
+      'auditoria.ndjson': AUDITORIA_LOG_CHAIN_MEMORIA.filter(a => a.empresaId === empresaId).map(a => ({
+        id: a.id,
+        empresaId: a.empresaId,
+        usuarioId: a.usuarioId,
+        tablaAfectada: a.tablaAfectada,
+        registroId: a.registroId,
+        accion: a.accion,
+        datosAnteriores: filtrarDetalleAuditoria(a.tablaAfectada, a.datosAnteriores),
+        datosNuevos: filtrarDetalleAuditoria(a.tablaAfectada, a.datosNuevos),
+        hashPrevio: a.hashPrevio,
+        hashActual: a.hashActual,
+        createdAt: a.createdAt
+      }))
     };
 
     // 2. Construir ZIP interno con archivos NDJSON y calcular hashes SHA-256
@@ -227,7 +240,7 @@ export const backupEmpresaService = {
 
     // 4. Cifrado simétrico AES-256-GCM del paquete ZIP completo
     const zipPlanoBuffer = zipInterno.toBuffer();
-    const clave = this.derivarClave(passwordCifrado || CLAVE_DERIVACION_DEFAULT);
+    const clave = this.derivarClave(passwordCifrado || undefined);
     const zipCifradoBuffer = this.cifrarBufferAesGcm(zipPlanoBuffer, clave);
 
     const hashFinalSha256 = crypto.createHash('sha256').update(zipCifradoBuffer).digest('hex');
@@ -285,7 +298,7 @@ export const backupEmpresaService = {
     passwordCifrado?: string
   ): { valida: boolean; manifest: ManifestBackup; detalle: string } {
     try {
-      const clave = this.derivarClave(passwordCifrado || CLAVE_DERIVACION_DEFAULT);
+      const clave = this.derivarClave(passwordCifrado || undefined);
       const zipPlano = this.descifrarBufferAesGcm(backupBuffer, clave);
       const zip = new AdmZip(zipPlano);
 
@@ -318,7 +331,7 @@ export const backupEmpresaService = {
       return {
         valida: false,
         manifest: {} as any,
-        detalle: err.message || 'Error validando integridad del backup.'
+        detalle: sanitizarMensaje(err, 'Error validando integridad del backup.')
       };
     }
   },
@@ -350,7 +363,7 @@ export const backupEmpresaService = {
       throw new Error(`BACKUP_RECHAZADO: ${verificacion.detalle}`);
     }
 
-    const clave = this.derivarClave(passwordCifrado || CLAVE_DERIVACION_DEFAULT);
+    const clave = this.derivarClave(passwordCifrado || undefined);
     const zipPlano = this.descifrarBufferAesGcm(backupBuffer, clave);
     const zip = new AdmZip(zipPlano);
 

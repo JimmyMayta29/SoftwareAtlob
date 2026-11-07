@@ -379,7 +379,6 @@ export class RealSunatGateway implements ISunatGateway {
 
   private traducirErrorSunat(err: any): Error {
     const status = err?.response?.status;
-    const data = err?.response?.data;
     if (status === 401) {
       return new Error('CREDENCIALES_INVALIDAS: Usuario SOL, Clave SOL o credenciales API incorrectas o revocadas.');
     }
@@ -389,9 +388,7 @@ export class RealSunatGateway implements ISunatGateway {
     if (status >= 500) {
       return new Error('SUNAT_NO_DISPONIBLE: Los servicios web de SUNAT no se encuentran disponibles temporalmente.');
     }
-    const cod = data?.cod || data?.error || 'SUNAT_ERROR';
-    const msg = data?.msg || data?.error_description || err.message || 'Error en comunicación con SUNAT';
-    return new Error(`${cod}: ${cryptoService.sanitizarError(msg)}`);
+    return new Error('SUNAT_ERROR: Error en comunicación con SUNAT.');
   }
 
   async validarCredenciales(credenciales: CredencialesSunat): Promise<{ valido: boolean; mensaje: string; estado: string }> {
@@ -405,7 +402,7 @@ export class RealSunatGateway implements ISunatGateway {
     } catch (err: any) {
       return {
         valido: false,
-        mensaje: cryptoService.sanitizarError(err.message),
+        mensaje: cryptoService.sanitizarError(err),
         estado: 'ERROR'
       };
     }

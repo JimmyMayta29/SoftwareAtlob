@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { conContextoEmpresa } from '../config/database';
 import { empresaRepository } from '../repositories/empresaRepository';
 import { parametroRepository } from '../repositories/parametroRepository';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaDemoService } from '../services/empresaDemoService';
 import { setupService } from '../services/setupService';
 import { successResponse, errorResponse } from '../utils/response';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 export const crearEmpresaSchema = z.object({
   codigoEmpresa: z.string().min(2).max(20),
@@ -70,7 +72,7 @@ export const empresaController = {
 
       return successResponse(res, enriquecidas);
     } catch (error) {
-      console.error('Error listando empresas:', error);
+      console.error('Error listando empresas:', sanitizarMensaje(error));
       return errorResponse(res, 'Error al obtener la lista de empresas');
     }
   },
@@ -115,7 +117,7 @@ export const empresaController = {
         monedaPrincipal: req.body.monedaPrincipal || 'PEN'
       });
 
-      await auditoriaRepository.registrar({
+      await conContextoEmpresa(nueva.id, userId, () => auditoriaRepository.registrar({
         tenantId,
         empresaId: nueva.id,
         usuarioId: userId,
@@ -125,12 +127,12 @@ export const empresaController = {
         accion: 'INSERT',
         datosNuevos: nueva,
         direccionIp: req.ip
-      });
+      }));
 
       return successResponse(res, nueva, 'Empresa creada exitosamente con plan PCGE clonado', 201);
     } catch (error: any) {
-      console.error('Error creando empresa:', error);
-      return errorResponse(res, error.message || 'Error al registrar la empresa');
+      console.error('Error creando empresa:', sanitizarMensaje(error));
+      return errorResponse(res, sanitizarMensaje(error, 'Error al registrar la empresa'));
     }
   },
 
@@ -157,13 +159,21 @@ export const empresaController = {
         tablaAfectada: 'credenciales_sunat',
         registroId: id,
         accion: 'UPDATE',
-        datosNuevos: { usuarioSol, tieneSireSecret: !!clientSecretSire },
+        datosNuevos: {
+          cambioUsuarioSol: true,
+          cambioClaveSol: true,
+          cambioIdentificadorSire: Boolean(clientIdSire),
+          cambioSecretoSire: Boolean(clientSecretSire)
+        },
         direccionIp: req.ip
       });
 
       return successResponse(res, { message: 'Credenciales SUNAT guardadas de forma segura (AES-256-GCM)' });
     } catch (error: any) {
-      return errorResponse(res, error.message || 'Error al guardar credenciales SUNAT');
+      const mensaje = sanitizarMensaje(error);
+      return errorResponse(res, mensaje.startsWith('EMPRESA_DEMO_BLOQUEO_SUNAT:')
+        ? 'EMPRESA_DEMO_BLOQUEO_SUNAT: La empresa demo no admite credenciales SUNAT.'
+        : 'Error al guardar credenciales SUNAT');
     }
   },
 
@@ -175,7 +185,7 @@ export const empresaController = {
       const resultado = await empresaDemoService.restablecerDemo(req.user.id);
       return successResponse(res, resultado, 'Empresa Demo S.A.C. restablecida con éxito.');
     } catch (error: any) {
-      return errorResponse(res, error.message || 'Error al restablecer la empresa demo');
+      return errorResponse(res, sanitizarMensaje(error, 'Error al restablecer la empresa demo'));
     }
   },
 
@@ -192,7 +202,7 @@ export const empresaController = {
       await empresaRepository.actualizarMetodoInventario(id, metodoInventario, req.user.id);
       return successResponse(res, { id, metodoInventario }, 'Método de inventario actualizado con éxito.');
     } catch (error: any) {
-      return errorResponse(res, error.message || 'Error al actualizar método de inventario');
+      return errorResponse(res, sanitizarMensaje(error, 'Error al actualizar método de inventario'));
     }
   }
 };

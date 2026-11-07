@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Pool, PoolClient } from 'pg';
 import { REGISTRO_ARCHIVOS_EMPRESA, REGISTRO_DATOS_EMPRESA, RegistroTablaEmpresa } from '../storage/registroDatosEmpresa';
 
@@ -48,7 +50,9 @@ export async function verificarRegistroDatosEmpresa(client: PoolClient, registro
     assert(tabla, `TABLA_INEXISTENTE: ${entrada.tabla}.`);
     const claves = restricciones.rows.find(fila => fila.tabla === entrada.tabla && fila.tipo === 'p');
     assert.deepEqual(entrada.clavePrimaria, claves?.columnas, `CLAVE_PRIMARIA_DISTINTA: ${entrada.tabla}.`);
-    if (tabla.columnas.includes('empresa_id')) assert.equal(entrada.columnaEmpresa, 'empresa_id', `EMPRESA_NO_DECLARADA: ${entrada.tabla}.`);
+    if (tabla.columnas.includes('empresa_id') && !entrada.empresaDesde) {
+      assert.equal(entrada.columnaEmpresa, 'empresa_id', `EMPRESA_NO_DECLARADA: ${entrada.tabla}.`);
+    }
     if (entrada.columnaEmpresa) assert(tabla.columnas.includes(entrada.columnaEmpresa), `COLUMNA_EMPRESA_INEXISTENTE: ${entrada.tabla}.`);
     if (entrada.empresaDesde) {
       assert.equal(entrada.ambito, 'empresa', `HIJA_FUERA_DE_EMPRESA: ${entrada.tabla}.`);
@@ -58,8 +62,14 @@ export async function verificarRegistroDatosEmpresa(client: PoolClient, registro
     assert.equal(entrada.referencias.length, fks.length, `REFERENCIAS_INCOMPLETAS: ${entrada.tabla}.`);
     for (const fk of fks) {
       assert.equal(fk.esquema_destino, 'public', `DEPENDENCIA_EXTERNA: ${entrada.tabla}.`);
-      const ref = entrada.referencias.find(item => item.columna === fk.columnas[0] && item.tabla === fk.destino && item.columnaDestino === fk.columnas_destino[0]);
-      assert(fk.columnas.length === 1 && ref, `REFERENCIA_NO_DECLARADA: ${entrada.tabla}.${fk.columnas.join(',')}.`);
+      const entradaDestino = porNombre.get(fk.destino)?.entrada;
+      const compuestaEmpresa = fk.columnas.length === 2 && fk.columnas_destino.length === 2 &&
+        fk.columnas[0] === 'empresa_id' && fk.columnas_destino[0] === 'empresa_id' &&
+        (entrada.columnaEmpresa === 'empresa_id' || entrada.empresaDesde) &&
+        (entradaDestino?.columnaEmpresa === 'empresa_id' || entradaDestino?.empresaDesde);
+      const posicion = compuestaEmpresa ? 1 : 0;
+      const ref = entrada.referencias.find(item => item.columna === fk.columnas[posicion] && item.tabla === fk.destino && item.columnaDestino === fk.columnas_destino[posicion]);
+      assert((fk.columnas.length === 1 || compuestaEmpresa) && ref, `REFERENCIA_NO_DECLARADA: ${entrada.tabla}.${fk.columnas.join(',')}.`);
       const destino = porNombre.get(ref.tabla);
       assert(destino, `DEPENDENCIA_NO_REGISTRADA: ${ref.tabla}.`);
       assert(tablas.rows.find(item => item.tabla === ref.tabla)?.columnas.includes(ref.columnaDestino), `COLUMNA_DESTINO_INEXISTENTE: ${ref.tabla}.${ref.columnaDestino}.`);
@@ -120,7 +130,9 @@ async function ejecutar() {
   }
 }
 
-void ejecutar().catch(error => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void ejecutar().catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

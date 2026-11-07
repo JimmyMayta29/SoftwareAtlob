@@ -17,10 +17,12 @@
     "test:fase4": "tsx server/tests/run_tests_fase4.ts",
     "test:fase5": "tsx server/tests/run_tests_fase5.ts",
     "test:fase6": "tsx server/tests/run_tests_fase6.ts",
+    "test:secretos-frontend": "tsx server/tests/test_secretos_frontend.ts --dist",
+    "test:sonda-sunat": "tsx server/tests/test_sonda_sunat.ts",
     "test:fase7": "tsx server/tests/run_tests_fase7.ts",
     "test:fase8": "tsx server/tests/run_tests_fase8.ts",
     "test:fase9": "tsx server/tests/run_tests_fase9.ts",
-    "test:pg": "tsx server/tests/real/test_pg_rls_planillas.ts",
+    "test:pg": "tsx server/tests/real/test_pg_rls_planillas.ts && tsx server/tests/real/test_pg_seguridad.ts",
     "cargar:pcge": "tsx server/db/cargarPcgeStaging.ts",
     "test:coverage": "c8 --exclude \"server/tests/**\" --exclude \"**/*.test.ts\" --reporter=text --reporter=text-summary tsx server/tests/run_all_tests.ts",
     "test:infra": "tsx server/tests/real/test_infra.ts"

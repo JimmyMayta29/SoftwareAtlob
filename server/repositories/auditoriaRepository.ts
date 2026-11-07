@@ -1,5 +1,6 @@
 import { db } from '../config/database';
 import { auditoriaChainService } from '../services/auditoriaChainService';
+import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
 
 export interface RegistroAuditoria {
   tenantId?: string;
@@ -20,8 +21,19 @@ export interface RegistroAuditoria {
 
 const AUDITORIA_IN_MEMORY: (RegistroAuditoria & { id: string; createdAt: string })[] = [];
 
+function filtrarRegistro<T extends RegistroAuditoria>(registro: T) {
+  const { datosAnteriores, datosNuevos, valoresAnteriores, valoresNuevos, ...metadatos } = registro;
+  const tabla = registro.tablaAfectada || registro.tabla || 'general';
+  return {
+    ...metadatos,
+    datosAnteriores: filtrarDetalleAuditoria(tabla, datosAnteriores ?? valoresAnteriores),
+    datosNuevos: filtrarDetalleAuditoria(tabla, datosNuevos ?? valoresNuevos)
+  };
+}
+
 export const auditoriaRepository = {
-  async registrar(registro: RegistroAuditoria): Promise<void> {
+  async registrar(evento: RegistroAuditoria): Promise<void> {
+    const registro = filtrarRegistro(evento);
     if (db.isPostgresConnected()) {
       try {
         await db.query(`
@@ -37,14 +49,14 @@ export const auditoriaRepository = {
           registro.tablaAfectada || registro.tabla || 'general',
           registro.registroId,
           registro.accion,
-          (registro.datosAnteriores || registro.valoresAnteriores) ? JSON.stringify(registro.datosAnteriores || registro.valoresAnteriores) : null,
-          (registro.datosNuevos || registro.valoresNuevos) ? JSON.stringify(registro.datosNuevos || registro.valoresNuevos) : null,
+          JSON.stringify(registro.datosAnteriores) ?? null,
+          JSON.stringify(registro.datosNuevos) ?? null,
           registro.direccionIp || null,
           registro.userAgent || null
         ]);
         return;
       } catch (err) {
-        console.error('Error registrando auditoría en PostgreSQL:', err);
+        console.error('Error registrando auditoría en PostgreSQL:', sanitizarMensaje(err));
       }
     }
 
@@ -61,15 +73,15 @@ export const auditoriaRepository = {
         tablaAfectada: registro.tablaAfectada || registro.tabla || 'general',
         registroId: registro.registroId,
         accion: registro.accion,
-        datosAnteriores: registro.datosAnteriores || registro.valoresAnteriores,
-        datosNuevos: registro.datosNuevos || registro.valoresNuevos
+        datosAnteriores: registro.datosAnteriores,
+        datosNuevos: registro.datosNuevos
       });
     }
   },
 
   async listarPorEmpresa(empresaId: string, limit = 50) {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
+      const res = await db.query<RegistroAuditoria>(`
         SELECT id, tenant_id as "tenantId", empresa_id as "empresaId", usuario_id as "usuarioId",
                usuario_email as "usuarioEmail", tabla_afectada as "tablaAfectada", registro_id as "registroId",
                accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
@@ -79,8 +91,8 @@ export const auditoriaRepository = {
         ORDER BY created_at DESC
         LIMIT $2
       `, [empresaId, limit]);
-      return res.rows;
+      return res.rows.map(filtrarRegistro);
     }
-    return AUDITORIA_IN_MEMORY.filter(a => a.empresaId === empresaId).slice(0, limit);
+    return AUDITORIA_IN_MEMORY.filter(a => a.empresaId === empresaId).slice(0, limit).map(filtrarRegistro);
   }
 };
