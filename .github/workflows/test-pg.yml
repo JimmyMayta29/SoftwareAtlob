@@ -12,13 +12,13 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15-alpine
+        image: postgres:18-alpine
         env:
-          POSTGRES_USER: atlob_test
-          POSTGRES_PASSWORD: atlob_test_2026!
-          POSTGRES_DB: atlob_test_db
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: atlob_test
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -29,10 +29,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -41,9 +41,16 @@ jobs:
       - name: Run lint (TypeScript type-check)
         run: npm run lint
 
+      - name: Create the restricted role in the disposable test service
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+          CREATE ROLE contabilidad_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          ALTER DATABASE atlob_test OWNER TO contabilidad_app;
+          SQL
+
       - name: Run behavioral PostgreSQL RLS test
         env:
-          TEST_DATABASE_URL: postgres://atlob_test:atlob_test_2026!@localhost:5432/atlob_test_db
+          TEST_DATABASE_URL: postgresql://contabilidad_app@127.0.0.1:5432/atlob_test
         run: npm run test:pg
 
       - name: Run complete unit and integration tests

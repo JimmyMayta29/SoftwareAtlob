@@ -1,4 +1,4 @@
-import { db } from '../config/database';
+import { db, establecerContextoEmpresa } from '../config/database';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 
 export interface PeriodoModel {
@@ -57,12 +57,13 @@ export const periodoService = {
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
+        await establecerContextoEmpresa(client, empresaId, userId);
 
         // 1. Validar que no existan asientos en estado BORRADOR
         const borradorRes = await client.query(`
           SELECT COUNT(*) FROM asientos
-          WHERE periodo_id = $1 AND estado = 'BORRADOR'
-        `, [periodoId]);
+          WHERE periodo_id = $1 AND empresa_id = $2 AND estado = 'BORRADOR'
+        `, [periodoId, empresaId]);
 
         const borradoresPendientes = parseInt(borradorRes.rows[0].count, 10);
         if (borradoresPendientes > 0) {
@@ -74,8 +75,8 @@ export const periodoService = {
           SELECT COALESCE(SUM(d.debe), 0.00) as sum_debe, COALESCE(SUM(d.haber), 0.00) as sum_haber
           FROM asiento_detalle d
           JOIN asientos a ON a.id = d.asiento_id
-          WHERE a.periodo_id = $1 AND a.estado = 'CONTABILIZADO'
-        `, [periodoId]);
+          WHERE a.periodo_id = $1 AND a.empresa_id = $2 AND d.empresa_id = $2 AND a.estado = 'CONTABILIZADO'
+        `, [periodoId, empresaId]);
 
         const debe = balanceRes.rows[0]?.sum_debe || 0;
         const haber = balanceRes.rows[0]?.sum_haber || 0;
@@ -87,9 +88,10 @@ export const periodoService = {
         const updRes = await client.query(`
           UPDATE periodos SET
             estado = 'CERRADO', fecha_cierre = CURRENT_TIMESTAMP, cerrado_por = $1
-          WHERE id = $2
+          WHERE id = $2 AND empresa_id = $3
           RETURNING *
-        `, [userId, periodoId]);
+        `, [userId, periodoId, empresaId]);
+        if (!updRes.rowCount) throw new Error('PERIODO_NO_ENCONTRADO');
 
         await client.query('COMMIT');
 
@@ -111,7 +113,7 @@ export const periodoService = {
       }
     }
 
-    const p = PERIODOS_MEMORIA.find(x => x.id === periodoId && (!empresaId || x.empresaId === empresaId)) || PERIODOS_MEMORIA.find(x => x.id === periodoId);
+    const p = PERIODOS_MEMORIA.find(x => x.id === periodoId && x.empresaId === empresaId);
     if (!p) throw new Error('PERIODO_NO_ENCONTRADO');
     p.estado = 'CERRADO';
     p.fechaCierre = new Date().toISOString();
@@ -130,9 +132,10 @@ export const periodoService = {
       const updRes = await db.query(`
         UPDATE periodos SET
           estado = 'ABIERTO', fecha_cierre = NULL, cerrado_por = NULL
-        WHERE id = $1
+        WHERE id = $1 AND empresa_id = $2
         RETURNING *
-      `, [periodoId]);
+      `, [periodoId, empresaId]);
+      if (!updRes.rowCount) throw new Error('PERIODO_NO_ENCONTRADO');
 
       await auditoriaRepository.registrar({
         empresaId,
@@ -146,7 +149,7 @@ export const periodoService = {
       return updRes.rows[0];
     }
 
-    const p = PERIODOS_MEMORIA.find(x => x.id === periodoId && (!empresaId || x.empresaId === empresaId)) || PERIODOS_MEMORIA.find(x => x.id === periodoId);
+    const p = PERIODOS_MEMORIA.find(x => x.id === periodoId && x.empresaId === empresaId);
     if (!p) throw new Error('PERIODO_NO_ENCONTRADO');
     p.estado = 'ABIERTO';
     return p;

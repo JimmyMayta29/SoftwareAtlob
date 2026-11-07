@@ -118,7 +118,7 @@ export const asientoController = {
       const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
       const expectedVersion = req.body.version || 1;
 
-      const actualizado = await asientoService.actualizarBorrador(id, req.body, userId, expectedVersion);
+      const actualizado = await asientoService.actualizarBorrador(id, req.body, userId, expectedVersion, req.empresaId);
       return successResponse(res, actualizado, 'Asiento actualizado correctamente');
     } catch (err: any) {
       const status = err.message.startsWith('VERSION_DESACTUALIZADA') ? 409 : 400;

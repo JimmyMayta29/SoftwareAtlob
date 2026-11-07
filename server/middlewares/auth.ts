@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { conContextoEmpresa } from '../config/database';
 import { errorResponse } from '../utils/response';
 import { authJwtService, RolEstudio } from '../services/authJwtService';
 import { totpService } from '../services/totpService';
@@ -71,7 +72,7 @@ export function requireEmpresaMembership(rolesPermitidos?: Array<RolEstudio | st
       if (!rol || !permitidos.includes(rol)) return errorResponse(res, 'PERMISO_INSUFICIENTE', 403);
       req.empresaId = String(empresaId);
       req.userRolEnEmpresa = rol;
-      return next();
+      return conContextoEmpresa(req.empresaId, req.user.id, next);
     } catch {
       return errorResponse(res, 'No se pudo verificar el acceso a la empresa.', 503);
     }

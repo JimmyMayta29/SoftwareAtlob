@@ -1,4 +1,4 @@
-import { db } from '../config/database';
+import { db, establecerContextoEmpresa } from '../config/database';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaRepository } from '../repositories/empresaRepository';
@@ -211,8 +211,7 @@ export const asientoService = {
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
-        await client.query(`SET LOCAL app.current_user_id = $1`, [userId]);
-        await client.query(`SET LOCAL app.current_empresa_id = $2`, [empresaId]);
+        await establecerContextoEmpresa(client, empresaId, userId);
 
         // Verificar período abierto
         const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [input.periodoId]);
@@ -309,11 +308,13 @@ export const asientoService = {
   /**
    * Actualiza un asiento en estado BORRADOR con validación de bloqueo optimista (version).
    */
-  async actualizarBorrador(asientoId: string, input: AsientoInput, userId: string, expectedVersion: number) {
+  async actualizarBorrador(asientoId: string, input: AsientoInput, userId: string, expectedVersion: number, empresaId?: string) {
     if (db.isPostgresConnected()) {
+      if (!empresaId) throw new Error('EMPRESA_REQUERIDA');
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
+        await establecerContextoEmpresa(client, empresaId, userId);
 
         const currentRes = await client.query(`SELECT estado, version, periodo_id, empresa_id FROM asientos WHERE id = $1 FOR UPDATE`, [asientoId]);
         if (currentRes.rows.length === 0) {
@@ -403,8 +404,7 @@ export const asientoService = {
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
-        await client.query(`SET LOCAL app.current_user_id = $1`, [userId]);
-        await client.query(`SET LOCAL app.current_empresa_id = $2`, [empresaId]);
+        await establecerContextoEmpresa(client, empresaId, userId);
 
         const aRes = await client.query(`
           SELECT a.*, p.codigo_periodo, s.codigo as subdiario_codigo
@@ -546,8 +546,7 @@ export const asientoService = {
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
-        await client.query(`SET LOCAL app.current_user_id = $1`, [userId]);
-        await client.query(`SET LOCAL app.current_empresa_id = $2`, [empresaId]);
+        await establecerContextoEmpresa(client, empresaId, userId);
 
         const aRes = await client.query(`SELECT * FROM asientos WHERE id = $1 FOR UPDATE`, [asientoId]);
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');

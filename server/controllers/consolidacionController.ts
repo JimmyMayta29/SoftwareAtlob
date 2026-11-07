@@ -5,7 +5,8 @@ import { successResponse, errorResponse } from '../utils/response';
 export const consolidacionController = {
   async calcular(req: Request, res: Response) {
     try {
-      const { empresaId, periodoId } = req.body;
+      const empresaId = req.empresaId;
+      const { periodoId } = req.body;
       const userId = req.user?.id || 'usr-default';
       if (!empresaId || !periodoId) {
         return errorResponse(res, 'empresaId y periodoId son obligatorios', 400);
@@ -19,7 +20,8 @@ export const consolidacionController = {
 
   async contabilizar(req: Request, res: Response) {
     try {
-      const { empresaId, periodoId } = req.body;
+      const empresaId = req.empresaId;
+      const { periodoId } = req.body;
       const userId = req.user?.id || 'usr-default';
       if (!empresaId || !periodoId) {
         return errorResponse(res, 'empresaId y periodoId son obligatorios', 400);
@@ -33,7 +35,8 @@ export const consolidacionController = {
 
   async extornar(req: Request, res: Response) {
     try {
-      const { empresaId, periodoId, motivo } = req.body;
+      const empresaId = req.empresaId;
+      const { periodoId, motivo } = req.body;
       const userId = req.user?.id || 'usr-default';
       if (!empresaId || !periodoId || !motivo) {
         return errorResponse(res, 'empresaId, periodoId y motivo son obligatorios', 400);

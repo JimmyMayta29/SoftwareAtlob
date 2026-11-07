@@ -32,6 +32,12 @@ async function main() {
     assert.equal((await request('/empresas')).status, 401);
     assert.equal((await request('/empresas/empresa-ajena', contador.accessToken)).status, 403);
     assert.equal((await request('/empresas/empresa-ajena/movimientos-tesoreria', contador.accessToken)).status, 403);
+    for (const accion of ['calcular', 'contabilizar', 'extornar']) {
+      const ajena = await request(`/consolidacion/${accion}`, contador.accessToken, 'POST', {
+        empresaId: 'empresa-ajena', periodoId: '2026-09', motivo: 'Prueba de acceso'
+      });
+      assert.equal(ajena.status, 403, `Consolidación ${accion} debe verificar la membresía de la empresa solicitada`);
+    }
     assert.equal((await request('/empresas/emp-01', contador.accessToken)).status, 200);
     const listado = await (await request('/empresas', contador.accessToken)).json();
     assert(!listado.data.some((e: any) => e.id === 'empresa-ajena'));

@@ -6,7 +6,8 @@ import { librosEEFFService } from '../services/librosEEFFService';
 import { conciliadorSireService, CONCILIACIONES_SIRE_MEMORIA } from '../services/conciliadorSireService';
 import { periodoService } from '../services/periodoService';
 import { setupPostgresTestHarness } from './postgresTestHarness';
-import { db } from '../config/database';
+import { conContextoEmpresa, db } from '../config/database';
+import { rejects, throws } from 'node:assert/strict';
 import { Money } from '../utils/decimal';
 
 async function ejecutarSuiteFase8() {
@@ -32,7 +33,9 @@ async function ejecutarSuiteFase8() {
   const PERIODO_TEST = '2026-09';
   const USER_TEST = 'usr-auditor-f8';
 
-  await periodoService.abrirPeriodo(EMPRESA_TEST, PERIODO_TEST, USER_TEST);
+  const periodoPrueba = await periodoService.abrirPeriodo(EMPRESA_TEST, PERIODO_TEST, USER_TEST);
+  await rejects(periodoService.cerrar(periodoPrueba.id, USER_TEST, 'empresa-ajena'), /PERIODO_NO_ENCONTRADO/);
+  await rejects(periodoService.reabrir(periodoPrueba.id, 'Motivo de prueba de aislamiento', USER_TEST, 'ADMINISTRADOR', 'empresa-ajena'), /PERIODO_NO_ENCONTRADO/);
 
   // --------------------------------------------------------------------------
   // TEST 1: Ejecución contra PostgreSQL Real vs Motor en Memoria (8.1)
@@ -53,6 +56,21 @@ async function ejecutarSuiteFase8() {
       txEjecutada = qRes.rows[0].test === 1;
     });
     assert(txEjecutada, 'Transacción PostgreSQL con SET LOCAL app.empresa_id ejecutada con COMMIT');
+
+    const consultas: string[] = [];
+    const observador = harness.memDb.on('query', sql => consultas.push(sql));
+    await conContextoEmpresa(EMPRESA_TEST, USER_TEST, async () => {
+      await db.query('SELECT 1 AS consulta_con_contexto');
+      throws(() => conContextoEmpresa('empresa-ajena', USER_TEST, () => {}), /CONTEXTO_EMPRESA_INCOMPATIBLE/);
+      await rejects(db.withEmpresaTransaction('empresa-ajena', async () => {}), /CONTEXTO_EMPRESA_INCOMPATIBLE/);
+    });
+    observador.unsubscribe();
+    const consulta = consultas.findIndex(sql => sql.includes('consulta_con_contexto'));
+    assert(
+      consultas[consulta - 2]?.includes(`set_config('app.empresa_id', '${EMPRESA_TEST}', true)`) &&
+      consultas[consulta - 1]?.includes(`set_config('app.current_user_id', '${USER_TEST}', true)`),
+      'db.query envía el contexto local de empresa y usuario antes de la consulta'
+    );
 
     // 1.3 Rollback atómico en PostgreSQL ante error
     let rollbackExitoso = false;

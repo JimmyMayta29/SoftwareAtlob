@@ -1,4 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { env } from './env';
 
 export interface DatabaseService {
@@ -11,6 +12,25 @@ export interface DatabaseService {
 
 let pool: Pool | null = null;
 let isConnected = false;
+const contextoEmpresa = new AsyncLocalStorage<{ empresaId: string; userId: string }>();
+
+export function conContextoEmpresa<T>(empresaId: string, userId: string, action: () => T): T {
+  const actual = contextoEmpresa.getStore();
+  if (actual && (actual.empresaId !== empresaId || actual.userId !== userId)) {
+    throw new Error('CONTEXTO_EMPRESA_INCOMPATIBLE');
+  }
+  return contextoEmpresa.run({ empresaId, userId }, action);
+}
+
+export async function establecerContextoEmpresa(client: PoolClient, empresaId: string, userId?: string) {
+  const actual = contextoEmpresa.getStore();
+  if (actual && (actual.empresaId !== empresaId || (userId && actual.userId !== userId))) {
+    throw new Error('CONTEXTO_EMPRESA_INCOMPATIBLE');
+  }
+  await client.query("SELECT set_config('app.current_empresa_id', $1, true), set_config('app.empresa_id', $1, true)", [empresaId]);
+  const actor = actual?.userId ?? userId;
+  if (actor) await client.query("SELECT set_config('app.current_user_id', $1, true)", [actor]);
+}
 
 export async function initializeDatabase(): Promise<void> {
   if (pool && isConnected) return;
@@ -22,7 +42,7 @@ export async function initializeDatabase(): Promise<void> {
     console.warn('⚠️ [Database] ADVERTENCIA: DATABASE_URL no configurada. Operando en modo DESARROLLO/TEST con almacén transaccional en memoria.');
     return;
   }
-  const candidate = new Pool({ connectionString: env.DATABASE_URL, max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 });
+  const candidate = new Pool({ connectionString: currentDbUrl, max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 });
   candidate.on('error', () => { isConnected = false; });
   try {
     await candidate.query('SELECT 1');
@@ -60,8 +80,7 @@ async function transaction<T>(empresaId: string, userId: string | undefined, act
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query("SELECT set_config('app.current_empresa_id', $1, true), set_config('app.empresa_id', $1, true)", [empresaId]);
-    if (userId) await client.query("SELECT set_config('app.current_user_id', $1, true)", [userId]);
+    await establecerContextoEmpresa(client, empresaId, userId);
     const result = await action(client);
     await client.query('COMMIT');
     return result;
@@ -82,6 +101,8 @@ export const db: DatabaseService = {
       }
       throw new Error('DATABASE_NO_DISPONIBLE');
     }
+    const actual = contextoEmpresa.getStore();
+    if (actual) return transaction(actual.empresaId, actual.userId, client => client.query<T>(text, params));
     return pool.query<T>(text, params);
   },
   async getClient(): Promise<PoolClient> {

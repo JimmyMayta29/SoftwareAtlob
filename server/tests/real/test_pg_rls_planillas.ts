@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
+import { parse } from 'dotenv';
 import { Pool, PoolClient } from 'pg';
-import { MIGRATION_FILES } from '../../db/migrate';
 import { REGISTRO_DATOS_EMPRESA } from '../../storage/registroDatosEmpresa';
 
 const TABLAS_A_PROBAR = [
@@ -17,67 +16,98 @@ const TABLAS_A_PROBAR = [
   'auditoria_log'
 ] as const;
 
+function fijarEmpresa(client: PoolClient, empresaId: string) {
+  return client.query("SELECT set_config('app.empresa_id', $1, true)", [empresaId]);
+}
+
+async function comprobarRestriccion(client: PoolClient, probar: () => Promise<unknown>, code: string, constraint?: string) {
+  await client.query('SAVEPOINT verificar_rechazo');
+  try {
+    await assert.rejects(probar, constraint ? { code, constraint } : { code });
+  } finally {
+    await client.query('ROLLBACK TO SAVEPOINT verificar_rechazo');
+    await client.query('RELEASE SAVEPOINT verificar_rechazo');
+  }
+}
+
 async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
   console.log('====================================================================');
-  console.log('🐘 INICIANDO PRUEBA COMPORTAMENTAL EN POSTGRESQL 15+ REAL (RLS + NOBYPASSRLS)');
+  console.log('🐘 INICIANDO PRUEBA COMPORTAMENTAL EN POSTGRESQL 18.x REAL (RLS + NOBYPASSRLS)');
   console.log('====================================================================\n');
 
-  const ownerPool = new Pool({ connectionString: databaseUrl, max: 5 });
-  const ownerClient = await ownerPool.connect();
+  const ownerPool = new Pool({ connectionString: databaseUrl, options: '-c search_path=public,pg_catalog', max: 5, connectionTimeoutMillis: 5000 });
+  let ownerClient: PoolClient | undefined;
 
   try {
-    // 0. Verificar versión del motor
-    const versionRes = await ownerClient.query("SELECT current_setting('server_version_num')::int AS ver, version() AS full_ver");
-    const serverVer = versionRes.rows[0].ver;
-    console.log(`🔌 Conectado a base de datos PostgreSQL:`);
-    console.log(`   ${versionRes.rows[0].full_ver}\n`);
-    assert(serverVer >= 140000, `Se requiere PostgreSQL >= 14. Versión actual: ${serverVer}`);
-
-    // 1. Ejecutar migraciones completas como rol propietario/migrador
-    console.log('1. Aplicando DDL de migraciones completas como rol propietario/migrador...');
-    const dbDir = path.resolve(process.cwd(), 'server/db');
-    for (const migFile of MIGRATION_FILES) {
-      const sqlPath = path.join(dbDir, migFile);
-      if (fs.existsSync(sqlPath)) {
-        const sql = fs.readFileSync(sqlPath, 'utf8');
-        await ownerClient.query(sql);
-      }
-    }
-    console.log('   ✔ Migraciones DDL aplicadas exitosamente.');
-
-    // 2. Configurar rol app_user con NOBYPASSRLS
-    console.log('2. Configurando rol restringido app_user con NOBYPASSRLS...');
-    await ownerClient.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
-          CREATE ROLE app_user NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-        ELSE
-          ALTER ROLE app_user NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
-        END IF;
-      END $$;
+    ownerClient = await ownerPool.connect();
+    const { rows: [identity] } = await ownerClient.query(`
+      SELECT current_database() AS database_name, current_user AS role_name, session_user AS session_role,
+             current_setting('server_version_num')::int AS version_num, version() AS full_version,
+             (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) AS database_owner,
+             rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+        FROM pg_roles WHERE rolname = current_user
     `);
-    await ownerClient.query('GRANT USAGE ON SCHEMA public TO app_user');
-    await ownerClient.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user');
-    await ownerClient.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user');
-    console.log('   ✔ Rol app_user asegurado con atributos NOSUPERUSER y NOBYPASSRLS.');
+    assert(identity?.database_name === 'atlob_test', 'La conexión debe estar en atlob_test.');
+    assert(identity.role_name === 'contabilidad_app' && identity.session_role === 'contabilidad_app', 'La sesión debe usar contabilidad_app.');
+    assert(identity.database_owner === 'contabilidad_app', 'atlob_test debe pertenecer a contabilidad_app.');
+    assert(identity.rolcanlogin && !identity.rolsuper && !identity.rolcreatedb && !identity.rolcreaterole && !identity.rolbypassrls,
+      'contabilidad_app debe tener LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE y NOBYPASSRLS.');
+    assert(identity.version_num >= 180000 && identity.version_num < 190000, 'Se requiere PostgreSQL 18.x.');
+    console.log(`🔌 ${identity.full_version}\n   ${identity.role_name} @ ${identity.database_name}\n`);
 
-    // 3. Verificar estado en catálogo pg_class: relrowsecurity y relforcerowsecurity
-    console.log('3. Verificando catálogo pg_class (relrowsecurity y relforcerowsecurity) para las 8 tablas...');
-    for (const tabla of TABLAS_A_PROBAR) {
-      const catRes = await ownerClient.query(
-        `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`,
-        [tabla]
-      );
-      assert.equal(catRes.rowCount, 1, `Tabla ${tabla} debe existir en el catálogo pg_class`);
-      assert.equal(catRes.rows[0].relrowsecurity, true, `RLS (relrowsecurity) debe ser true en ${tabla}`);
-      assert.equal(catRes.rows[0].relforcerowsecurity, true, `FORCE RLS (relforcerowsecurity) debe ser true en ${tabla}`);
-      assert.ok(
-        REGISTRO_DATOS_EMPRESA.some(r => r.tabla === tabla),
-        `La tabla ${tabla} debe estar inscrita en REGISTRO_DATOS_EMPRESA`
-      );
-      console.log(`   ✔ ${tabla}: relrowsecurity=true, relforcerowsecurity=true, registrada en REGISTRO_DATOS_EMPRESA`);
+    // El migrador real usa este pool, validado antes de emitir DDL.
+    process.env.NODE_ENV = 'test';
+    process.env.DATABASE_URL = '';
+    const { setPostgresPool } = await import('../../config/database');
+    const { runMigrations } = await import('../../db/migrate');
+    setPostgresPool(ownerPool);
+    console.log('1. Aplicando migraciones con el migrador de la aplicación...');
+    await runMigrations();
+    console.log('   ✔ Migraciones aplicadas con contabilidad_app.');
+
+    const { rows: tablas } = await ownerClient.query<{ tabla: string }>(`
+      SELECT table_name AS tabla FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name
+    `);
+    const registradas = new Set(REGISTRO_DATOS_EMPRESA.map(item => item.tabla));
+    const existentes = new Set(tablas.map(item => item.tabla));
+    console.log(`   Tablas públicas: ${existentes.size}. Registro: ${REGISTRO_DATOS_EMPRESA.length} entradas, ${registradas.size} nombres únicos.`);
+    console.log('   Faltan:', [...registradas].filter(tabla => !existentes.has(tabla)).sort().join(', ') || 'ninguna');
+    console.log('   Sobran:', [...existentes].filter(tabla => !registradas.has(tabla)).join(', ') || 'ninguna');
+    const { rows: politicas } = await ownerClient.query<{
+      relname: string; propietario: string; relrowsecurity: boolean; relforcerowsecurity: boolean;
+      tiene_empresa_id: boolean; tiene_politica: boolean;
+    }>(`
+      WITH estado AS (
+        SELECT c.relname, pg_get_userbyid(c.relowner) AS propietario, c.relrowsecurity, c.relforcerowsecurity,
+          EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'empresa_id'
+                    AND NOT a.attisdropped) AS tiene_empresa_id,
+          EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid) AS tiene_politica
+        FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+      )
+      SELECT * FROM estado WHERE tiene_empresa_id OR tiene_politica OR relrowsecurity ORDER BY relname
+    `);
+    console.table(politicas);
+    const { rows: clavesForaneas } = await ownerClient.query(`
+      SELECT conrelid::regclass::text AS tabla, conname AS restriccion,
+             confrelid::regclass::text AS referencia, convalidated AS validada
+      FROM pg_constraint WHERE contype = 'f' AND conrelid IN (
+        'asientos'::regclass, 'asiento_detalle'::regclass, 'correlativos'::regclass,
+        'comprobantes_compra'::regclass, 'comprobantes_venta'::regclass, 'planillas'::regclass
+      ) ORDER BY tabla, restriccion
+    `);
+    console.table(clavesForaneas);
+
+    const protegidas = politicas.filter(tabla => tabla.tiene_politica || tabla.relrowsecurity);
+    for (const tabla of [...TABLAS_A_PROBAR, 'centros_costo', 'reglas_contabilizacion_detalle']) {
+      assert(protegidas.some(item => item.relname === tabla), `${tabla} debe tener una política RLS`);
     }
+    for (const tabla of protegidas) {
+      assert(tabla.tiene_politica && tabla.relrowsecurity && tabla.relforcerowsecurity,
+        `${tabla.relname} debe tener política, ENABLE y FORCE RLS`);
+      assert(registradas.has(tabla.relname), `${tabla.relname} debe estar inscrita en REGISTRO_DATOS_EMPRESA`);
+    }
+    console.log(`   ✔ Política, ENABLE y FORCE RLS comprobados en ${protegidas.length} tablas.`);
 
     // 4. Sembrar datos maestros de prueba (Tenant, Empresas A y B, Ejercicio, Periodo, Subdiario, Cuentas)
     console.log('\n4. Sembrando datos maestros aislados para Empresa A y Empresa B...');
@@ -86,14 +116,15 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const empB = '00000000-0000-0000-0000-0000000000b2';
     const usrAdmin = '00000000-0000-0000-0000-000000000001';
 
+    await ownerClient.query('BEGIN');
     await ownerClient.query(`
       INSERT INTO tenants (id, nombre, subdominio) VALUES ($1, 'TENANT TEST', 'tenant-test')
       ON CONFLICT (id) DO NOTHING
     `, [tenantId]);
 
     await ownerClient.query(`
-      INSERT INTO usuarios_estudio (id, email, nombre, password_hash, rol_global)
-      VALUES ($1, 'admin@test.pe', 'ADMIN TEST', '$2a$10$abcdefghijklmnopqrstuv', 'ADMINISTRADOR')
+      INSERT INTO usuarios_estudio (id, email, nombre, password_hash, rol_global, is_active)
+      VALUES ($1, 'admin@test.pe', 'ADMIN TEST', 'DESHABILITADO', 'ADMINISTRADOR', FALSE)
       ON CONFLICT (id) DO NOTHING
     `, [usrAdmin]);
 
@@ -105,55 +136,53 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       ON CONFLICT (id) DO NOTHING
     `, [tenantId, empA, empB]);
 
-    await ownerClient.query(`
-      INSERT INTO ejercicios (id, empresa_id, anio, estado) VALUES
-        ('00000000-0000-0000-0000-0000000000e1', $1, 2026, 'ABIERTO'),
-        ('00000000-0000-0000-0000-0000000000e2', $2, 2026, 'ABIERTO')
-      ON CONFLICT (id) DO NOTHING
-    `, [empA, empB]);
+    for (const [empresaId, ejercicioId, periodoId, subdiarioId] of [
+      [empA, '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021'],
+      [empB, '00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000022'],
+    ]) {
+      await fijarEmpresa(ownerClient, empresaId);
+      await ownerClient.query(`
+        INSERT INTO ejercicios (id, empresa_id, anio, estado) VALUES ($1, $2, 2026, 'ABIERTO')
+        ON CONFLICT (id) DO NOTHING
+      `, [ejercicioId, empresaId]);
+      await ownerClient.query(`
+        INSERT INTO periodos (id, empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado)
+        VALUES ($1, $2, $3, 2026, 9, '2026-09', 'ABIERTO') ON CONFLICT (id) DO NOTHING
+      `, [periodoId, empresaId, ejercicioId]);
+      await ownerClient.query(`
+        INSERT INTO subdiarios (id, empresa_id, codigo, descripcion, tipo)
+        VALUES ($1, $2, '01', 'OPERACIONES MANUALES', 'APERTURA') ON CONFLICT (id) DO NOTHING
+      `, [subdiarioId, empresaId]);
+    }
 
-    await ownerClient.query(`
-      INSERT INTO periodos (id, empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado) VALUES
-        ('00000000-0000-0000-0000-000000000011', $1, '00000000-0000-0000-0000-0000000000e1', 2026, 9, '2026-09', 'ABIERTO'),
-        ('00000000-0000-0000-0000-000000000012', $2, '00000000-0000-0000-0000-0000000000e2', 2026, 9, '2026-09', 'ABIERTO')
-      ON CONFLICT (id) DO NOTHING
-    `, [empA, empB]);
-
-    await ownerClient.query(`
-      INSERT INTO subdiarios (id, empresa_id, codigo, descripcion, tipo) VALUES
-        ('00000000-0000-0000-0000-000000000021', $1, '01', 'OPERACIONES MANUALES', 'APERTURA'),
-        ('00000000-0000-0000-0000-000000000022', $2, '01', 'OPERACIONES MANUALES', 'APERTURA')
-      ON CONFLICT (id) DO NOTHING
-    `, [empA, empB]);
-
+    await fijarEmpresa(ownerClient, empA);
     await ownerClient.query(`
       INSERT INTO plan_cuentas (id, empresa_id, codigo, nombre, nivel, tipo_cuenta, permite_movimiento) VALUES
         ('00000000-0000-0000-0000-0000000000c1', $1, '1011', 'Caja M/N', 4, 'ACTIVO', TRUE),
         ('00000000-0000-0000-0000-0000000000c2', $1, '70111', 'Ventas M/N', 5, 'INGRESO', TRUE)
       ON CONFLICT (id) DO NOTHING
     `, [empA]);
+    await ownerClient.query('COMMIT');
 
-    // 5. Demostración de Aislamiento de Comportamiento RLS con rol app_user (NOBYPASSRLS)
-    console.log('5. Demostrando aislamiento de comportamiento RLS con rol app_user (NOBYPASSRLS)...');
+    // 5. Demostración de aislamiento RLS con el mismo rol que usa la aplicación.
+    console.log('5. Demostrando aislamiento RLS con contabilidad_app...');
     
-    // Crear cliente de conexión bajo app_user
     const appClient = await ownerPool.connect();
     try {
       await appClient.query('BEGIN');
-      await appClient.query('SET LOCAL ROLE app_user');
 
-      // A) Sin variable app.current_empresa_id: no se ve ningún registro
-      console.log('   a) Probando consulta sin app.current_empresa_id (debe devolver 0 filas)...');
-      await appClient.query(`SELECT set_config('app.current_empresa_id', '', true)`);
+      // A) Sin variable app.empresa_id no se ve ningún registro.
+      console.log('   a) Probando consulta sin app.empresa_id (debe devolver 0 filas)...');
+      await fijarEmpresa(appClient, '');
       for (const tabla of TABLAS_A_PROBAR) {
         const sinContexto = await appClient.query(`SELECT * FROM ${tabla}`);
         assert.equal(sinContexto.rowCount, 0, `Sin contexto de empresa, ${tabla} no debe devolver filas`);
       }
-      console.log('      ✔ Comprobado: sin app.current_empresa_id no se filtra ningún dato.');
+      console.log('      ✔ Sin app.empresa_id se obtienen 0 filas.');
 
       // B) Fijar contexto en Empresa A:
       console.log('   b) Fijando contexto en Empresa A...');
-      await appClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+      await fijarEmpresa(appClient, empA);
 
       // Insertar trabajador para Empresa A
       const trabAId = '00000000-0000-0000-0000-000000000101';
@@ -211,12 +240,18 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
         VALUES ($1, $2, $3, 'trabajadores', $4, 'INSERT', '000000', '111111')
       `, [audAId, empA, usrAdmin, trabAId]);
 
+      const trabBId = crypto.randomUUID();
+      await fijarEmpresa(appClient, empB);
+      await appClient.query(`
+        INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, cargo, sueldo_base, sistema_pensiones)
+        VALUES ($1, $2, '01', '49887765', 'TRABAJADOR B', 'APELLIDO B', '2026-01-01', 'CONTADOR', 2500, 'ONP')
+      `, [trabBId, empB]);
+      await fijarEmpresa(appClient, empA);
+
       // C) Intentar INSERT con empresa_id de Empresa B estando en contexto de A -> debe ser rechazado
       console.log('   c) Intentando INSERT con empresa_id de Empresa B estando en contexto de A (debe fallar)...');
       for (const tabla of TABLAS_A_PROBAR) {
-        let rechazoWithCheck = false;
-        await appClient.query('SAVEPOINT sp_cross_insert');
-        try {
+        await comprobarRestriccion(appClient, async () => {
           if (tabla === 'trabajadores') {
             await appClient.query(`
               INSERT INTO trabajadores (id, empresa_id, tipo_documento, numero_documento, nombres, apellidos, fecha_ingreso, cargo, regimen_laboral, sueldo_base, sistema_pensiones)
@@ -225,7 +260,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
           } else if (tabla === 'planillas') {
             await appClient.query(`
               INSERT INTO planillas (id, empresa_id, periodo_id, mes, fecha_calculo, total_ingresos, total_descuentos, total_aportes_empleador, total_neto, estado)
-              VALUES ('00000000-0000-0000-0000-000000000202', $1, '00000000-0000-0000-0000-000000000011', '2026-09', '2026-09-30', 2500, 300, 225, 2200, 'CALCULADA')
+              VALUES ('00000000-0000-0000-0000-000000000202', $1, '00000000-0000-0000-0000-000000000012', '2026-09', '2026-09-30', 2500, 300, 225, 2200, 'CALCULADA')
             `, [empB]);
           } else if (tabla === 'asientos') {
             await appClient.query(`
@@ -237,23 +272,34 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
               INSERT INTO auditoria_log (id, empresa_id, usuario_id, tabla_afectada, registro_id, accion, hash_previo, hash_actual)
               VALUES ('00000000-0000-0000-0000-000000000802', $1, $2, 'trabajadores', 'reg-02', 'INSERT', '000000', '222222')
             `, [empB, usrAdmin]);
-          } else {
-            // Tablas dependientes de trabajador
+          } else if (tabla === 'planilla_gratificaciones') {
             await appClient.query(`
-              INSERT INTO ${tabla} (empresa_id) VALUES ($1)
-            `, [empB]);
+              INSERT INTO planilla_gratificaciones (empresa_id, trabajador_id, periodo, semestre)
+              VALUES ($1, $2, '2026-07', 'JULIO')
+            `, [empB, trabBId]);
+          } else if (tabla === 'planilla_cts') {
+            await appClient.query(`
+              INSERT INTO planilla_cts (empresa_id, trabajador_id, periodo, semestre)
+              VALUES ($1, $2, '2026-05', 'MAYO')
+            `, [empB, trabBId]);
+          } else if (tabla === 'liquidaciones_beneficios') {
+            await appClient.query(`
+              INSERT INTO liquidaciones_beneficios (empresa_id, trabajador_id, periodo_cese, fecha_ingreso, fecha_cese, motivo_cese)
+              VALUES ($1, $2, '2026-09', '2026-01-01', '2026-09-15', '01')
+            `, [empB, trabBId]);
+          } else {
+            await appClient.query(`
+              INSERT INTO tregistro_movimientos (empresa_id, trabajador_id, tipo_movimiento, fecha_efectiva, linea_estructura_txt)
+              VALUES ($1, $2, 'ALTA', '2026-01-01', '01|49887765|604|1|1|01/01/2026|||')
+            `, [empB, trabBId]);
           }
-        } catch {
-          rechazoWithCheck = true;
-          await appClient.query('ROLLBACK TO SAVEPOINT sp_cross_insert');
-        }
-        assert.equal(rechazoWithCheck, true, `INSERT en ${tabla} con empresa_id ajeno debe ser rechazado por RLS WITH CHECK`);
+        }, '42501');
       }
-      console.log('      ✔ Comprobado: INSERT cruzado fue rechazado para todas las tablas.');
+      console.log('      ✔ INSERT cruzado en las ocho tablas fue rechazado por RLS (SQLSTATE 42501).');
 
       // D) Cambiar contexto a Empresa B:
       console.log('   d) Cambiando contexto a Empresa B...');
-      await appClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empB]);
+      await fijarEmpresa(appClient, empB);
 
       // Verificar que SELECT devuelve 0 filas para los registros de Empresa A
       const selTrab = await appClient.query(`SELECT * FROM trabajadores WHERE id = $1`, [trabAId]);
@@ -295,9 +341,69 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
 
       console.log('      ✔ Comprobado: SELECT, UPDATE y DELETE cruzados afectan 0 filas.');
 
+      for (const [empresa, propia, ajena] of [[empB, trabBId, trabAId], [empA, trabAId, trabBId]]) {
+        await fijarEmpresa(appClient, empresa);
+        assert.equal((await appClient.query('SELECT id FROM trabajadores WHERE id = $1', [propia])).rowCount, 1);
+        assert.equal((await appClient.query('SELECT id FROM trabajadores WHERE id = $1', [ajena])).rowCount, 0);
+      }
+      console.log('      ✔ Con filas válidas para A y B, cada sesión ve una fila propia y cero ajenas.');
+
+      const centros = new Map<string, string>();
+      const detalles = new Map<string, string>();
+      const reglas = new Map<string, string>();
+      for (const empresa of [empA, empB]) {
+        await fijarEmpresa(appClient, empresa);
+        const { rows: [centro] } = await appClient.query<{ id: string }>(`
+          INSERT INTO centros_costo (empresa_id, codigo, descripcion)
+          VALUES ($1, 'ATLOB-PG', 'Centro de prueba RLS') RETURNING id
+        `, [empresa]);
+        const { rows: [regla] } = await appClient.query<{ id: string }>(`
+          INSERT INTO reglas_contabilizacion (empresa_id, tipo_operacion, nombre)
+          VALUES ($1, 'VENTA', 'Regla de prueba RLS') RETURNING id
+        `, [empresa]);
+        const { rows: [detalle] } = await appClient.query<{ id: string }>(`
+          INSERT INTO reglas_contabilizacion_detalle (regla_id, orden, codigo_cuenta, lado, base_calculo)
+          VALUES ($1, 1, '101', 'DEBE', 'TOTAL') RETURNING id
+        `, [regla.id]);
+        centros.set(empresa, centro.id);
+        reglas.set(empresa, regla.id);
+        detalles.set(empresa, detalle.id);
+      }
+      for (const [propia, ajena] of [[empB, empA], [empA, empB]]) {
+        await appClient.query("SELECT set_config('app.current_empresa_id', $1, true)", [ajena]);
+        await fijarEmpresa(appClient, propia);
+        const centrosVisibles = await appClient.query('SELECT id FROM centros_costo WHERE id = ANY($1::uuid[])', [[...centros.values()]]);
+        const detallesVisibles = await appClient.query('SELECT id FROM reglas_contabilizacion_detalle WHERE id = ANY($1::uuid[])', [[...detalles.values()]]);
+        assert.deepEqual(centrosVisibles.rows.map(row => row.id), [centros.get(propia)]);
+        assert.deepEqual(detallesVisibles.rows.map(row => row.id), [detalles.get(propia)]);
+        await comprobarRestriccion(appClient, () => appClient.query(`
+          INSERT INTO reglas_contabilizacion_detalle (regla_id, orden, codigo_cuenta, lado, base_calculo)
+          VALUES ($1, 2, '101', 'DEBE', 'TOTAL')
+        `, [reglas.get(ajena)]), '42501');
+      }
+      console.log('      ✔ app.empresa_id aísla centros_costo y reglas_contabilizacion_detalle; detalle cruzado rechazado (42501).');
+
+      const periodoId = '00000000-0000-0000-0000-000000000011';
+      const subdiarioId = '00000000-0000-0000-0000-000000000021';
+      const insertarAsiento = (numero: string, cuo: string, subdiario = subdiarioId) => appClient.query(`
+        INSERT INTO asientos (empresa_id, periodo_id, subdiario_id, numero, cuo, fecha, glosa)
+        VALUES ($1, $2, $3, $4, $5, '2026-09-15', 'Asiento de restricciones')
+      `, [empA, periodoId, subdiario, numero, cuo]);
+      const insertarCorrelativo = () => appClient.query(`
+        INSERT INTO correlativos (empresa_id, periodo_id, subdiario_id) VALUES ($1, $2, $3)
+      `, [empA, periodoId, subdiarioId]);
+      await insertarAsiento('ATLOB-PG-01', 'ATLOB-PG-CUO-01');
+      await comprobarRestriccion(appClient, () => insertarAsiento('ATLOB-PG-01', 'ATLOB-PG-CUO-02'), '23505', 'uq_asiento_empresa_periodo_subdiario_numero');
+      await comprobarRestriccion(appClient, () => insertarAsiento('ATLOB-PG-02', 'ATLOB-PG-CUO-01'), '23505', 'uq_asiento_empresa_periodo_cuo');
+      await insertarCorrelativo();
+      await comprobarRestriccion(appClient, insertarCorrelativo, '23505', 'uq_correlativo_empresa_periodo_subdiario');
+      await comprobarRestriccion(appClient, () => insertarAsiento('ATLOB-PG-02', 'ATLOB-PG-CUO-02', crypto.randomUUID()), '23503', 'asientos_subdiario_id_fkey');
+      console.log('      ✔ Correlativo, numeración y CUO duplicados: SQLSTATE 23505 en las tres restricciones esperadas.');
+      console.log('      ✔ Subdiario inexistente: SQLSTATE 23503 (asientos_subdiario_id_fkey).');
+
       await appClient.query('ROLLBACK');
     } finally {
-      appClient.release();
+      appClient.release(true);
     }
 
     // 6. Demostración de FORCE RLS sobre el rol propietario/dueño de las tablas
@@ -305,15 +411,15 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const ownerRlsClient = await ownerPool.connect();
     try {
       await ownerRlsClient.query('BEGIN');
-      // No seteamos app.current_empresa_id:
-      await ownerRlsClient.query(`SELECT set_config('app.current_empresa_id', '', true)`);
+      // Sin contexto de empresa canónico.
+      await fijarEmpresa(ownerRlsClient, '');
       // Con FORCE RLS activo, el dueño de la tabla (no superusuario) es restringido por la política
       const resOwner = await ownerRlsClient.query(`SELECT count(*)::int as count FROM trabajadores`);
       assert.equal(resOwner.rows[0].count, 0, 'Incluso el rol dueño con FORCE RLS ve 0 filas cuando no hay empresa activa.');
       console.log('   ✔ FORCE RLS verificado: las políticas se aplican obligatoriamente.');
       await ownerRlsClient.query('ROLLBACK');
     } finally {
-      ownerRlsClient.release();
+      ownerRlsClient.release(true);
     }
 
     // 7. Demostración de Inmutabilidad de auditoria_log (Rechazo de UPDATE, DELETE y TRUNCATE)
@@ -321,7 +427,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const audTestClient = await ownerPool.connect();
     try {
       await audTestClient.query('BEGIN');
-      await audTestClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+      await fijarEmpresa(audTestClient, empA);
 
       const logId = '00000000-0000-0000-0000-000000000999';
       await audTestClient.query(`
@@ -368,7 +474,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       console.log('   ✔ Comprobado: auditoria_log rechazó UPDATE, DELETE y TRUNCATE mediante trigger append-only.');
       await audTestClient.query('ROLLBACK');
     } finally {
-      audTestClient.release();
+      audTestClient.release(true);
     }
 
     // 8. Demostración de Trigger de Inmutabilidad de Asientos Contabilizados
@@ -376,7 +482,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const inmutClient = await ownerPool.connect();
     try {
       await inmutClient.query('BEGIN');
-      await inmutClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+      await fijarEmpresa(inmutClient, empA);
 
       const asientoSelloId = '00000000-0000-0000-0000-000000000888';
       await inmutClient.query(`
@@ -422,7 +528,7 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       console.log('   ✔ Comprobado: asiento contabilizado protegido contra UPDATE y DELETE por fn_inmutabilidad_asiento.');
       await inmutClient.query('ROLLBACK');
     } finally {
-      inmutClient.release();
+      inmutClient.release(true);
     }
 
     // 9. Demostración de Concurrencia Atómica (Dos contabilizaciones simultáneas del mismo asiento)
@@ -435,6 +541,8 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
       const asientoBorradorId = crypto.randomUUID();
       const detalle1Id = crypto.randomUUID();
       const detalle2Id = crypto.randomUUID();
+      await ownerClient.query('BEGIN');
+      await fijarEmpresa(ownerClient, empA);
       await ownerClient.query(`
         INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, fecha, glosa, moneda, estado)
         VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '2026-09-15', 'Asiento Concurrente', 'PEN', 'BORRADOR')
@@ -446,12 +554,14 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
           ($3, $1, $2, 1, '00000000-0000-0000-0000-0000000000c1', 200, 0),
           ($4, $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 200)
       `, [asientoBorradorId, empA, detalle1Id, detalle2Id]);
+      // El borrador debe ser visible en las dos conexiones que compiten por contabilizarlo.
+      await ownerClient.query('COMMIT');
 
       // Función que simula el flujo de contabilización atómica con SELECT ... FOR UPDATE
       async function contabilizarConcurrente(client: PoolClient, workerName: string): Promise<string> {
         await client.query('BEGIN');
         // Establecer contexto de empresa
-        await client.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+        await fijarEmpresa(client, empA);
 
         // Bloqueo pesimista de fila
         const aRes = await client.query(
@@ -476,10 +586,10 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
         await client.query(`
           UPDATE asientos SET
             estado = 'CONTABILIZADO',
-            numero = '0109' || lpad(floor(random() * 8999 + 1000)::text, 4, '0'),
+            numero = $2,
             version = version + 1
           WHERE id = $1
-        `, [asientoBorradorId]);
+        `, [asientoBorradorId, `T-${asientoBorradorId.replaceAll('-', '').slice(0, 18)}`]);
 
         await client.query('COMMIT');
         return `${workerName}_GANO`;
@@ -506,8 +616,8 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
 
       console.log(`   ✔ Concurrencia atómica verificada: 1 éxito (${(exitosos[0] as PromiseFulfilledResult<any>).value}), 1 rechazo (${errorRechazo.message}).`);
     } finally {
-      concAClient.release();
-      concBClient.release();
+      concAClient.release(true);
+      concBClient.release(true);
     }
 
     // 10. Demostración de Trigger Diferido de Partida Doble (trg_asiento_partida_doble / fn_validar_partida_doble)
@@ -515,12 +625,12 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     const descClient = await ownerPool.connect();
     try {
       await descClient.query('BEGIN');
-      await descClient.query(`SELECT set_config('app.current_empresa_id', $1, true)`, [empA]);
+      await fijarEmpresa(descClient, empA);
 
       const asientoDescId = crypto.randomUUID();
       await descClient.query(`
         INSERT INTO asientos (id, empresa_id, periodo_id, subdiario_id, numero, fecha, glosa, moneda, estado)
-        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '01099999', '2026-09-20', 'Asiento Descuadrado Prueba Trigger', 'PEN', 'CONTABILIZADO')
+        VALUES ($1, $2, '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', '01099999', '2026-09-20', 'Asiento Descuadrado Prueba Trigger', 'PEN', 'BORRADOR')
       `, [asientoDescId, empA]);
 
       await descClient.query(`
@@ -530,18 +640,11 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
           ($4, $1, $2, 2, '00000000-0000-0000-0000-0000000000c2', 0, 1499.99)
       `, [asientoDescId, empA, crypto.randomUUID(), crypto.randomUUID()]);
 
-      let rechazoPartidaDoble = false;
-      try {
-        await descClient.query('COMMIT');
-      } catch (e: any) {
-        rechazoPartidaDoble = true;
-        assert.match(e.message, /ASIENTO_DESCUADRADO/, 'El COMMIT debe ser abortado con ASIENTO_DESCUADRADO por trg_asiento_partida_doble');
-        await descClient.query('ROLLBACK');
-      }
-      assert.equal(rechazoPartidaDoble, true, 'PostgreSQL debe abortar el COMMIT de cualquier asiento CONTABILIZADO descuadrado');
-      console.log('   ✔ Comprobado: trg_asiento_partida_doble abortó el COMMIT del asiento descuadrado (1500.00 vs 1499.99).');
+      await descClient.query("UPDATE asientos SET estado = 'CONTABILIZADO' WHERE id = $1", [asientoDescId]);
+      await assert.rejects(() => descClient.query('COMMIT'), { code: 'P0001', message: /ASIENTO_DESCUADRADO/ });
+      console.log('   ✔ trg_asiento_partida_doble abortó el COMMIT (1500.00 vs 1499.99, SQLSTATE P0001, ASIENTO_DESCUADRADO).');
     } finally {
-      descClient.release();
+      descClient.release(true);
     }
 
     console.log('\n====================================================================');
@@ -549,80 +652,37 @@ async function ejecutarPruebaComportamientoPostgresReal(databaseUrl: string) {
     console.log('   Etiqueta de estado: IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL');
     console.log('====================================================================\n');
   } finally {
-    ownerClient.release();
+    ownerClient?.release(true);
     await ownerPool.end();
   }
 }
 
-function sanitizarUrlDb(urlStr: string): string {
-  try {
-    const parsed = new URL(urlStr);
-    if (parsed.password) parsed.password = '******';
-    return parsed.toString();
-  } catch {
-    return urlStr.replace(/:[^:@/]+@/, ':******@');
-  }
-}
-
-function obtenerNombreBaseDatos(urlStr: string): string {
-  try {
-    const parsed = new URL(urlStr);
-    return parsed.pathname.replace(/^\//, '');
-  } catch {
-    const match = urlStr.match(/\/([^/?#]+)(?:[?#]|$)/);
-    return match ? match[1] : '';
-  }
-}
-
 async function main() {
-  // 1. Cargar .env.test si existe en la raíz del proyecto
-  const envTestPath = path.resolve(process.cwd(), '.env.test');
-  if (fs.existsSync(envTestPath)) {
-    const envContent = fs.readFileSync(envTestPath, 'utf8');
-    for (const line of envContent.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx !== -1) {
-        const key = trimmed.slice(0, eqIdx).trim();
-        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
-        if (!process.env[key]) {
-          process.env[key] = val;
-        }
-      }
-    }
+  const local = fs.existsSync('.env') ? parse(fs.readFileSync('.env')) : {};
+  const testDbUrl = process.env.TEST_DATABASE_URL ?? local.TEST_DATABASE_URL;
+  assert(testDbUrl, 'Configure TEST_DATABASE_URL en .env local antes de ejecutar test:pg.');
+  let destino: URL;
+  try {
+    destino = new URL(testDbUrl);
+  } catch {
+    throw new Error('TEST_DATABASE_URL no tiene el formato de una URL de PostgreSQL.');
   }
-
-  const testDbUrl = process.env.TEST_DATABASE_URL;
-  if (!testDbUrl) {
-    console.error('❌ ERROR FATAL: TEST_DATABASE_URL es requerido para ejecutar test:pg.');
-    console.error('   Esta prueba de comportamiento requiere una instancia PostgreSQL 15+ real.');
-    console.error('   Configure TEST_DATABASE_URL en su terminal o en un archivo .env.test (excluido de git).');
-    console.error('   Ejemplo Linux / Mac:');
-    console.error('     export TEST_DATABASE_URL="postgres://usuario:clave@localhost:5432/atlob_test"');
-    console.error('   Ejemplo Windows PowerShell:');
-    console.error('     $env:TEST_DATABASE_URL="postgres://usuario:clave@localhost:5432/atlob_test"; npm run test:pg');
-    console.error('   O levante el entorno con: docker compose -f docker-compose.test.yml up -d');
-    process.exit(1);
-  }
-
-  // 2. Comprobación estricta de seguridad: el nombre de la BD DEBE terminar en "_test"
-  const dbName = obtenerNombreBaseDatos(testDbUrl);
-  if (!dbName.endsWith('_test')) {
-    console.error(`❌ RECHAZO DE SEGURIDAD: La base de datos "${dbName}" en TEST_DATABASE_URL no termina en "_test".`);
-    console.error('   Para prevenir la alteración o borrado accidental de bases de datos de trabajo o producción,');
-    console.error('   el script solo se ejecutará contra bases con sufijo "_test" (ej. "atlob_test" o "empresa_demo_test").');
-    console.error(`   URL sanitizada provista: ${sanitizarUrlDb(testDbUrl)}`);
-    process.exit(1);
-  }
-
-  console.log(`🔒 Validación de seguridad superada: Base de datos de prueba identificada como "${dbName}".`);
-  console.log(`   Destino sanitizado: ${sanitizarUrlDb(testDbUrl)}\n`);
+  assert(
+    ['postgres:', 'postgresql:'].includes(destino.protocol) &&
+    ['localhost', '127.0.0.1', '[::1]'].includes(destino.hostname) &&
+    destino.username === 'contabilidad_app' && destino.pathname === '/atlob_test' &&
+    [...destino.searchParams.keys()].every(key => key === 'sslmode'),
+    'TEST_DATABASE_URL debe usar contabilidad_app en atlob_test de PostgreSQL local.'
+  );
 
   await ejecutarPruebaComportamientoPostgresReal(testDbUrl);
 }
 
-main().catch(err => {
-  console.error('❌ Error en test_pg_rls_planillas:', err);
-  process.exit(1);
+main().catch((error: Error & { code?: string; constraint?: string }) => {
+  if (error.code && error.code !== 'ERR_ASSERTION') {
+    console.error(`❌ PostgreSQL rechazó la operación (${error.code}${error.constraint ? `, ${error.constraint}` : ''}).`);
+  } else {
+    console.error(`❌ ${error.message}`);
+  }
+  process.exitCode = 1;
 });
