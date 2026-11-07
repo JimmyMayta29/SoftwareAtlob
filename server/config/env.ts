@@ -2,7 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config({ quiet: true });
+if (process.env.DOTENV_CONFIG_PATH !== '') {
+  dotenv.config({ path: process.env.DOTENV_CONFIG_PATH, quiet: true });
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
