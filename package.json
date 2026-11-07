@@ -21,6 +21,7 @@
     "test:fase8": "tsx server/tests/run_tests_fase8.ts",
     "test:fase9": "tsx server/tests/run_tests_fase9.ts",
     "test:pg": "tsx server/tests/real/test_pg_rls_planillas.ts",
+    "cargar:pcge": "tsx server/db/cargarPcgeStaging.ts",
     "test:coverage": "c8 --exclude \"server/tests/**\" --exclude \"**/*.test.ts\" --reporter=text --reporter=text-summary tsx server/tests/run_all_tests.ts",
     "test:infra": "tsx server/tests/real/test_infra.ts"
   },
