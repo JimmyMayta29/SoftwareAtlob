@@ -169,14 +169,22 @@ async function ejecutar() {
         FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`);
       assert(identidad.base === 'atlob_test' && identidad.actor === 'contabilidad_app' && identidad.login === identidad.actor
         && identidad.propietario === identidad.actor && identidad.restringido && identidad.version >= 180000 && identidad.version < 190000, 'SESION_DE_PRUEBA_INVALIDA');
+      const todasTablasEtapas = ETAPAS_RLS.flatMap(e => e.tablas.map(([t]) => t));
+      const estadoInicialRls = await estadoRls(client, todasTablasEtapas);
       await client.query('BEGIN');
       try {
         await client.query('SELECT pg_advisory_xact_lock(738291004)');
+        for (const etapa of [...ETAPAS_RLS].reverse()) {
+          const estadoEtapa = await estadoRls(client, etapa.tablas.map(([t]) => t));
+          if (estadoEtapa.some(r => r.relrowsecurity || r.relforcerowsecurity || r.politicas > 0)) {
+            await revertirEtapaRls(client, etapa);
+          }
+        }
         await probarRls(client);
       } finally {
         await client.query('ROLLBACK');
       }
-      assert((await estadoRls(client, ETAPAS_RLS.flatMap(e => e.tablas.map(([t]) => t)))).every(r => !r.relrowsecurity && !r.relforcerowsecurity && r.politicas === 0));
+      assert.deepEqual(await estadoRls(client, todasTablasEtapas), estadoInicialRls);
       console.log('ROLLBACK_RLS_COMPLETO=OK');
       await client.query('BEGIN');
       try {

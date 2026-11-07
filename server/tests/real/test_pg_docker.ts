@@ -3,6 +3,43 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { parse } from 'dotenv';
 
+// Comprobación previa: prueba opcional fuera de npm test.
+const verificacionBinario = spawnSync('docker', ['--version'], {
+  encoding: 'utf8',
+  stdio: 'pipe',
+  windowsHide: true,
+});
+if (verificacionBinario.error || verificacionBinario.status !== 0) {
+  console.log(
+    '[test_pg_docker] Prueba opcional omitida: Docker no está instalado o no se encuentra en el PATH del sistema. Use "npm run test:pg" con PostgreSQL 18 local (TEST_DATABASE_URL).'
+  );
+  process.exit(0);
+}
+
+const verificacionCompose = spawnSync('docker', ['compose', 'version'], {
+  encoding: 'utf8',
+  stdio: 'pipe',
+  windowsHide: true,
+});
+if (verificacionCompose.error || verificacionCompose.status !== 0) {
+  console.log(
+    '[test_pg_docker] Prueba opcional omitida: el complemento "docker compose" no está disponible en este entorno. Use "npm run test:pg" con PostgreSQL 18 local (TEST_DATABASE_URL).'
+  );
+  process.exit(0);
+}
+
+const verificacionDaemon = spawnSync('docker', ['info'], {
+  encoding: 'utf8',
+  stdio: 'pipe',
+  windowsHide: true,
+});
+if (verificacionDaemon.error || verificacionDaemon.status !== 0) {
+  console.error(
+    '[test_pg_docker] Docker está instalado pero el servicio (daemon) no está en ejecución. Inicie Docker Desktop/Engine o ejecute "npm run test:pg" contra atlob_test local.'
+  );
+  process.exit(1);
+}
+
 const clavesLocales = new Set<string>();
 if (existsSync('.env')) {
   const valores = parse(readFileSync('.env'));

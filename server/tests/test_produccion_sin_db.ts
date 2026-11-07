@@ -27,21 +27,31 @@ export async function runTestProduccionSinDb() {
     const secretosValidos = Object.fromEntries(
       NOMBRES_SECRETOS_SERVIDOR.map(nombre => [nombre, randomBytes(32).toString('hex')])
     );
-    const entornoProduccion = {
+    const entornoProduccion: NodeJS.ProcessEnv = {
       ...process.env,
       ...secretosValidos,
+      DOTENV_CONFIG_PATH: '',
       NODE_ENV: 'production',
       DATABASE_URL: 'postgresql://127.0.0.1/atlob_test',
     };
 
-    const ejecutar = (args: string[], variables: NodeJS.ProcessEnv) => spawnSync(
-      process.execPath, ['--import', 'tsx', ...args],
-      { env: { ...entornoProduccion, ...variables }, encoding: 'utf8', timeout: 20000, windowsHide: true }
-    );
-    const validarConfiguracion = ['--input-type=module', '-e', "await import('./server/config/env.ts');"];
+    const ejecutar = (args: string[], variables: Record<string, string | undefined>) => {
+      const envHijo: NodeJS.ProcessEnv = { ...entornoProduccion };
+      for (const [k, v] of Object.entries(variables)) {
+        if (v === undefined) delete envHijo[k];
+        else envHijo[k] = v;
+      }
+      return spawnSync(
+        process.execPath,
+        ['--import', 'tsx', ...args],
+        { env: envHijo, encoding: 'utf8', timeout: 20000, windowsHide: true }
+      );
+    };
+
     const serverSinDb = ejecutar(['server.ts'], { DATABASE_URL: '' });
     assert.equal(serverSinDb.status, 1, 'El servidor debe terminar si falta DATABASE_URL');
     assert(/DATABASE_URL_REQUERIDA/.test(serverSinDb.stderr), 'Debe indicar el problema de configuración');
+    const validarConfiguracion = ['--input-type=module', '-e', "await import('./server/config/env.ts');"];
     assert.equal(ejecutar(validarConfiguracion, {}).status, 0, 'La configuración válida debe cargar');
 
     for (const nombre of NOMBRES_SECRETOS_SERVIDOR) {
@@ -51,17 +61,20 @@ export async function runTestProduccionSinDb() {
       }).match(patron)?.[1];
       assert(historico, `El fixture histórico de ${nombre} debe existir`);
 
-      for (const [motivo, valor] of [
-        ['AUSENTE', ''],
-        ['FORMATO_32_BYTES', randomBytes(31).toString('hex')],
-        ['BAJA_DIVERSIDAD', 'ab'.repeat(32)],
-        ['HISTORICO', historico],
-      ]) {
-        const resultado = ejecutar(validarConfiguracion, { [nombre]: valor });
-        assert.equal(resultado.status, 1, `Debe abortar para ${nombre} (${motivo})`);
-        assert(resultado.stderr.includes(`${nombre} (${motivo})`), 'Debe indicar el motivo del rechazo');
-        assert(!valor || !(resultado.stdout + resultado.stderr).includes(valor), 'El diagnóstico debe omitir el valor');
-        console.log(`A3: ${nombre} (${motivo}) → EXIT=${resultado.status}`);
+      const casos: [string, string, string | undefined][] = [
+        ['AUSENTE (variable no definida)', 'AUSENTE', undefined],
+        ['CORTO (menos de 32 bytes)', 'FORMATO_32_BYTES', randomBytes(16).toString('hex')],
+        ['BAJA_DIVERSIDAD', 'BAJA_DIVERSIDAD', 'ab'.repeat(32)],
+        ['HISTORICO (huella conocida)', 'HISTORICO', historico],
+      ];
+
+      for (const [etiqueta, motivoEsperado, valor] of casos) {
+        const resultado = ejecutar(['server.ts'], { [nombre]: valor });
+        assert.equal(resultado.status, 1, `El arranque de server.ts debe abortar para ${nombre} (${etiqueta})`);
+        assert(resultado.stderr.includes(`SECRETO_CONFIGURACION_INVALIDO: ${nombre} (${motivoEsperado})`), 'Debe indicar el motivo exacto del rechazo');
+        assert(!valor || !(resultado.stdout + resultado.stderr).includes(valor), 'El diagnóstico debe omitir el valor del secreto');
+        const lineaError = resultado.stderr.split(/\r?\n/).find(l => l.trim().startsWith('Error: SECRETO_CONFIGURACION_INVALIDO'))?.trim() ?? '';
+        console.log(`A3: server.ts [NODE_ENV=production] ${nombre} | caso=${etiqueta} -> ${lineaError} | EXIT_CODE=${resultado.status}`);
       }
     }
 
@@ -84,7 +97,7 @@ export async function runTestProduccionSinDb() {
       assert(huellas.every((huella, indice) => huella !== otras[indice]), 'Los secretos deben ser efímeros por proceso');
       assert(/Secretos efímeros/.test(primero.stderr), 'El proceso debe advertir de las claves efímeras');
       assert(!/[0-9a-f]{64}/i.test(primero.stderr), 'El aviso debe omitir los valores');
-      console.log(`A3: ${modo} con secretos efímeros distintos por proceso → EXIT=0`);
+      console.log(`A3: ${modo} con secretos efímeros distintos por proceso -> EXIT_CODE=0`);
     }
   } finally {
     if (envOriginalNode === undefined) delete process.env.NODE_ENV;

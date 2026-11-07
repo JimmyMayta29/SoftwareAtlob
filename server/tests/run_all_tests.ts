@@ -1,4 +1,7 @@
-import { execSync } from 'child_process';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Las suites de fixtures nunca deben conectarse a una base configurada por el usuario.
 process.env.NODE_ENV = 'test';
@@ -39,27 +42,60 @@ console.log('🚀 EJECUTANDO BATERÍA COMPLETA DE PRUEBAS DE CALIDAD (FASES 1 - 
 console.log('========================================================================\n');
 
 let totalPassed = 0;
-let totalSuites = suites.length;
+const totalSuites = suites.length;
+let totalAssertionsAll = 0;
+const resumenSuites: { indice: number; name: string; path: string; aserciones: number; elapsed: string }[] = [];
 const startTotal = Date.now();
 
-for (const suite of suites) {
+for (const [idx, suite] of suites.entries()) {
   const start = Date.now();
-  console.log(`▶ Ejecutando ${suite.name} (${suite.path})...`);
-  try {
-    execSync(`npx tsx ${suite.path}`, {
+  const archivoConteo = join(tmpdir(), `atlob_aserciones_${process.pid}_${idx}.txt`);
+  rmSync(archivoConteo, { force: true });
+  console.log(`▶ [${idx + 1}/${totalSuites}] Ejecutando ${suite.name} (${suite.path})...`);
+
+  const res = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', '--import', './server/tests/contador_aserciones.ts', suite.path],
+    {
       stdio: 'inherit',
-      env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: '' }
-    });
-    const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    console.log(`✅ [${suite.name}] completado en ${elapsed}s\n`);
-    totalPassed++;
-  } catch (err) {
-    console.error(`❌ [${suite.name}] falló.`);
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        DATABASE_URL: '',
+        ATLOB_ARCHIVO_ASERCIONES: archivoConteo,
+      },
+      windowsHide: true,
+    }
+  );
+
+  if (res.status !== 0) {
+    rmSync(archivoConteo, { force: true });
+    console.error(`❌ [${suite.name}] falló con código ${res.status ?? 1}.`);
     process.exit(1);
   }
+
+  let aserciones = 0;
+  if (existsSync(archivoConteo)) {
+    aserciones = Number.parseInt(readFileSync(archivoConteo, 'utf8').trim(), 10) || 0;
+    rmSync(archivoConteo, { force: true });
+  }
+
+  const elapsed = ((Date.now() - start) / 1000).toFixed(2);
+  console.log(`✅ [${suite.name}] (${suite.path}) completado en ${elapsed}s | aserciones=${aserciones}\n`);
+  totalPassed++;
+  totalAssertionsAll += aserciones;
+  resumenSuites.push({ indice: idx + 1, name: suite.name, path: suite.path, aserciones, elapsed });
 }
 
 const totalTime = ((Date.now() - startTotal) / 1000).toFixed(2);
 console.log('========================================================================');
-console.log(`🎉 RESUMEN FINAL: ${totalPassed}/${totalSuites} suites completadas con éxito en ${totalTime}s.`);
+console.log('📋 INVENTARIO DE LAS 27 SUITES EJECUTADAS (NOMBRE | ARCHIVO | ASERCIONES)');
+console.log('========================================================================');
+for (const item of resumenSuites) {
+  console.log(
+    `${String(item.indice).padStart(2, '0')}. ${item.name} | ${item.path} | aserciones=${item.aserciones} | tiempo=${item.elapsed}s`
+  );
+}
+console.log('========================================================================');
+console.log(`🎉 RESUMEN FINAL: ${totalPassed}/${totalSuites} suites completadas con éxito | ${totalAssertionsAll} aserciones totales en ${totalTime}s.`);
 console.log('========================================================================');
