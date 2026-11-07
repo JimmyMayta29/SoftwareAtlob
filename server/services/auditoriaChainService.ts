@@ -188,5 +188,41 @@ export const auditoriaChainService = {
       mensaje: `Cadena de auditoría 100% íntegra (${logs.length} registros verificados).`,
       ultimoHash: logs[logs.length - 1].hashActual
     };
+  },
+
+  /**
+   * Proyecta y enmascara entradas de auditoría al leer o exportar sin reescribir filas almacenadas
+   * ni alterar hashPrevio / hashActual de la cadena inmutable.
+   */
+  async exportarPorEmpresa(empresaId: string): Promise<AuditoriaLogEntry[]> {
+    let logs: AuditoriaLogEntry[] = [];
+    if (db.isPostgresConnected()) {
+      const res = await db.query<AuditoriaLogEntry>(`
+        SELECT id, empresa_id as "empresaId", usuario_id as "usuarioId",
+               tabla_afectada as "tablaAfectada", registro_id as "registroId",
+               accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
+               hash_previo as "hashPrevio", hash_actual as "hashActual", created_at as "createdAt"
+        FROM auditoria_log
+        WHERE empresa_id = $1
+        ORDER BY created_at ASC, id ASC
+      `, [empresaId]);
+      logs = res.rows;
+    } else {
+      logs = AUDITORIA_LOG_CHAIN_MEMORIA.filter(l => l.empresaId === empresaId);
+    }
+
+    return logs.map(entrada => ({
+      id: entrada.id,
+      empresaId: entrada.empresaId,
+      usuarioId: entrada.usuarioId,
+      tablaAfectada: entrada.tablaAfectada,
+      registroId: entrada.registroId,
+      accion: entrada.accion,
+      datosAnteriores: filtrarDetalleAuditoria(entrada.tablaAfectada, entrada.datosAnteriores),
+      datosNuevos: filtrarDetalleAuditoria(entrada.tablaAfectada, entrada.datosNuevos),
+      hashPrevio: entrada.hashPrevio,
+      hashActual: entrada.hashActual,
+      createdAt: entrada.createdAt
+    }));
   }
 };

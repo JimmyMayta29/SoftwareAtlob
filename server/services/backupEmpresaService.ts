@@ -28,9 +28,9 @@ import { DECLARACIONES_PDT621_MEMORIA, LiquidacionIGVResultado } from './liquida
 import { DECLARACIONES_PRORRATA_MEMORIA, LiquidacionProrrataIgv } from './prorrataIgvService';
 import { DECLARACIONES_RENTA_ANUAL_MEMORIA, CalculoDjAnualRenta } from './djRentaAnualService';
 import { DAOT_EXCLUSIONES_MEMORIA, ExclusionDaotItem } from './daotService';
-import { AUDITORIA_LOG_CHAIN_MEMORIA, AuditoriaChainLog } from './auditoriaChainService';
+import { auditoriaChainService } from './auditoriaChainService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
-import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
+import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 export type OrigenBackup = 'MANUAL' | 'AUTO_ENTRADA' | 'PREVIO_CIERRE' | 'PREVIO_IMPORTACION' | 'PREVIO_RESET_DEMO';
 
@@ -189,19 +189,7 @@ export const backupEmpresaService = {
       'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
       'declaraciones_renta_anual.ndjson': DECLARACIONES_RENTA_ANUAL_MEMORIA.filter(d => d.empresaId === empresaId),
       'daot_exclusiones.ndjson': DAOT_EXCLUSIONES_MEMORIA.filter(d => d.empresaId === empresaId),
-      'auditoria.ndjson': AUDITORIA_LOG_CHAIN_MEMORIA.filter(a => a.empresaId === empresaId).map(a => ({
-        id: a.id,
-        empresaId: a.empresaId,
-        usuarioId: a.usuarioId,
-        tablaAfectada: a.tablaAfectada,
-        registroId: a.registroId,
-        accion: a.accion,
-        datosAnteriores: filtrarDetalleAuditoria(a.tablaAfectada, a.datosAnteriores),
-        datosNuevos: filtrarDetalleAuditoria(a.tablaAfectada, a.datosNuevos),
-        hashPrevio: a.hashPrevio,
-        hashActual: a.hashActual,
-        createdAt: a.createdAt
-      }))
+      'auditoria.ndjson': await auditoriaChainService.exportarPorEmpresa(empresaId)
     };
 
     // 2. Construir ZIP interno con archivos NDJSON y calcular hashes SHA-256
