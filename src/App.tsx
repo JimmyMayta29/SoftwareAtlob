@@ -259,7 +259,14 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
       }
 
       // Abrir vista dedicada en el área de trabajo
-      if (conectado && !empresaActiva && itemId !== 'cartera-empresas') {
+      const modulosEstudioSinEmpresa = new Set([
+        'cartera-empresas',
+        'usuarios-permisos',
+        'usuarios-roles',
+        'guia-rapida',
+        'guia-rapida-atajos'
+      ]);
+      if (conectado && !empresaActiva && !modulosEstudioSinEmpresa.has(itemId)) {
         info('Selecciona una empresa para abrir este módulo.');
         return;
       }
@@ -311,7 +318,12 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
       <main className="flex-1 flex flex-col bg-[#F5F7FA] overflow-hidden relative">
         {conectado && !empresaActiva && (!activeModuleId || activeModuleId === 'cartera-empresas') ? (
-          <MisEmpresasNivel1View empresas={empresasLista} onAddEmpresa={handleAddEmpresa} onCrearEmpresa={() => setIsNuevaEmpresaOpen(true)} />
+          <MisEmpresasNivel1View
+            empresas={empresasLista}
+            onAddEmpresa={handleAddEmpresa}
+            onCrearEmpresa={() => setIsNuevaEmpresaOpen(true)}
+            onAbrirUsuarios={() => handleTopBarAction('Herramientas › Usuarios y permisos', 'usuarios-permisos')}
+          />
         ) : activeModuleId ? (
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#FFFFFF]">
             {/* Barra de título interna de la vista activa */}
@@ -320,7 +332,9 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                 <span className="font-bold text-[#1E3A5F]">{activeModuleTitle}</span>
                 <span className="text-[#9CA3AF]">|</span>
                 <span className="font-mono text-[#4B5563]">
-                  {empresaActual.ruc} — {empresaActual.razonSocial}
+                  {empresaActiva
+                    ? `${empresaActual.ruc} — ${empresaActual.razonSocial}`
+                    : `${usuario.estudioNombre || 'Estudio Contable'} — Administración general`}
                 </span>
               </div>
 

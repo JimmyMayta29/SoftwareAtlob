@@ -15,15 +15,22 @@ const router = Router();
  */
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password, totpCode, empresaPreferencia } = req.body;
-    if (!email || !password) {
-      return errorResponse(res, 'El correo electrónico y la contraseña son obligatorios.', 400);
+    const { email, usuario, password, totpCode, empresaPreferencia } = req.body;
+    const identificador = typeof email === 'string' && email.trim() ? email : usuario;
+    if (!identificador || !password) {
+      return errorResponse(res, 'El usuario y la contraseña son obligatorios.', 400);
     }
 
-    const resultado = await authJwtService.login(email, password, totpCode, empresaPreferencia);
+    const resultado = await authJwtService.login(identificador, password, totpCode, empresaPreferencia);
     return successResponse(res, resultado, 'Autenticación exitosa.');
   } catch (err: any) {
-    const status = err.message.includes('MFA_') ? 403 : err.message.includes('CREDENCIALES_') ? 401 : 400;
+    const status = err.message.includes('CUENTA_BLOQUEADA_TEMPORALMENTE')
+      ? 429
+      : err.message.includes('MFA_')
+        ? 403
+        : err.message.includes('CREDENCIALES_')
+          ? 401
+          : 400;
     return errorResponse(res, err.message, status);
   }
 });

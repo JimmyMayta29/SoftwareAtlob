@@ -13,9 +13,10 @@ export const setupController = {
 
   async generarMfa(req: Request, res: Response) {
     try {
-      return successResponse(res, setupService.generarMfaSecret((req.query.email as string) || 'admin@estudio.pe'));
+      const identificador = (req.query.email as string) || (req.query.usuario as string) || 'admin@estudio.pe';
+      return successResponse(res, setupService.generarMfaSecret(identificador));
     } catch {
-      return errorResponse(res, 'Ingrese un correo válido para configurar la autenticación.', 400);
+      return errorResponse(res, 'Ingrese un usuario o correo válido para configurar la autenticación.', 400);
     }
   },
 

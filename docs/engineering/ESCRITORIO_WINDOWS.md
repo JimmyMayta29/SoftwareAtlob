@@ -3,8 +3,8 @@
 El instalador y el portable se generan para Windows x64. Ambos abren el asistente de conexión a PostgreSQL y comparten la configuración cifrada del usuario de Windows. El portable se puede copiar y ejecutar en una carpeta independiente. PostgreSQL es un servicio externo a la aplicación.
 
 1. Inicia el servicio de PostgreSQL local. Prepara una base y un rol de aplicación con permiso de conexión. Para una base nueva, el rol necesita permisos para crear su esquema.
-2. Abre el instalador o el portable. Introduce el servidor local, el puerto, la base, el usuario y su contraseña. Para probar, selecciona `atlob_test`.
-3. En una base vacía autorizada, el migrador aplica el esquema base. El asistente del estudio pide una contraseña elegida por el usuario y verifica un código TOTP antes de crear el administrador.
+2. Abre el instalador o el portable. La pantalla de conexión propone por defecto `localhost` y el puerto `5432`; introduce la base, el usuario y su contraseña. Ante cualquier inconveniente, el asistente informa la causa probable y la acción sugerida.
+3. En una base vacía autorizada, el migrador aplica el esquema base. La pantalla única de bienvenida registra el estudio y la cuenta titular (`ADMINISTRADOR`), carga automáticamente los catálogos normativos y semillas en la misma transacción, activa una licencia local de evaluación (`max_usuarios = 3`) e inicia sesión hacia la cartera de empresas. La verificación en dos pasos (2FA / TOTP) es opcional (`mfa_requerido = false` por defecto) y puede activarse o desactivarse en cualquier momento desde **Herramientas › Usuarios y permisos**.
 4. Al cerrar la ventana, la aplicación detiene su servidor local. Al reabrir, recupera la conexión cifrada y vuelve a pedir inicio de sesión.
 
 El servidor escucha en un puerto que asigna Windows en `127.0.0.1`. El proceso principal espera una respuesta saludable antes de cargar la interfaz. Un fallo de conexión devuelve al asistente con un mensaje y una opción de reintento.

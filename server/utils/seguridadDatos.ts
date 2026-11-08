@@ -1,4 +1,4 @@
-const nombreCredencial = /(?:(?:usuario|clave|password|contrasena)[_-]?sol|client[_-]?(?:id|secret)(?:[_-]?sire)?|secreto[_-]?(?:sire|api|totp)|identificador[_-]?(?:sol|api)|password|pgpassword|connection[_-]?string|(?:test[_-]?)?database[_-]?url|(?:access|refresh)[_-]?token|token(?:[_-]?sunat)?|authorization|mfa[_-]?(?:secret|seed[_-]?secret|code)|jwt(?:[_-]?refresh)?[_-]?secret|(?:sunat|backup)[_-]?encryption[_-]?key|(?:api|private|secret)[_-]?key|(?:pin|clave)[_-]?certificado|certificado[_-]?pfx|encrypted[_-]?dek|auth[_-]?tag)(?:[_-]?(?:encrypted|cifrad[oa]|iv|tag))?/;
+const nombreCredencial = /(?:(?:usuario|clave|password|contrasena)[_-]?sol|client[_-]?(?:id|secret)(?:[_-]?sire)?|secreto[_-]?(?:sire|api|totp)|semilla[_-]?(?:mfa|totp)|otpauth[_-]?url|identificador[_-]?(?:sol|api)|password|pgpassword|connection[_-]?string|(?:test[_-]?)?database[_-]?url|(?:access|refresh)[_-]?token|token(?:[_-]?sunat)?|authorization|mfa[_-]?(?:secret|seed[_-]?secret|code)|jwt(?:[_-]?refresh)?[_-]?secret|(?:sunat|backup)[_-]?encryption[_-]?key|(?:api|private|secret)[_-]?key|(?:pin|clave)[_-]?certificado|certificado[_-]?pfx|encrypted[_-]?dek|auth[_-]?tag)(?:[_-]?(?:encrypted|cifrad[oa]|iv|tag))?/;
 const campoSensible = new RegExp(`^${nombreCredencial.source}$`, 'i');
 const valorSensible = new RegExp(String.raw`(?<![\w-])(["']?)(${nombreCredencial.source})\1\s*(?:=|:)\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s&,;}]+)`, 'gi');
 
@@ -171,6 +171,8 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   comprobantes_xml: ['totalArchivos', 'exitosos', 'fallidos'],
   backups_empresa: ['nombreArchivo', 'origen', 'tamanoBytes', 'hashSha256'],
   restauracion_backup: ['ruc', 'totalRestaurados', 'origenBackup', 'fechaBackup'],
+  estudio_configuracion: ['nombreEstudio', 'rucEstudio', 'mfaRequerido', 'mfaActivado'],
+  usuarios_estudio: ['email', 'nombre', 'rolGlobal', 'isActive', 'mfaActivado', 'mfaRequerido'],
   MIGRACION_LOCALSTORAGE: [
     'totalEmpresas', 'totalCompras', 'totalVentas', 'totalAsientos',
     'totalHonorarios', 'totalTrabajadores', 'totalMovimientos', 'errores',

@@ -14,7 +14,7 @@ if (real) {
   if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL_REQUERIDA: use una base PostgreSQL real descartable.');
   const target = new URL(process.env.TEST_DATABASE_URL);
   if (!target.pathname.endsWith('_test')) throw new Error('La base descartable debe terminar en _test.');
-  if (!esReinicio) {
+  if (!esReinicio && process.env.ATLOB_PRECREATED_DB !== '1') {
     administrador = new Pool({ connectionString: process.env.TEST_DATABASE_URL });
     baseTemporal = `auth_${crypto.randomUUID().replaceAll('-', '')}_test`;
     await administrador.query(`CREATE DATABASE "${baseTemporal}"`);
@@ -216,6 +216,216 @@ if (esReinicio) {
       await authJwtService.revocarRefreshToken(seleccion.refreshToken, inicial.usuario.id);
       await assert.rejects(() => authJwtService.refreshAccessToken(seleccion.refreshToken), /revocada/);
     }
+
+    // -------------------------------------------------------------------------
+    // Verificación adicional: Inicio simplificado de 1 pantalla (mfa_requerido=false),
+    // catálogos automáticos, licencia EVALUACION (max_usuarios=3) y 2FA opcional HTTP
+    // -------------------------------------------------------------------------
+    const { establecerMfaRequeridoMemoria } = await import('../services/authJwtService');
+    const { establecerLicenciaMemoria, licenciaService } = await import('../services/licenciaService');
+    let baseSimple: string | undefined;
+    try {
+      if (real && administrador) {
+        await closeDatabase();
+        baseSimple = `auth_simple_${crypto.randomUUID().replaceAll('-', '')}_test`;
+        await administrador.query(`CREATE DATABASE "${baseSimple}"`);
+        const urlSimple = new URL(process.env.TEST_DATABASE_URL!);
+        urlSimple.pathname = `/${baseSimple}`;
+        process.env.TEST_DATABASE_URL = urlSimple.toString();
+        process.env.DATABASE_URL = urlSimple.toString();
+        await initializeDatabase();
+        await (await import('../db/migrate')).runMigrations();
+      } else if (real && process.env.TEST_DATABASE_URL_SIMPLE) {
+        await closeDatabase();
+        const urlSimple = new URL(process.env.TEST_DATABASE_URL_SIMPLE);
+        if (!urlSimple.pathname.endsWith('_test')) throw new Error('TEST_DATABASE_URL_SIMPLE debe terminar en _test.');
+        process.env.TEST_DATABASE_URL = urlSimple.toString();
+        process.env.DATABASE_URL = urlSimple.toString();
+        await initializeDatabase();
+        await (await import('../db/migrate')).runMigrations();
+      } else {
+        USUARIOS_ESTUDIO_MEMORIA.length = 0;
+        USUARIOS_EMPRESA_MEMORIA.length = 0;
+        REFRESH_TOKENS_MEMORIA.length = 0;
+        establecerMfaRequeridoMemoria(null);
+        establecerLicenciaMemoria(null);
+      }
+
+      assert.equal(await setupService.estaConfigurado(), false, 'El entorno simplificado inicia sin administrador.');
+      await assert.rejects(
+        () =>
+          setupService.inicializarEstudio({
+            nombreEstudio: 'Estudio Rápido',
+            adminNombre: 'Titular Prueba',
+            usuario: 'titular_pc',
+            adminPassword: 'password12'
+          }),
+        /PASSWORD_INSEGURA/
+      );
+
+      const inicioSimple = await setupService.inicializarEstudio({
+        nombreEstudio: 'Estudio Inicio Simple',
+        adminNombre: 'Titular Principal PC',
+        usuario: 'titular_pc',
+        adminPassword: 'ClaveTitular2026#Segura',
+        adminPasswordConfirm: 'ClaveTitular2026#Segura'
+      });
+      assert.equal(inicioSimple.usuario.rolGlobal, 'ADMINISTRADOR');
+      assert.equal(inicioSimple.estudio.mfaRequerido, false);
+      assert.equal(inicioSimple.estudio.rucEstudio, null);
+      assert.equal(inicioSimple.licencia.tipo, 'EVALUACION');
+      assert.equal(inicioSimple.licencia.maxUsuarios, 3);
+      assert.equal(authJwtService.verificarAccessToken(inicioSimple.accessToken).mfaVerificado, false);
+
+      if (real) {
+        const conteoSemillas = (
+          await db.query(`
+            SELECT (SELECT count(*)::int FROM plantilla_pcge) AS pcge,
+                   (SELECT count(*)::int FROM catalogos_sunat) AS catalogos,
+                   (SELECT count(*)::int FROM parametros_tributarios) AS parametros,
+                   (SELECT count(*)::int FROM licencia) AS licencias
+          `)
+        ).rows[0];
+        assert.ok(conteoSemillas.pcge > 0 && conteoSemillas.catalogos > 0 && conteoSemillas.parametros > 0, 'Los catálogos y semillas se cargaron en la misma transacción.');
+        assert.equal(conteoSemillas.licencias, 1);
+      }
+
+      const sesionSimple = await authJwtService.login('titular_pc', 'ClaveTitular2026#Segura');
+      assert.equal(sesionSimple.usuario.id, inicioSimple.usuario.id, 'Login directo sin TOTP cuando mfa_requerido=false');
+      assert.equal(await licenciaService.usuariosActivos(), 1);
+
+      const express = (await import('express')).default;
+      const { apiRoutes } = await import('../routes');
+      const appSimple = express();
+      appSimple.use(express.json());
+      appSimple.use('/api', apiRoutes);
+      const srvSimple = appSimple.listen(0, '127.0.0.1');
+      await new Promise<void>((resolve, reject) => {
+        srvSimple.once('listening', resolve);
+        srvSimple.once('error', reject);
+      });
+      try {
+        const addr = srvSimple.address();
+        assert.ok(addr && typeof addr !== 'string');
+        const apiBase = `http://127.0.0.1:${addr.port}/api`;
+        const cabeceras = {
+          authorization: `Bearer ${sesionSimple.accessToken}`,
+          'content-type': 'application/json'
+        };
+
+        const resLic = await fetch(`${apiBase}/licencia/resumen`, { headers: cabeceras });
+        assert.equal(resLic.status, 200);
+        const bodyLic = (await resLic.json()).data;
+        assert.equal(bodyLic.tipo, 'EVALUACION');
+        assert.equal(bodyLic.maxUsuarios, 3);
+        assert.equal(bodyLic.usuariosActivos, 1);
+
+        const c1 = await fetch(`${apiBase}/usuarios`, {
+          method: 'POST',
+          headers: cabeceras,
+          body: JSON.stringify({
+            nombre: 'Colaborador Uno',
+            usuario: 'colab_uno',
+            password: 'ClaveColab2026#Uno',
+            rolGlobal: 'CONTADOR_SENIOR'
+          })
+        });
+        assert.equal(c1.status, 201);
+        const c1Data = (await c1.json()).data;
+
+        const c2 = await fetch(`${apiBase}/usuarios`, {
+          method: 'POST',
+          headers: cabeceras,
+          body: JSON.stringify({
+            nombre: 'Colaborador Dos',
+            usuario: 'colab_dos_http',
+            password: 'ClaveColab2026#Dos',
+            rolGlobal: 'ASISTENTE_CONTABLE'
+          })
+        });
+        assert.equal(c2.status, 201);
+        assert.equal((await c2.json()).data.licencia.usuariosActivos, 3);
+
+        // Intento de crear un 4to usuario: debe ser rechazado en el servidor con 403
+        const c3Exceso = await fetch(`${apiBase}/usuarios`, {
+          method: 'POST',
+          headers: cabeceras,
+          body: JSON.stringify({
+            nombre: 'Colaborador Exceso',
+            usuario: 'colab_exceso',
+            password: 'ClaveColab2026#Tres',
+            rolGlobal: 'AUDITOR_REVISOR'
+          })
+        });
+        assert.equal(c3Exceso.status, 403);
+        assert.match((await c3Exceso.json()).error, /LIMITE_LICENCIA_ALCANZADO/);
+
+        // Desactivar c1 libera cupo (2/3), crear c3 llena cupo (3/3), reactivar c1 debe fallar con 403
+        const bajaC1 = await fetch(`${apiBase}/usuarios/${c1Data.usuario.id}/estado`, {
+          method: 'PATCH',
+          headers: cabeceras,
+          body: JSON.stringify({ activo: false })
+        });
+        assert.equal(bajaC1.status, 200);
+        assert.equal((await bajaC1.json()).data.licencia.usuariosActivos, 2);
+
+        const c3Valido = await fetch(`${apiBase}/usuarios`, {
+          method: 'POST',
+          headers: cabeceras,
+          body: JSON.stringify({
+            nombre: 'Colaborador Reemplazo',
+            usuario: 'colab_reemplazo',
+            password: 'ClaveColab2026#Reemp',
+            rolGlobal: 'AUDITOR_REVISOR'
+          })
+        });
+        assert.equal(c3Valido.status, 201);
+
+        const reactivarExceso = await fetch(`${apiBase}/usuarios/${c1Data.usuario.id}/estado`, {
+          method: 'PATCH',
+          headers: cabeceras,
+          body: JSON.stringify({ activo: true })
+        });
+        assert.equal(reactivarExceso.status, 403);
+        assert.match((await reactivarExceso.json()).error, /LIMITE_LICENCIA_ALCANZADO/);
+
+        // Enrolamiento, activación y desactivación de 2FA vía HTTP + auditoría sin semilla
+        const resEnrol = await fetch(`${apiBase}/usuarios/mfa/enrolar`, { method: 'POST', headers: cabeceras, body: '{}' });
+        assert.equal(resEnrol.status, 200);
+        const secretEfimero = (await resEnrol.json()).data.secret;
+
+        const resActivar = await fetch(`${apiBase}/usuarios/mfa/activar`, {
+          method: 'POST',
+          headers: cabeceras,
+          body: JSON.stringify({ codigo: totpService.generarToken(secretEfimero) })
+        });
+        assert.equal(resActivar.status, 200);
+        await resActivar.arrayBuffer();
+        await assert.rejects(() => authJwtService.login('titular_pc', 'ClaveTitular2026#Segura'), /MFA_REQUERIDO/);
+
+        const resDesactivar = await fetch(`${apiBase}/usuarios/mfa/desactivar`, { method: 'POST', headers: cabeceras, body: '{}' });
+        assert.equal(resDesactivar.status, 200);
+        await resDesactivar.arrayBuffer();
+        assert.equal((await authJwtService.login('titular_pc', 'ClaveTitular2026#Segura')).usuario.id, inicioSimple.usuario.id);
+
+        if (real) {
+          const audRows = (
+            await db.query(`SELECT accion, datos_nuevos::text AS datos FROM auditoria WHERE accion IN ('MFA_ACTIVADO', 'MFA_DESACTIVADO')`)
+          ).rows;
+          assert.equal(audRows.length, 2);
+          assert.ok(!JSON.stringify(audRows).includes(secretEfimero), 'La semilla TOTP nunca se almacena en auditoria.');
+        }
+      } finally {
+        srvSimple.closeAllConnections();
+        await new Promise<void>((resolve, reject) => srvSimple.close(err => (err ? reject(err) : resolve())));
+      }
+    } finally {
+      if (real && administrador && baseSimple) {
+        await closeDatabase();
+        await administrador.query(`DROP DATABASE "${baseSimple}" WITH (FORCE)`);
+      }
+    }
+
     console.log(real ? 'AUTH_SETUP_POSTGRES_OK: transacción, concurrencia y persistencia tras reinicio verificadas.' : 'AUTH_SETUP_MEMORIA_OK: configuración inicial, MFA, alta y selección de empresa verificadas.');
   } finally {
     await limpiarBase();

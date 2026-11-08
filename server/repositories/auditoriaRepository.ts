@@ -99,5 +99,26 @@ export const auditoriaRepository = {
       return res.rows.map(filtrarRegistro);
     }
     return AUDITORIA_IN_MEMORY.filter(a => a.empresaId === empresaId).slice(0, limit).map(filtrarRegistro);
+  },
+
+  async listarEventosSeguridad(limit = 50, client?: PoolClient) {
+    if (db.isPostgresConnected()) {
+      const sql = `
+        SELECT id, tenant_id as "tenantId", empresa_id as "empresaId", usuario_id as "usuarioId",
+               usuario_email as "usuarioEmail", tabla_afectada as "tablaAfectada", registro_id as "registroId",
+               accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
+               direccion_ip as "direccionIp", user_agent as "userAgent", created_at as "createdAt"
+        FROM auditoria
+        WHERE tabla_afectada IN ('estudio_configuracion', 'usuarios_estudio')
+        ORDER BY created_at DESC
+        LIMIT $1
+      `;
+      const res = client ? await client.query<RegistroAuditoria>(sql, [limit]) : await db.query<RegistroAuditoria>(sql, [limit]);
+      return res.rows.map(filtrarRegistro);
+    }
+    return AUDITORIA_IN_MEMORY
+      .filter(a => ['estudio_configuracion', 'usuarios_estudio'].includes(a.tablaAfectada || a.tabla || ''))
+      .slice(0, limit)
+      .map(filtrarRegistro);
   }
 };

@@ -17,6 +17,7 @@ import { daotRoutes } from './daotRoutes';
 import { cronogramaVencimientosRoutes } from './cronogramaVencimientosRoutes';
 import { authRoutes } from './authRoutes';
 import { setupRoutes } from './setupRoutes';
+import { usuariosRoutes } from './usuariosRoutes';
 import { importacionRoutes } from './importacionRoutes';
 import { backupEmpresaRoutes } from './backupEmpresaRoutes';
 import { consolidacionRoutes } from './consolidacionRoutes';
@@ -51,6 +52,7 @@ router.get('/e/:empresaId/verificar-acceso', requireAuth, empresaGuard(), (req, 
 router.use('/auth', authRoutes);
 router.use('/setup', setupRoutes);
 router.use(requireAuth);
+router.use('/', usuariosRoutes);
 router.use('/empresas/:empresaId', requireEmpresaMembership());
 router.use('/importacion', importacionRoutes);
 router.use('/', backupEmpresaRoutes);

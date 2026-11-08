@@ -6,6 +6,10 @@ import { auditoriaChainService, AUDITORIA_LOG_CHAIN_MEMORIA } from '../services/
 import { xmlImportService, COMPROBANTES_XML_MEMORIA } from '../services/xmlImportService';
 import { asientoService, ASIENTOS_MEMORIA } from '../services/asientoService';
 import { periodoService } from '../services/periodoService';
+import { setupService } from '../services/setupService';
+import { establecerLicenciaMemoria, licenciaService } from '../services/licenciaService';
+import { usuarioEstudioService } from '../services/usuarioEstudioService';
+import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { db } from '../config/database';
 
 async function ejecutarSuiteFase7() {
@@ -360,6 +364,112 @@ async function ejecutarSuiteFase7() {
       return { ejecutadoEnEmpresa: EMPRESA_B, rlsSet: true };
     });
     assert(resB.ejecutadoEnEmpresa === EMPRESA_B, 'Transacción aislada ejecutada para Empresa B');
+  }
+
+  // --------------------------------------------------------------------------
+  // TEST 7: Políticas de Contraseña (>=10), 2FA Configurable (mfa_requerido=false/true),
+  //         Auditoría sin Semilla y Límite de Licencia Local en Servidor
+  // --------------------------------------------------------------------------
+  console.log('\n🔹 Test 7: 2FA Configurable (mfa_requerido=false/true), Auditoría sin Semilla y Licencia Local');
+  {
+    // 7.1 Validación de contraseña: mínimo 10 caracteres y rechazo de triviales
+    assert(!setupService.validarPasswordSegura('Corta123!').valida, 'Rechaza contraseñas menores a 10 caracteres');
+    assert(!setupService.validarPasswordSegura('Password1234!').valida, 'Rechaza contraseñas triviales comunes');
+    assert(!setupService.validarPasswordSegura('1234567890Ab!').valida, 'Rechaza secuencias numéricas triviales');
+    assert(!setupService.validarPasswordSegura('AAAA1111bbbb!').valida, 'Rechaza caracteres repetidos consecutivos');
+    assert(setupService.validarPasswordSegura('ClaveContable2026#').valida, 'Acepta contraseña robusta de >= 10 caracteres');
+
+    // 7.2 Desactivar 2FA (mfa_requerido=false) y verificar inicio sin TOTP + auditoría sin semilla
+    const desactivado = await usuarioEstudioService.desactivarMfaEstudio('usr-admin-01');
+    assert(desactivado.mfaRequerido === false && desactivado.mfaActivado === false, '2FA desactivado en estudio');
+    assert((await authJwtService.obtenerMfaRequeridoEstudio()) === false, 'obtenerMfaRequeridoEstudio refleja mfa_requerido=false');
+
+    const loginSinTotp = await authJwtService.login('admin@atlob.pe', passwordFixture);
+    assert(Boolean(loginSinTotp.accessToken), 'Con mfa_requerido=false el ADMINISTRADOR inicia sesión sin TOTP');
+    assert(authJwtService.verificarAccessToken(loginSinTotp.accessToken).mfaVerificado === false, 'Claim mfaVerificado es false cuando 2FA está desactivado');
+
+    // 7.3 Enrolar y reactivar 2FA (mfa_requerido=true) y verificar que vuelve a exigir TOTP
+    const enrolamiento = await usuarioEstudioService.iniciarEnrolamientoMfa('usr-admin-01');
+    assert(enrolamiento.secret.length >= 16, 'Enrolamiento genera semilla TOTP Base32 efímera');
+    const codigoActivacion = totpService.generarToken(enrolamiento.secret);
+    const activado = await usuarioEstudioService.activarMfaEstudio('usr-admin-01', codigoActivacion);
+    assert(activado.mfaRequerido === true && activado.mfaActivado === true, '2FA activado nuevamente en estudio');
+
+    let rechazoSinTotp = false;
+    try {
+      await authJwtService.login('admin@atlob.pe', passwordFixture);
+    } catch (err: any) {
+      rechazoSinTotp = err.message.includes('MFA_REQUERIDO');
+    }
+    assert(rechazoSinTotp, 'Con mfa_requerido=true el servidor vuelve a exigir TOTP al ADMINISTRADOR');
+
+    const loginConNuevoTotp = await authJwtService.login(
+      'admin@atlob.pe',
+      passwordFixture,
+      totpService.generarToken(enrolamiento.secret)
+    );
+    assert(authJwtService.verificarAccessToken(loginConNuevoTotp.accessToken).mfaVerificado === true, 'Login con nueva semilla enrolada verificado');
+
+    const eventosSeguridad = await auditoriaRepository.listarEventosSeguridad(20);
+    assert(eventosSeguridad.some(e => e.accion === 'MFA_DESACTIVADO'), 'Auditoría registra evento MFA_DESACTIVADO');
+    assert(eventosSeguridad.some(e => e.accion === 'MFA_ACTIVADO'), 'Auditoría registra evento MFA_ACTIVADO');
+    assert(!JSON.stringify(eventosSeguridad).includes(enrolamiento.secret), 'Auditoría jamás almacena la semilla TOTP');
+
+    // 7.4 Licencia local EVALUACION (max_usuarios = 3): conteo de activos, alta y reactivación bloqueadas en servidor
+    establecerLicenciaMemoria({
+      id: 'lic-eval-test',
+      tipo: 'EVALUACION',
+      maxUsuarios: 3,
+      vigenteHasta: null,
+      creadaEn: new Date().toISOString()
+    });
+    // Dejar únicamente al titular activo (1/3) desactivando los 3 fixtures secundarios
+    await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', 'usr-contador-01', false);
+    await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', 'usr-asistente-01', false);
+    await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', 'usr-auditor-01', false);
+    assert((await licenciaService.usuariosActivos()) === 1, 'Usuarios desactivados no cuentan para el límite (1 activo)');
+    assert((await licenciaService.puedeCrearUsuario()).permitido === true, 'puedeCrearUsuario permite crear con 1/3 activos');
+
+    const colab2 = await usuarioEstudioService.crearColaborador('usr-admin-01', {
+      nombre: 'Colaboradora Dos',
+      usuario: 'colab_dos',
+      password: 'ClaveColab2026#Dos',
+      rolGlobal: 'CONTADOR_SENIOR'
+    });
+    const colab3 = await usuarioEstudioService.crearColaborador('usr-admin-01', {
+      nombre: 'Colaborador Tres',
+      usuario: 'colab_tres',
+      password: 'ClaveColab2026#Tres',
+      rolGlobal: 'ASISTENTE_CONTABLE'
+    });
+    assert(colab3.licencia.usuariosActivos === 3, 'Se alcanza el límite exacto de 3 usuarios activos');
+    assert((await licenciaService.puedeCrearUsuario()).permitido === false, 'puedeCrearUsuario bloquea al llegar a 3/3');
+
+    let rechazoCuartoUsuario = false;
+    try {
+      await usuarioEstudioService.crearColaborador('usr-admin-01', {
+        nombre: 'Colaborador Cuatro Exceso',
+        usuario: 'colab_cuatro',
+        password: 'ClaveColab2026#Cuatro',
+        rolGlobal: 'ASISTENTE_CONTABLE'
+      });
+    } catch (err: any) {
+      rechazoCuartoUsuario = err.message.includes('LIMITE_LICENCIA_ALCANZADO');
+    }
+    assert(rechazoCuartoUsuario, 'Servidor rechaza crear un 4to usuario activo superando max_usuarios=3');
+
+    let rechazoReactivarEnLimite = false;
+    try {
+      await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', 'usr-contador-01', true);
+    } catch (err: any) {
+      rechazoReactivarEnLimite = err.message.includes('LIMITE_LICENCIA_ALCANZADO');
+    }
+    assert(rechazoReactivarEnLimite, 'Servidor rechaza reactivar un usuario desactivado cuando ya hay 3/3 activos');
+
+    await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', colab2.usuario.id, false);
+    assert((await licenciaService.usuariosActivos()) === 2, 'Al desactivar un colaborador el cupo baja a 2/3');
+    const reactivado = await usuarioEstudioService.cambiarEstadoUsuario('usr-admin-01', 'usr-contador-01', true);
+    assert(reactivado.usuario.isActive === true && reactivado.licencia.usuariosActivos === 3, 'Reactivar usuario es permitido tras liberar un cupo');
   }
 
   console.log('\n======================================================');

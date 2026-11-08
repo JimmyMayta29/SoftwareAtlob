@@ -17,6 +17,9 @@ test('restringe el destino a PostgreSQL local y codifica la cadena de conexión'
   assert.throws(() => construirUrl({ ...conexion, puerto: '65536' }), /PUERTO_INVALIDO/);
   assert.throws(() => construirUrl({ ...conexion, base: '..' }), /CONEXION_INVALIDA/);
   assert.throws(() => construirUrl({ ...conexion, contrasena: '' }), /CONTRASENA_REQUERIDA/);
+  const porDefecto = new URL(construirUrl({ base: 'sistema_contable', usuario: 'contabilidad_app', contrasena: 'prueba:/@%#' }));
+  assert.equal(porDefecto.hostname, 'localhost');
+  assert.equal(porDefecto.port, '5432');
 });
 
 test('guarda solo bytes cifrados y conserva la configuración si falla el cifrado', async () => {

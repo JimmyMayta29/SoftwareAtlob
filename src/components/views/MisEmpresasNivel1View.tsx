@@ -37,12 +37,14 @@ interface MisEmpresasNivel1ViewProps {
   empresas: EmpresaCliente[];
   onAddEmpresa: (nueva: EmpresaCliente) => void;
   onCrearEmpresa?: () => void;
+  onAbrirUsuarios?: () => void;
 }
 
 export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
   empresas,
   onAddEmpresa,
-  onCrearEmpresa
+  onCrearEmpresa,
+  onAbrirUsuarios
 }) => {
   const { entrarAEmpresa, usuario, setIsSearchModalOpen } = useEmpresaPeriodo();
   const { success, error: toastError } = useToast();
@@ -207,6 +209,17 @@ export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
               <Archive className="w-3.5 h-3.5 text-amber-300" />
               <span>Copias de seguridad</span>
             </button>
+
+            {onAbrirUsuarios && (usuario.rolGlobal === 'ADMINISTRADOR' || usuario.rolGlobal === 'ADMIN_ESTUDIO') && (
+              <button
+                id="btn-nivel1-usuarios-2fa"
+                onClick={onAbrirUsuarios}
+                className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 backdrop-blur-sm flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Usuarios y 2FA</span>
+              </button>
+            )}
 
             <button
               onClick={handleRestablecerDemo}

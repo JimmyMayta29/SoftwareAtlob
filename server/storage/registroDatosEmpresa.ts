@@ -80,6 +80,7 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
   { tabla: 'estudio_configuracion', ambito: 'control', exportar: false, motivoExclusion: 'Datos de control, identidades o permisos excluidos.', clavePrimaria: ['id'], remapearClave: false, columnaEmpresa: null, referencias: [
     { columna: 'tenant_id', tabla: 'tenants', columnaDestino: 'id', remapeo: 'control_destino' },
   ] },
+  { tabla: 'licencia', ambito: 'control', exportar: false, motivoExclusion: 'Datos de control, identidades o permisos excluidos.', clavePrimaria: ['id'], remapearClave: false, columnaEmpresa: null, referencias: [] },
   { tabla: 'extractos_bancarios', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
     { columna: 'cuenta_financiera_id', tabla: 'cuentas_financieras', columnaDestino: 'id', remapeo: 'identificador' },
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },

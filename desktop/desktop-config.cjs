@@ -11,9 +11,11 @@ const hostsLocales = new Map([
 
 function validarConexion(datos) {
   if (!datos || typeof datos !== 'object') throw new Error('CONEXION_INVALIDA');
-  const { host, puerto, base, usuario, contrasena } = datos;
-  if (typeof host !== 'string' || !hostsLocales.has(host.trim().toLowerCase())) throw new Error('HOST_NO_LOCAL');
-  if (typeof puerto !== 'string' || !/^\d{1,5}$/.test(puerto) || Number(puerto) < 1 || Number(puerto) > 65535) {
+  const hostCandidato = datos.host === undefined || datos.host === '' ? 'localhost' : datos.host;
+  const puertoCandidato = datos.puerto === undefined || datos.puerto === '' ? '5432' : String(datos.puerto).trim();
+  const { base, usuario, contrasena } = datos;
+  if (typeof hostCandidato !== 'string' || !hostsLocales.has(hostCandidato.trim().toLowerCase())) throw new Error('HOST_NO_LOCAL');
+  if (typeof puertoCandidato !== 'string' || !/^\d{1,5}$/.test(puertoCandidato) || Number(puertoCandidato) < 1 || Number(puertoCandidato) > 65535) {
     throw new Error('PUERTO_INVALIDO');
   }
   if ([base, usuario].some(valor => typeof valor !== 'string' || !valor.trim() || Buffer.byteLength(valor.trim(), 'utf8') > 63 || /[\u0000-\u001f\u007f]/.test(valor)) ||
@@ -23,7 +25,7 @@ function validarConexion(datos) {
   if (typeof contrasena !== 'string' || !contrasena || contrasena.length > 4096 || contrasena.includes('\0')) {
     throw new Error('CONTRASENA_REQUERIDA');
   }
-  return { host: host.trim().toLowerCase(), puerto, base: base.trim(), usuario: usuario.trim(), contrasena };
+  return { host: hostCandidato.trim().toLowerCase(), puerto: puertoCandidato, base: base.trim(), usuario: usuario.trim(), contrasena };
 }
 
 function construirUrl(datos) {

@@ -65,6 +65,29 @@ export interface SesionUsuario {
 // --------------------------------------------------------------------------
 export const USUARIOS_ESTUDIO_MEMORIA: UsuarioEstudioModel[] = [];
 export const USUARIOS_EMPRESA_MEMORIA: UsuarioEmpresaModel[] = [];
+let MFA_REQUERIDO_ESTUDIO_MEMORIA: boolean | null = null;
+
+interface RegistroIntentosLogin {
+  fallos: number;
+  ultimoFalloMs: number;
+  bloqueadoHastaMs: number;
+}
+const INTENTOS_FALLIDOS_LOGIN = new Map<string, RegistroIntentosLogin>();
+const MAX_INTENTOS_FALLIDOS = 5;
+const VENTANA_INTENTOS_MS = 5 * 60 * 1000;
+const DURACION_BLOQUEO_MS = 5 * 60 * 1000;
+
+export function establecerMfaRequeridoMemoria(requerido: boolean | null): void {
+  MFA_REQUERIDO_ESTUDIO_MEMORIA = requerido;
+}
+
+export function obtenerMfaRequeridoMemoria(): boolean | null {
+  return MFA_REQUERIDO_ESTUDIO_MEMORIA;
+}
+
+export function limpiarIntentosFallidosLogin(): void {
+  INTENTOS_FALLIDOS_LOGIN.clear();
+}
 
 /**
  * Fixture exclusivo para pruebas automatizadas (Fase 7, 7B, 13)
@@ -73,6 +96,7 @@ export const USUARIOS_EMPRESA_MEMORIA: UsuarioEmpresaModel[] = [];
 export function sembrarUsuariosPrueba(passwordPlano: string) {
   if (env.NODE_ENV === 'production') throw new Error('FIXTURE_NO_PERMITIDO');
   if (USUARIOS_ESTUDIO_MEMORIA.length > 0) return;
+  MFA_REQUERIDO_ESTUDIO_MEMORIA = true;
   const HASH_DEFAULT = bcrypt.hashSync(passwordPlano, 8);
   const mfaSecret = totpService.encodeBase32(Buffer.from(env.MFA_SEED_SECRET, 'hex'));
 
@@ -244,10 +268,32 @@ export const authJwtService = {
     };
   },
 
+  async obtenerMfaRequeridoEstudio(client?: PoolClient): Promise<boolean> {
+    exigirAlmacenDisponible();
+    if (db.isPostgresConnected()) {
+      const resultado = await consultarControl(
+        `SELECT mfa_requerido AS "mfaRequerido" FROM estudio_configuracion WHERE id = TRUE LIMIT 1`,
+        [],
+        client
+      );
+      return resultado.rows[0]?.mfaRequerido === true;
+    }
+    if (MFA_REQUERIDO_ESTUDIO_MEMORIA !== null) return MFA_REQUERIDO_ESTUDIO_MEMORIA;
+    return USUARIOS_ESTUDIO_MEMORIA.some(u => u.rolGlobal === 'ADMINISTRADOR' && u.isActive && u.mfaActivado);
+  },
+
   async login(email: string, passwordPlano: string, totpCode?: string, empresaPreferencia?: string): Promise<SesionUsuario> {
     exigirAlmacenDisponible();
-    if (typeof email !== 'string' || typeof passwordPlano !== 'string') throw new Error('CREDENCIALES_INVALIDAS: Correo o contraseña incorrectos.');
+    if (typeof email !== 'string' || typeof passwordPlano !== 'string') {
+      throw new Error('CREDENCIALES_INVALIDAS: Usuario o contraseña incorrectos.');
+    }
     const emailNormalizado = email.toLowerCase().trim();
+    const ahora = Date.now();
+    const registroIntento = INTENTOS_FALLIDOS_LOGIN.get(emailNormalizado);
+    if (registroIntento && registroIntento.bloqueadoHastaMs > ahora) {
+      throw new Error('CUENTA_BLOQUEADA_TEMPORALMENTE: Demasiados intentos fallidos. Espere unos minutos antes de volver a intentar.');
+    }
+
     let usuario: UsuarioEstudioModel | undefined;
     if (db.isPostgresConnected()) {
       const resultado = await db.query(`SELECT ${COLUMNAS_USUARIO} FROM usuarios_estudio WHERE lower(email) = $1 AND is_active = TRUE`, [emailNormalizado]);
@@ -255,9 +301,22 @@ export const authJwtService = {
     } else {
       usuario = USUARIOS_ESTUDIO_MEMORIA.find(u => u.email.toLowerCase() === emailNormalizado && u.isActive);
     }
-    if (!usuario || !await bcrypt.compare(passwordPlano, usuario.passwordHash)) throw new Error('CREDENCIALES_INVALIDAS: Correo o contraseña incorrectos.');
+    if (!usuario || !await bcrypt.compare(passwordPlano, usuario.passwordHash)) {
+      const dentroVentana = registroIntento && (ahora - registroIntento.ultimoFalloMs) <= VENTANA_INTENTOS_MS;
+      const fallos = dentroVentana ? registroIntento.fallos + 1 : 1;
+      INTENTOS_FALLIDOS_LOGIN.set(emailNormalizado, {
+        fallos,
+        ultimoFalloMs: ahora,
+        bloqueadoHastaMs: fallos >= MAX_INTENTOS_FALLIDOS ? ahora + DURACION_BLOQUEO_MS : 0
+      });
+      throw new Error('CREDENCIALES_INVALIDAS: Usuario o contraseña incorrectos.');
+    }
+    INTENTOS_FALLIDOS_LOGIN.delete(emailNormalizado);
+
+    const mfaRequeridoEstudio = await this.obtenerMfaRequeridoEstudio();
+    const exigeMfa = usuario.mfaActivado || (mfaRequeridoEstudio && usuario.rolGlobal === 'ADMINISTRADOR');
     let mfaVerificado = false;
-    if (usuario.rolGlobal === 'ADMINISTRADOR' || usuario.mfaActivado) {
+    if (exigeMfa) {
       if (!usuario.mfaSecret) throw new Error('MFA_NO_CONFIGURADO: El usuario requiere configuración inicial de MFA.');
       if (!totpCode) throw new Error('MFA_REQUERIDO: Ingrese código TOTP de 6 dígitos para completar la autenticación.');
       if (!totpService.validarToken(usuario.mfaSecret, totpCode)) throw new Error('MFA_CODIGO_INVALIDO: Código de autenticación TOTP incorrecto o expirado.');

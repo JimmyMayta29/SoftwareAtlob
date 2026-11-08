@@ -83,10 +83,12 @@ export function requireMfa() {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return errorResponse(res, 'AUTENTICACION_REQUERIDA', 401);
     if (req.user.rolGlobal !== 'ADMINISTRADOR') return errorResponse(res, 'PERMISO_INSUFICIENTE', 403);
-    const codigo = req.headers['x-totp-code'];
-    if (!codigo && req.user.mfaVerificado) return next();
     try {
+      const mfaRequerido = await authJwtService.obtenerMfaRequeridoEstudio();
       const usuario = await authJwtService.obtenerUsuarioPorId(req.user.id);
+      if (!mfaRequerido && !usuario?.mfaActivado) return next();
+      const codigo = req.headers['x-totp-code'];
+      if (!codigo && req.user.mfaVerificado) return next();
       if (typeof codigo !== 'string' || !usuario?.mfaSecret || !totpService.validarToken(usuario.mfaSecret, codigo)) {
         return errorResponse(res, 'MFA_CODIGO_INVALIDO', 403);
       }

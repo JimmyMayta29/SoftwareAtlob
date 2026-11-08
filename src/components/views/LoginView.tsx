@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { Lock, LogIn } from 'lucide-react';
 import { authApi, Sesion } from '../../api/authApi';
 
+function limpiarPrefijoError(raw: string): string {
+  return raw.replace(/^[A-Z0-9_]+:\s*/, '').trim() || 'No se pudo iniciar sesión.';
+}
+
 export function LoginView({ onAutenticado }: { onAutenticado: (sesion: Sesion) => Promise<void> }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,9 +19,10 @@ export function LoginView({ onAutenticado }: { onAutenticado: (sesion: Sesion) =
     setError('');
     try {
       const sesion = await authApi.login(email.trim(), password, totpCode.trim());
+      setPassword('');
       await onAutenticado(sesion);
     } catch (err: any) {
-      setError(err.message || 'No se pudo iniciar sesión.');
+      setError(limpiarPrefijoError(err.message || 'No se pudo iniciar sesión.'));
     } finally {
       setProcesando(false);
     }
@@ -33,19 +38,21 @@ export function LoginView({ onAutenticado }: { onAutenticado: (sesion: Sesion) =
         </div>
         {error && <p role="alert" className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3">{error}</p>}
         <div>
-          <label htmlFor="login-email" className="block text-sm font-semibold text-slate-700 mb-1">Correo electrónico</label>
-          <input id="login-email" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required disabled={procesando} className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500" />
+          <label htmlFor="login-email" className="block text-sm font-semibold text-slate-700 mb-1">Usuario o correo electrónico</label>
+          <input id="login-email" type="text" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required disabled={procesando} placeholder="Ej. cmendoza o admin@estudio.pe" className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
           <label htmlFor="login-password" className="block text-sm font-semibold text-slate-700 mb-1">Contraseña</label>
           <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required disabled={procesando} className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label htmlFor="login-totp" className="block text-sm font-semibold text-slate-700 mb-1">Código de autenticación</label>
+          <label htmlFor="login-totp" className="block text-sm font-semibold text-slate-700 mb-1">
+            Código 2FA <span className="font-normal text-slate-400">(opcional salvo que esté activo)</span>
+          </label>
           <input id="login-totp" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={totpCode} onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))} disabled={procesando} aria-describedby="login-totp-help" className="w-full border border-slate-300 rounded-xl p-3 text-sm font-mono focus:ring-2 focus:ring-blue-500" />
-          <p id="login-totp-help" className="text-xs text-slate-500 mt-1">Ingrese los 6 dígitos si su cuenta usa doble factor.</p>
+          <p id="login-totp-help" className="text-xs text-slate-500 mt-1">Déjelo vacío si no activó la verificación en dos pasos.</p>
         </div>
-        <button type="submit" disabled={procesando} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl p-3 font-semibold flex items-center justify-center gap-2">
+        <button id="login-submit" type="submit" disabled={procesando} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl p-3 font-semibold flex items-center justify-center gap-2 cursor-pointer">
           <LogIn className="w-4 h-4" />{procesando ? 'Ingresando...' : 'Ingresar'}
         </button>
       </form>

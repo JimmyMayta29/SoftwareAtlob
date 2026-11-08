@@ -11,24 +11,31 @@
 <body>
   <main>
     <p class="marca">ATLOB ERP</p>
-    <h1>Conexión a PostgreSQL</h1>
-    <p>Introduce los datos de tu servidor PostgreSQL local. Windows cifra la configuración para tu perfil de usuario.</p>
+    <h1>Conexión a PostgreSQL local</h1>
+    <p class="subtitulo">Verifique los datos de su motor PostgreSQL en este equipo. Los valores habituales (<strong>localhost</strong> y puerto <strong>5432</strong>) ya vienen preconfigurados y Windows cifra sus credenciales localmente.</p>
     <form id="conexion" novalidate>
       <fieldset id="campos">
         <div class="fila">
-          <label>Servidor <input name="host" value="127.0.0.1" maxlength="64" required></label>
-          <label>Puerto <input name="puerto" value="5432" inputmode="numeric" maxlength="5" required></label>
+          <label>Servidor local <input name="host" value="localhost" placeholder="localhost" maxlength="64" required></label>
+          <label>Puerto <input name="puerto" value="5432" placeholder="5432" inputmode="numeric" maxlength="5" required></label>
         </div>
-        <label>Base de datos <input name="base" value="sistema_contable" maxlength="63" required></label>
-        <label>Usuario de PostgreSQL <input name="usuario" value="contabilidad_app" maxlength="63" autocomplete="username" required></label>
-        <label>Contraseña <input type="password" name="contrasena" autocomplete="off" maxlength="4096" required></label>
+        <label>Base de datos <input name="base" value="sistema_contable" placeholder="sistema_contable" maxlength="63" required></label>
+        <label>Usuario de la aplicación <input name="usuario" value="contabilidad_app" placeholder="contabilidad_app" maxlength="63" autocomplete="username" required></label>
+        <label>Contraseña de PostgreSQL <input type="password" name="contrasena" autocomplete="off" maxlength="4096" required></label>
         <label class="opcion" id="opcion-migrar" hidden>
           <input name="migrar" type="checkbox">
-          <span>Autorizo preparar el esquema de esta base con el migrador de la aplicación.</span>
+          <span>Autorizo preparar automáticamente las tablas e índices en esta base de datos.</span>
         </label>
       </fieldset>
-      <p id="estado" class="estado" role="status" aria-live="polite"></p>
+
+      <div id="panel-estado" class="panel-estado" role="status" aria-live="polite" hidden>
+        <p id="estado" class="estado-titulo"></p>
+        <p id="estado-causa" class="estado-detalle" hidden></p>
+        <p id="estado-accion" class="estado-detalle estado-accion" hidden></p>
+      </div>
+
       <div class="acciones">
+        <button id="valores-defecto" type="button">Restaurar localhost:5432</button>
         <button id="reintentar" type="button" hidden>Reintentar conexión guardada</button>
         <button id="conectar" type="submit">Conectar y continuar</button>
       </div>

@@ -111,7 +111,7 @@ async function ejecutar() {
     ordenInvalido.unshift(...ordenInvalido.splice(indiceHija, 1));
     await assert.rejects(verificarRegistroDatosEmpresa(client, ordenInvalido), /ORDEN_DEPENDENCIAS_INVALIDO/);
 
-    for (const tabla of ['usuarios', 'usuarios_estudio', 'roles', 'permisos', 'rol_permisos', 'membresias', 'usuario_empresa', 'refresh_tokens', 'credenciales_sunat', 'sunat_conexiones', 'sunat_tokens', 'sunat_empresa_keys']) {
+    for (const tabla of ['usuarios', 'usuarios_estudio', 'roles', 'permisos', 'rol_permisos', 'membresias', 'usuario_empresa', 'refresh_tokens', 'licencia', 'credenciales_sunat', 'sunat_conexiones', 'sunat_tokens', 'sunat_empresa_keys']) {
       const entrada = REGISTRO_DATOS_EMPRESA.find(item => item.tabla === tabla);
       assert(entrada && !entrada.exportar && entrada.motivoExclusion, `EXCLUSION_NO_DECLARADA: ${tabla}.`);
     }

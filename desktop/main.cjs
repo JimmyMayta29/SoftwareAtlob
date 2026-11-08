@@ -4,28 +4,112 @@ const { fileURLToPath } = require('node:url');
 const { setTimeout: esperar } = require('node:timers/promises');
 const { construirUrl, guardarConfiguracion, leerConfiguracion, nuevosSecretos, validarConexion } = require('./desktop-config.cjs');
 
-const mensajes = new Map(Object.entries({
-  '28P01': 'PostgreSQL rechazó el usuario o la contraseña. Comprueba los datos e inténtalo de nuevo.',
-  '28000': 'PostgreSQL rechazó la autenticación. Comprueba el usuario y los permisos de conexión.',
-  '3D000': 'La base de datos indicada no existe. Comprueba el nombre e inténtalo de nuevo.',
-  '42501': 'El usuario no tiene permisos suficientes en esa base de datos.',
-  '57P03': 'PostgreSQL todavía no acepta conexiones. Espera a que termine de iniciar y reintenta.',
-  PG_ROLE_UNSAFE: 'Conéctate con el rol de la aplicación, sin privilegios de superusuario ni BYPASSRLS.',
-  ECONNREFUSED: 'PostgreSQL no está disponible. Inicia el servicio local y comprueba el puerto.',
-  ETIMEDOUT: 'PostgreSQL tardó demasiado en responder. Comprueba el servidor y el puerto.',
-  ENOTFOUND: 'No se encontró el servidor local. Prueba con 127.0.0.1.',
-  EAI_AGAIN: 'No se pudo resolver el servidor local. Prueba con 127.0.0.1.',
-  MIGRATIONS_PENDING: 'La base necesita que se autorice o complete la preparación de su esquema.',
-  MIGRATIONS_INVALID: 'Las migraciones registradas en la base no coinciden con esta versión de la aplicación.',
-  HOST_NO_LOCAL: 'Introduce un servidor local: localhost, 127.0.0.1 o ::1.',
-  PUERTO_INVALIDO: 'Introduce un puerto entre 1 y 65535.',
-  CONEXION_INVALIDA: 'Comprueba el nombre de la base y el usuario de PostgreSQL.',
-  CONTRASENA_REQUERIDA: 'Introduce la contraseña de PostgreSQL.',
-  DPAPI_NO_DISPONIBLE: 'Windows no puede cifrar la configuración en este perfil. Vuelve a abrir la aplicación desde tu sesión.',
-  CONFIGURACION_NO_LEGIBLE: 'Windows no pudo descifrar la configuración guardada. Abre la aplicación con el usuario que la configuró.',
-  CONFIGURACION_NO_GUARDADA: 'No se pudo guardar la configuración cifrada. Comprueba el acceso a la carpeta de datos de tu usuario.',
-  SERVIDOR_TIMEOUT: 'El servidor no estuvo listo a tiempo. Comprueba PostgreSQL e inténtalo de nuevo.',
-  SERVIDOR_CERRADO: 'El servidor de la aplicación se cerró. Comprueba PostgreSQL y reintenta.',
+const diagnosticos = new Map(Object.entries({
+  '28P01': {
+    titulo: 'Usuario o contraseña rechazados por PostgreSQL',
+    causa: 'La contraseña ingresada no coincide con la clave del usuario en PostgreSQL o el usuario escrito es distinto.',
+    accion: 'Verifique el usuario (por defecto contabilidad_app), vuelva a escribir su contraseña sin espacios adicionales y pulse Conectar y continuar.',
+  },
+  '28000': {
+    titulo: 'Autenticación local rechazada por PostgreSQL',
+    causa: 'El usuario existe, pero PostgreSQL no autorizó su acceso desde este equipo.',
+    accion: 'Verifique que el usuario tenga permiso LOGIN y que pg_hba.conf permita conexiones locales con contraseña en localhost / 127.0.0.1.',
+  },
+  '3D000': {
+    titulo: 'La base de datos indicada no existe',
+    causa: 'El motor PostgreSQL respondió correctamente, pero no encontró una base con ese nombre.',
+    accion: 'Revise la ortografía del nombre de la base de datos o créela primero en PostgreSQL asignándola al usuario de la aplicación.',
+  },
+  '42501': {
+    titulo: 'Permisos insuficientes en la base de datos',
+    causa: 'El usuario de PostgreSQL no cuenta con privilegios para usar o preparar las tablas de esta base.',
+    accion: 'Otorgue permisos CONNECT y CREATE sobre la base y el esquema public al rol contabilidad_app e inténtelo nuevamente.',
+  },
+  '57P03': {
+    titulo: 'PostgreSQL todavía se está iniciando',
+    causa: 'El servicio de base de datos acaba de arrancar y aún está recuperando su estado interno.',
+    accion: 'Espere entre 5 y 10 segundos y pulse el botón Reintentar.',
+  },
+  PG_ROLE_UNSAFE: {
+    titulo: 'El usuario ingresado tiene privilegios de superusuario',
+    causa: 'Por seguridad contable, ATLOB ERP no opera con el superusuario postgres ni con roles que omitan el aislamiento de datos (BYPASSRLS).',
+    accion: 'Conéctese utilizando un rol de aplicación estándar (por ejemplo, contabilidad_app) sin permisos de superusuario.',
+  },
+  ECONNREFUSED: {
+    titulo: 'No se pudo conectar con el servicio PostgreSQL',
+    causa: 'El servicio de PostgreSQL está detenido en Windows o está configurado en un puerto distinto a 5432.',
+    accion: 'Abra Servicios de Windows (services.msc), inicie el servicio "postgresql-x64-18" (o la versión instalada), confirme el puerto 5432 y vuelva a intentar.',
+  },
+  ETIMEDOUT: {
+    titulo: 'PostgreSQL tardó demasiado en responder',
+    causa: 'El puerto indicado no responde o un cortafuegos local está bloqueando la comunicación.',
+    accion: 'Confirme que el servidor sea localhost y el puerto sea 5432, y revise que el servicio PostgreSQL esté en ejecución.',
+  },
+  ENOTFOUND: {
+    titulo: 'No se encontró el nombre del servidor local',
+    causa: 'El nombre escrito en Servidor local no pudo resolverse en este equipo.',
+    accion: 'Pulse "Restaurar localhost:5432" o escriba 127.0.0.1 como servidor.',
+  },
+  EAI_AGAIN: {
+    titulo: 'Fallo temporal al resolver el servidor local',
+    causa: 'Windows no pudo resolver momentáneamente el nombre localhost.',
+    accion: 'Escriba 127.0.0.1 en el campo Servidor local y vuelva a conectar.',
+  },
+  MIGRATIONS_PENDING: {
+    titulo: 'La base de datos requiere preparar su estructura',
+    causa: 'La base seleccionada está vacía o le faltan tablas de esta versión de ATLOB ERP.',
+    accion: 'Marque la casilla "Autorizo preparar automáticamente las tablas e índices en esta base de datos" y pulse Conectar y continuar.',
+  },
+  MIGRATIONS_INVALID: {
+    titulo: 'Versión de base de datos incompatible',
+    causa: 'El historial de migraciones de esta base no coincide con los archivos de esta versión del programa.',
+    accion: 'Utilice una base de datos limpia para esta versión o actualice el instalador de ATLOB ERP.',
+  },
+  HOST_NO_LOCAL: {
+    titulo: 'Solo se permiten conexiones en este equipo',
+    causa: 'Esta edición de escritorio solo admite servidores PostgreSQL instalados localmente.',
+    accion: 'Use localhost o 127.0.0.1 en el campo Servidor local.',
+  },
+  PUERTO_INVALIDO: {
+    titulo: 'Número de puerto no válido',
+    causa: 'El puerto debe ser un número entero entre 1 y 65535.',
+    accion: 'Ingrese el puerto estándar 5432 o el puerto local donde instaló PostgreSQL.',
+  },
+  CONEXION_INVALIDA: {
+    titulo: 'Datos de base o usuario incompletos',
+    causa: 'Falta el nombre de la base de datos o el nombre del usuario de PostgreSQL, o contienen caracteres no válidos.',
+    accion: 'Complete los campos Base de datos y Usuario de la aplicación antes de continuar.',
+  },
+  CONTRASENA_REQUERIDA: {
+    titulo: 'Falta la contraseña de PostgreSQL',
+    causa: 'No se ingresó la contraseña del usuario de la base de datos.',
+    accion: 'Escriba la contraseña correspondiente al usuario indicado y pulse Conectar y continuar.',
+  },
+  DPAPI_NO_DISPONIBLE: {
+    titulo: 'Cifrado de credenciales de Windows no disponible',
+    causa: 'El subsistema de protección de datos del perfil de Windows (DPAPI) no está activo en esta sesión.',
+    accion: 'Cierre y vuelva a abrir ATLOB ERP desde su sesión normal de usuario en Windows.',
+  },
+  CONFIGURACION_NO_LEGIBLE: {
+    titulo: 'No se pudo abrir la configuración guardada anteriormente',
+    causa: 'El archivo cifrado fue creado desde otro perfil de Windows o está dañado.',
+    accion: 'Inicie sesión con el usuario de Windows original o elimine instalacion.bin en %APPDATA% para volver a configurar la conexión.',
+  },
+  CONFIGURACION_NO_GUARDADA: {
+    titulo: 'No se pudo guardar la configuración local',
+    causa: 'Windows impidió escribir el archivo cifrado en la carpeta de datos de su usuario.',
+    accion: 'Verifique que su cuenta tenga permiso de escritura en %APPDATA% y que haya espacio libre en disco.',
+  },
+  SERVIDOR_TIMEOUT: {
+    titulo: 'El servidor interno demoró demasiado en iniciar',
+    causa: 'PostgreSQL o el equipo tardaron más de lo esperado durante la preparación inicial.',
+    accion: 'Compruebe que PostgreSQL esté activo y pulse Conectar y continuar nuevamente.',
+  },
+  SERVIDOR_CERRADO: {
+    titulo: 'El servicio interno se detuvo inesperadamente',
+    causa: 'Se interrumpió la comunicación con PostgreSQL mientras iniciaba la aplicación.',
+    accion: 'Verifique que el servicio PostgreSQL siga en ejecución y vuelva a intentar.',
+  },
 }));
 
 const configHtml = join(__dirname, 'config.html');
@@ -47,22 +131,38 @@ let servidor;
 let guardada;
 let bloqueo;
 let mensaje;
+let diagnostico;
 let iniciando = false;
 let cerrando = false;
 let listoParaCerrar = false;
+
+const diagnosticoGenerico = {
+  titulo: 'No se pudo iniciar la aplicación con PostgreSQL',
+  causa: 'PostgreSQL no respondió según lo esperado o rechazó la conexión inicial.',
+  accion: 'Verifique que el servicio PostgreSQL esté activo en localhost:5432, compruebe usuario y contraseña, e inténtelo nuevamente.',
+};
 
 function datosPublicos() {
   const { host, puerto, base, usuario } = guardada?.conexion ?? {};
   return {
     mensaje,
+    diagnostico,
+    esError: Boolean(mensaje || diagnostico),
     bloqueada: Boolean(bloqueo),
     guardada: Boolean(guardada),
     conexion: guardada ? { host, puerto, base, usuario } : undefined,
   };
 }
 
-function mensajeSeguro(error) {
-  return mensajes.get(error?.message) ?? 'No se pudo iniciar la aplicación. Comprueba la conexión a PostgreSQL y reintenta.';
+function registrarErrorConexion(error) {
+  const item = diagnosticos.get(error?.message) ?? diagnosticoGenerico;
+  diagnostico = item;
+  mensaje = `${item.titulo}. Causa probable: ${item.causa} Acción sugerida: ${item.accion}`;
+}
+
+function limpiarErrorConexion() {
+  diagnostico = undefined;
+  mensaje = undefined;
 }
 
 function archivoConfiguracion() {
@@ -126,7 +226,7 @@ async function abrirPrincipal(origen) {
     ventana.show();
     ventanaConfig?.destroy();
   } catch (error) {
-    mensaje = mensajeSeguro(error);
+    registrarErrorConexion(error);
     await abrirConfiguracion();
     if (!ventana.isDestroyed()) ventana.destroy();
     throw error;
@@ -200,7 +300,7 @@ async function iniciarServidor(configuracion, migrar) {
     if (servidor !== proceso) return;
     servidor = undefined;
     if (cerrando || !ventanaPrincipal) return;
-    mensaje = mensajes.get('SERVIDOR_CERRADO');
+    registrarErrorConexion(new Error('SERVIDOR_CERRADO'));
     void abrirConfiguracion().then(() => ventanaPrincipal?.destroy()).catch(() => app.quit());
   });
 
@@ -229,11 +329,12 @@ async function conectar(configuracion, migrar = false, persistir = false) {
     if (cerrando) return datosPublicos();
     if (persistir) await guardarConfiguracion(archivoConfiguracion(), configuracion, safeStorage);
     guardada = configuracion;
+    limpiarErrorConexion();
     await abrirPrincipal(origen);
     return { ok: true };
   } catch (error) {
     await detenerServidor();
-    mensaje = mensajeSeguro(error);
+    registrarErrorConexion(error);
     return datosPublicos();
   } finally {
     iniciando = false;
@@ -264,7 +365,7 @@ async function iniciarAplicacion() {
       const secretos = guardada?.secretos ?? nuevosSecretos();
       return await conectar({ version: 1, conexion, secretos }, datos.migrar === 'on', true);
     } catch (error) {
-      mensaje = mensajeSeguro(error);
+      registrarErrorConexion(error);
       return datosPublicos();
     }
   }));
@@ -274,7 +375,7 @@ async function iniciarAplicacion() {
     guardada = await leerConfiguracion(archivoConfiguracion(), safeStorage);
   } catch (error) {
     bloqueo = error;
-    mensaje = mensajeSeguro(error);
+    registrarErrorConexion(error);
   }
   if (guardada && (await conectar(guardada)).ok) return;
   await abrirConfiguracion();
