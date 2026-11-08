@@ -28,6 +28,8 @@ import { useReportStyle } from './context/ReportStyleContext';
 
 // Separated Views — 1 option = 1 exclusive view
 import { VouchersView } from './components/views/VouchersView';
+import { SubdiariosView } from './components/views/SubdiariosView';
+import { AdministrarSubdiariosView } from './components/views/AdministrarSubdiariosView';
 import { PlanCuentasView } from './components/views/PlanCuentasView';
 import { CentrosCostoView } from './components/views/CentrosCostoView';
 import { LibroDiarioView } from './components/views/LibroDiarioView';
@@ -363,6 +365,22 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   isPeriodoCerrado={isPeriodoCerrado}
                   empresa={empresaActual}
                   usuarioNombre={perfil}
+                  usuarioRol={rolActual}
+                />
+              )}
+              {activeModuleId === 'subdiarios-registro' && (
+                <SubdiariosView
+                  empresaId={empresaId}
+                  periodo={periodo}
+                  empresa={empresaActual}
+                  usuarioRol={rolActual}
+                  usuarioNombre={perfil}
+                  isPeriodoCerrado={isPeriodoCerrado}
+                />
+              )}
+              {activeModuleId === 'administrar-subdiarios' && (
+                <AdministrarSubdiariosView
+                  empresaId={empresaId}
                   usuarioRol={rolActual}
                 />
               )}

@@ -4,6 +4,7 @@ import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaRepository } from '../repositories/empresaRepository';
 import { buscarCuentaPCGE } from '../../src/data/pcgeAccounts';
+import { subdiarioService } from './subdiarioService';
 
 export interface DetalleInput {
   linea: number;
@@ -206,6 +207,15 @@ export const asientoService = {
 
     if (input.validarNormativa) {
       asientoService.validarAsientoNormativo(input);
+    }
+
+    // Bloque A: Si el asiento es manual o voucher libre, validar que el subdiario admita asiento manual
+    if (input.origen === 'VOUCHER_LIBRE' || (input as any).validarSubdiarioManual) {
+      const sub = await subdiarioService.obtenerPorId(empresaId, input.subdiarioId) ||
+                  await subdiarioService.obtenerPorCodigo(empresaId, input.subdiarioId);
+      if (sub && !sub.permiteAsientoManual) {
+        throw new Error(`SUBDIARIO_NO_PERMITE_ASIENTO_MANUAL: El subdiario ${sub.codigo} - ${sub.nombre} no admite asientos manuales libres.`);
+      }
     }
 
     if (db.isPostgresConnected()) {
@@ -428,6 +438,7 @@ export const asientoService = {
         `, [empresaId, asiento.periodo_id, asiento.subdiario_id]);
 
         const correlativoNum = corrRes.rows[0].ultimo_numero;
+        subdiarioService.validarLimiteCorrelativo(correlativoNum);
         const mesStr = asiento.codigo_periodo.split('-')[1] || '09';
         const numeroCorrelativo = `${asiento.subdiario_codigo}${mesStr}${String(correlativoNum).padStart(4, '0')}`;
         const cuoOficial = asiento.cuo || `CUO-${asiento.subdiario_codigo}-${mesStr}-${String(correlativoNum).padStart(4, '0')}`;
@@ -488,6 +499,7 @@ export const asientoService = {
       const pId = item.periodoId || 'per-2026-09';
       const sId = (item.subdiarioId || '01').replace(/^sub-/, '').padStart(2, '0');
       const corrNum = getNextCorrelativoMemoria(empresaId, pId, sId);
+      subdiarioService.validarLimiteCorrelativo(corrNum);
       const subCod = sId;
       const mesStr = item.fecha ? item.fecha.substring(5, 7) : (pId.includes('-') ? pId.split('-')[1] : '09');
       const numStr = `${subCod}${mesStr}${String(corrNum).padStart(4, '0')}`;

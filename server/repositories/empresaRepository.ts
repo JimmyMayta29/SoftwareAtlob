@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import crypto from 'crypto';
 import { USUARIOS_ESTUDIO_MEMORIA, USUARIOS_EMPRESA_MEMORIA } from '../services/authJwtService';
 import { encryptSensitive } from '../utils/crypto';
+import { SUBDIARIOS_BASE_SISTEMA } from '../services/subdiarioService';
 
 export interface EmpresaModel {
   id: string;
@@ -197,25 +198,24 @@ export const empresaRepository = {
           ON CONFLICT (empresa_id, codigo) DO NOTHING;
         `, [nuevaEmpresa.id]);
 
-        // 4. Crear Subdiarios Oficiales por defecto (00 al 09)
-        const subdiarios = [
-          ['00', 'Asiento de Apertura', 'APERTURA'],
-          ['01', 'Registro de Compras (RCE)', 'COMPRAS'],
-          ['02', 'Registro de Ventas (RVIE)', 'VENTAS'],
-          ['03', 'Cobranzas a Clientes', 'COBRANZAS'],
-          ['04', 'Pagos a Proveedores', 'PAGOS'],
-          ['05', 'Cuentas Corrientes y SPOT', 'BANCOS'],
-          ['06', 'Recibos por Honorarios', 'HONORARIOS'],
-          ['07', 'Planilla de Remuneraciones', 'PLANILLA'],
-          ['08', 'Destinos Automáticos', 'DESTINO'],
-          ['09', 'Cierre y Ajuste por TC', 'CIERRE']
-        ];
-
-        for (const [cod, desc, tipo] of subdiarios) {
+        // 4. Crear Subdiarios Oficiales por defecto (00 al 11)
+        for (const sub of SUBDIARIOS_BASE_SISTEMA) {
           await client.query(`
-            INSERT INTO subdiarios (empresa_id, codigo, descripcion, tipo)
-            VALUES ($1, $2, $3, $4)
-          `, [nuevaEmpresa.id, cod, desc, tipo]);
+            INSERT INTO subdiarios (
+              empresa_id, codigo, descripcion, nombre, tipo, tipo_operacion,
+              permite_asiento_manual, es_sistema, activo, orden
+            ) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, $7, $8)
+            ON CONFLICT (empresa_id, codigo) DO NOTHING
+          `, [
+            nuevaEmpresa.id,
+            sub.codigo,
+            sub.nombre,
+            sub.tipoOperacion,
+            sub.permiteAsientoManual,
+            sub.esSistema,
+            sub.activo,
+            sub.orden
+          ]);
         }
 
         await client.query('COMMIT');

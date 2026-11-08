@@ -25,6 +25,8 @@ interface VoucherHeaderProps {
   periodo: string;
   usuarioNombre: string;
   subdiario: string;
+  subdiarioFijo?: string;
+  subdiarioNombre?: string;
   numeroVoucher: string;
   fechaContable: string;
   fechaEmisionDocRef: string;
@@ -62,6 +64,8 @@ export const VoucherHeader: React.FC<VoucherHeaderProps> = ({
   periodo,
   usuarioNombre,
   subdiario,
+  subdiarioFijo,
+  subdiarioNombre,
   numeroVoucher,
   fechaContable,
   fechaEmisionDocRef,
@@ -309,18 +313,25 @@ export const VoucherHeader: React.FC<VoucherHeaderProps> = ({
         {/* Subdiario */}
         <div className="col-span-12 sm:col-span-4 flex items-center gap-1.5">
           <label className="w-20 font-bold text-slate-700 shrink-0">Subdiario:</label>
-          <select
-            value={subdiario}
-            onChange={(e) => onSubdiarioChange(e.target.value)}
-            disabled={esContabilizado}
-            className="flex-1 bg-white border border-slate-400 px-2 py-0.5 text-slate-900 font-mono text-xs focus:outline-none focus:border-blue-600"
-          >
-            {SUBDIARIOS_SISTEMA.map((s: { codigo: string; descripcion: string }) => (
-              <option key={s.codigo} value={s.codigo}>
-                {s.codigo} - {s.descripcion}
-              </option>
-            ))}
-          </select>
+          {subdiarioFijo ? (
+            <div className="flex-1 bg-slate-200 border border-slate-400 px-2 py-0.5 text-slate-900 font-mono font-bold text-xs flex items-center gap-1">
+              <span className="bg-slate-800 text-white px-1.5 py-0.2 rounded text-[10px]">{subdiario}</span>
+              <span className="truncate">{subdiarioNombre || (subdiario === '10' ? 'Diario General' : subdiario === '08' ? 'Ajustes' : subdiario === '00' ? 'Apertura' : 'Subdiario Asignado')}</span>
+            </div>
+          ) : (
+            <select
+              value={subdiario}
+              onChange={(e) => onSubdiarioChange(e.target.value)}
+              disabled={esContabilizado}
+              className="flex-1 bg-white border border-slate-400 px-2 py-0.5 text-slate-900 font-mono text-xs focus:outline-none focus:border-blue-600"
+            >
+              {SUBDIARIOS_SISTEMA.filter(s => ['00', '08', '09', '10', '11'].includes(s.codigo)).map((s: { codigo: string; descripcion: string }) => (
+                <option key={s.codigo} value={s.codigo}>
+                  {s.codigo} - {s.descripcion}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Número de Voucher */}

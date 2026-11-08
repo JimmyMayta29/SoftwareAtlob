@@ -4,6 +4,7 @@ import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
 import { periodoService } from './periodoService';
 import { anexoService } from './anexoService';
+import { subdiarioService } from './subdiarioService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 
 export interface VentaInput {
@@ -413,9 +414,10 @@ export const ventaService = {
       glosa: input.glosa || `Venta ${input.tipoComprobante} ${input.serie}-${input.numero}`
     });
 
+    const subVenta = await subdiarioService.obtenerPorTipoOperacion(empresaId, 'VENTAS');
     const asientoBorrador = await asientoService.crearBorrador(empresaId, {
       periodoId: input.periodoId,
-      subdiarioId: '02', // Subdiario oficial 02 - Registro de Ventas
+      subdiarioId: subVenta.codigo,
       fecha: input.fechaContable,
       glosa: prop.glosaGeneral,
       moneda,

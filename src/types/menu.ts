@@ -92,10 +92,23 @@ export const MENU_DATA: MenuGroup[] = [
     items: [
       {
         id: 'asientos',
-        label: 'Asientos',
+        label: 'Consulta de asientos',
         shortcut: 'F2',
         estado: 'activo',
         vista: 'VouchersView'
+      },
+      {
+        id: 'subdiarios-registro',
+        label: 'Registro por subdiario',
+        estado: 'activo',
+        vista: 'SubdiariosView'
+      },
+      {
+        id: 'administrar-subdiarios',
+        label: 'Administrar subdiarios',
+        estado: 'activo',
+        vista: 'AdministrarSubdiariosView',
+        rolesPermitidos: ['ADMIN_ESTUDIO', 'ADMINISTRADOR']
       },
       {
         id: 'plan-cuentas',

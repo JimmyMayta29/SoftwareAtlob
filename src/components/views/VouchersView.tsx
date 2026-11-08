@@ -44,6 +44,7 @@ interface VouchersViewProps {
   empresa?: EmpresaCliente;
   usuarioNombre?: string;
   usuarioRol?: string;
+  subdiarioFijo?: string;
 }
 
 export const VouchersView: React.FC<VouchersViewProps> = ({
@@ -53,12 +54,13 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   empresa,
   usuarioNombre = 'ADMINISTRADOR',
   usuarioRol = 'ADMIN_ESTUDIO',
+  subdiarioFijo
 }) => {
   const { success, error, warning, info } = useToast();
   const empresaActual = empresa || EMPRESAS_CLIENTES_DEMO.find((e) => e.id === empresaId) || EMPRESAS_CLIENTES_DEMO[0];
 
   // Modo de vista: 'CAPTURA' (ventana de escritorio de alta densidad) o 'HISTORIAL' (lista de asientos)
-  const [vistaModo, setVistaModo] = useState<'CAPTURA' | 'HISTORIAL'>('CAPTURA');
+  const [vistaModo, setVistaModo] = useState<'CAPTURA' | 'HISTORIAL'>(subdiarioFijo ? 'CAPTURA' : 'HISTORIAL');
 
   // Queries del Backend
   const { data: asientosResponse, isLoading: loadingAsientos, refetch } = useAsientosList(empresaId, {});
@@ -71,140 +73,19 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
 
   // Estado del Voucher en Edición (Escritorio)
   const [asientoId, setAsientoId] = useState<string | null>(null);
-  const [subdiario, setSubdiario] = useState<string>('01');
-  const [numeroVoucher, setNumeroVoucher] = useState<string>('01090001');
+  const [subdiario, setSubdiario] = useState<string>(subdiarioFijo || '10');
+  const [numeroVoucher, setNumeroVoucher] = useState<string>('10090001');
   const [fechaContable, setFechaContable] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
   const [fechaEmisionDocRef, setFechaEmisionDocRef] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
   const [moneda, setMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [tipoCambioCompra, setTipoCambioCompra] = useState<number>(3.748);
   const [tipoCambioVenta, setTipoCambioVenta] = useState<number>(3.752);
-  const [glosaGeneral, setGlosaGeneral] = useState<string>('Por la compra de mercaderías según factura del proveedor');
+  const [glosaGeneral, setGlosaGeneral] = useState<string>('');
   const [estadoVoucher, setEstadoVoucher] = useState<'BORRADOR' | 'CONTABILIZADO' | 'ANULADO'>('BORRADOR');
   const [cuoVoucher, setCuoVoucher] = useState<string | undefined>(undefined);
 
-  // Filas del Voucher
-  const [filas, setFilas] = useState<FilaVoucherGrid[]>([
-    {
-      linea: 1,
-      codigoCuenta: '6011',
-      denominacion: 'Mercaderías manufacturadas',
-      permiteMovimiento: true,
-      requiereAnexo: true,
-      requiereDocumento: true,
-      requiereCentroCosto: false,
-      requiereVencimiento: false,
-      centroCosto: '',
-      anexoTipoDoc: '6',
-      anexoNumDoc: '20100035392',
-      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
-      tipoComprobante: '01',
-      serieComprobante: 'F001',
-      numeroComprobante: '0023451',
-      fechaEmisionDoc: '2026-09-02',
-      fechaVencimientoDoc: '2026-09-17',
-      glosaLinea: 'Compra de existencias para comercialización',
-      debe: 4200.00,
-      haber: 0.00,
-      debeUsd: 1119.40,
-      haberUsd: 0.00,
-    },
-    {
-      linea: 2,
-      codigoCuenta: '40111',
-      denominacion: 'IGV - Cuenta propia 18%',
-      permiteMovimiento: true,
-      requiereAnexo: true,
-      requiereDocumento: true,
-      requiereCentroCosto: false,
-      requiereVencimiento: false,
-      centroCosto: '',
-      anexoTipoDoc: '6',
-      anexoNumDoc: '20100035392',
-      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
-      tipoComprobante: '01',
-      serieComprobante: 'F001',
-      numeroComprobante: '0023451',
-      fechaEmisionDoc: '2026-09-02',
-      fechaVencimientoDoc: '',
-      glosaLinea: 'IGV crédito fiscal 18%',
-      debe: 756.00,
-      haber: 0.00,
-      debeUsd: 201.49,
-      haberUsd: 0.00,
-    },
-    {
-      linea: 3,
-      codigoCuenta: '4212',
-      denominacion: 'Facturas, boletas y otros comprobantes por pagar - Emitidas',
-      permiteMovimiento: true,
-      requiereAnexo: true,
-      requiereDocumento: true,
-      requiereCentroCosto: false,
-      requiereVencimiento: true,
-      centroCosto: '',
-      anexoTipoDoc: '6',
-      anexoNumDoc: '20100035392',
-      anexoNombre: 'DISTRIBUIDORA INDUSTRIAL FERRETERA S.A.C.',
-      tipoComprobante: '01',
-      serieComprobante: 'F001',
-      numeroComprobante: '0023451',
-      fechaEmisionDoc: '2026-09-02',
-      fechaVencimientoDoc: '2026-09-17',
-      glosaLinea: 'Obligación comercial proveedor ferretería',
-      debe: 0.00,
-      haber: 4956.00,
-      debeUsd: 0.00,
-      haberUsd: 1320.89,
-    },
-    {
-      linea: 4,
-      codigoCuenta: '20111',
-      denominacion: 'Mercaderías manufacturadas - Costo',
-      permiteMovimiento: true,
-      requiereAnexo: false,
-      requiereDocumento: false,
-      requiereCentroCosto: false,
-      requiereVencimiento: false,
-      centroCosto: '',
-      anexoTipoDoc: '',
-      anexoNumDoc: '',
-      anexoNombre: '',
-      tipoComprobante: '',
-      serieComprobante: '',
-      numeroComprobante: '',
-      fechaEmisionDoc: '',
-      fechaVencimientoDoc: '',
-      glosaLinea: 'Destino al almacén mercaderías',
-      debe: 4200.00,
-      haber: 0.00,
-      debeUsd: 1119.40,
-      haberUsd: 0.00,
-    },
-    {
-      linea: 5,
-      codigoCuenta: '6111',
-      denominacion: 'Mercaderías manufacturadas',
-      permiteMovimiento: true,
-      requiereAnexo: false,
-      requiereDocumento: false,
-      requiereCentroCosto: false,
-      requiereVencimiento: false,
-      centroCosto: '',
-      anexoTipoDoc: '',
-      anexoNumDoc: '',
-      anexoNombre: '',
-      tipoComprobante: '',
-      serieComprobante: '',
-      numeroComprobante: '',
-      fechaEmisionDoc: '',
-      fechaVencimientoDoc: '',
-      glosaLinea: 'Variación de existencias mercaderías',
-      debe: 0.00,
-      haber: 4200.00,
-      debeUsd: 0.00,
-      haberUsd: 1119.40,
-    },
-  ]);
+  // Filas del Voucher nuevo: vacío por defecto sin líneas de ejemplo
+  const [filas, setFilas] = useState<FilaVoucherGrid[]>([]);
 
   // Celda activa y navegación
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
@@ -445,6 +326,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
       const payload = {
         subdiario,
         periodo,
+        origen: 'VOUCHER_LIBRE',
+        validarSubdiarioManual: true,
         fechaContable,
         fechaDocumento: fechaEmisionDocRef,
         moneda,
@@ -488,6 +371,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
         const payload = {
           subdiario,
           periodo,
+          origen: 'VOUCHER_LIBRE',
+          validarSubdiarioManual: true,
           fechaContable,
           fechaDocumento: fechaEmisionDocRef,
           moneda,
@@ -588,6 +473,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             periodo={periodo}
             usuarioNombre={usuarioNombre}
             subdiario={subdiario}
+            subdiarioFijo={subdiarioFijo}
             numeroVoucher={numeroVoucher}
             fechaContable={fechaContable}
             fechaEmisionDocRef={fechaEmisionDocRef}

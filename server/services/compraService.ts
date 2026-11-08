@@ -544,7 +544,11 @@ export const compraService = {
         const periodoActual = await resolverPeriodoCompra(empresaId, periodoId, client);
         if (periodoActual?.estado !== 'ABIERTO') throw new Error('PERIODO_CERRADO: No se pueden registrar compras en este período.');
         periodoId = periodoActual.id;
-        const { rows: [subdiario] } = await client.query('SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = $2', [empresaId, subdiarioId]);
+        const { rows: [subdiario] } = await client.query(`
+          SELECT id FROM subdiarios
+          WHERE empresa_id = $1 AND (codigo = $2 OR id = $2 OR (tipo_operacion = 'COMPRAS' AND activo = true))
+          ORDER BY (tipo_operacion = 'COMPRAS') DESC LIMIT 1
+        `, [empresaId, subdiarioId]);
         if (!subdiario) throw new Error('SUBDIARIO_NO_ENCONTRADO: Configure el subdiario de compras de la empresa.');
         subdiarioId = subdiario.id;
         const referencias = prop.lineas.map((linea: any) => (linea.cuentaId || linea.codigoCuenta).replace(/^cta-/, ''));
