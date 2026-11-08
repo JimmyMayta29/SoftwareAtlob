@@ -17,4 +17,5 @@ export const MIGRATION_FILES = [
   'schema_fase12_inicio_licencia.sql',
   'schema_fase13_pcge_completo.sql',
   'schema_fase14_subdiarios_personalizables.sql',
+  'schema_fase15_analisis_cuentas.sql',
 ] as const;

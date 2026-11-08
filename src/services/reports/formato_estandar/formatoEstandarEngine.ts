@@ -2348,4 +2348,80 @@ export function exportarLiquidacionBeneficiosEstandarPdf(params: {
   doc.save(`LIQUIDACION_BENEFICIOS_${params.empresa.ruc}_${liq.trabajadorDocumento}.pdf`);
 }
 
+/**
+ * Definición estándar para ANÁLISIS DE CUENTAS POR ANEXO Y COMPROBANTE (Formatos 3.3 a 3.14)
+ */
+export function construirDefinicionAnalisisCuentasEstandar(
+  empresa: EmpresaCliente,
+  periodo: string,
+  cuenta: string,
+  movimientos: any[],
+  totales: {
+    saldoInicialPen: number;
+    totalDebePen: number;
+    totalHaberPen: number;
+    saldoFinalPen: number;
+  },
+  opciones?: { mostrarFechaHora?: boolean }
+): EstandarReportDefinition {
+  const columnas: ColumnaReporteEstandar[] = [
+    { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 18 },
+    { id: 'voucher', label: 'N° Asiento', align: 'center', cellWidthPdf: 22 },
+    { id: 'cuenta', label: 'Cuenta', align: 'center', cellWidthPdf: 18 },
+    { id: 'anexo', label: 'RUC/DNI', align: 'center', cellWidthPdf: 24 },
+    { id: 'razonSocial', label: 'Denominación del Anexo', align: 'left', cellWidthPdf: 55 },
+    { id: 'docRef', label: 'Doc. Referencia', align: 'center', cellWidthPdf: 24 },
+    { id: 'glosa', label: 'Glosa del Asiento', align: 'left', cellWidthPdf: 55 },
+    { id: 'debe', label: 'Cargos S/', align: 'right', cellWidthPdf: 22 },
+    { id: 'haber', label: 'Abonos S/', align: 'right', cellWidthPdf: 22 },
+    { id: 'saldo', label: 'Saldo S/', align: 'right', cellWidthPdf: 24 }
+  ];
+
+  const filas = movimientos.map((m) => ({
+    fecha: formatearFechaEstandar(m.fechaContable),
+    voucher: m.voucherNumero,
+    cuenta: m.codigoCuenta,
+    anexo: m.anexoNumeroDoc || '-',
+    razonSocial: m.anexoRazonSocial || '-',
+    docRef: m.docNumero ? `${m.docTipo || '01'}-${m.docSerie || ''}-${m.docNumero}` : '-',
+    glosa: m.glosaLinea || m.glosaAsiento || '-',
+    debe: m.debePen,
+    haber: m.haberPen,
+    saldo: m.saldoPen
+  }));
+
+  const grupos: FilaGrupoReporteEstandar[] = [
+    {
+      grupoId: 'analisis_cuentas_general',
+      tituloGrupo: `CUENTA ANALIZADA: ${cuenta || 'TODAS'}`,
+      filas,
+      totalesGrupo: {
+        debe: totales.totalDebePen,
+        haber: totales.totalHaberPen,
+        saldo: totales.saldoFinalPen
+      }
+    }
+  ];
+
+  return {
+    titulo: 'ANÁLISIS DE CUENTAS POR ANEXO Y COMPROBANTE DE REFERENCIA',
+    orientacion: 'landscape',
+    empresa: {
+      razonSocial: empresa.razonSocial,
+      ruc: empresa.ruc,
+      direccion: (empresa as any).domicilioFiscal || (empresa as any).direccion || 'Av. Principal 123',
+      periodo: `${periodo} — CUENTA: ${cuenta || 'TODAS'}`
+    },
+    moneda: 'SOLES',
+    columnas,
+    grupos,
+    totalesGenerales: {
+      debe: totales.totalDebePen,
+      haber: totales.totalHaberPen,
+      saldo: totales.saldoFinalPen
+    },
+    mostrarFechaHoraImpresion: opciones?.mostrarFechaHora ?? true
+  };
+}
+
 

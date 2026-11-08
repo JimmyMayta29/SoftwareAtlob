@@ -539,7 +539,14 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
               {(activeModuleId === 'estado-situacion' || activeModuleId === 'balance-general') && <BalanceGeneralView />}
               {activeModuleId === 'estado-resultados' && <EstadoResultadosView />}
               {(activeModuleId === 'flujo-efectivo' || activeModuleId === 'estado-flujo-efectivo') && <FlujoEfectivoView />}
-              {activeModuleId === 'analisis-cuentas' && <AnalisisCuentasView />}
+              {activeModuleId === 'analisis-cuentas' && (
+                <AnalisisCuentasView
+                  empresaId={empresaActual?.id || ''}
+                  periodo={periodo}
+                  empresa={empresaActual}
+                  usuarioRol={rolActual}
+                />
+              )}
 
               {/* Estudio */}
               {activeModuleId === 'cartera-empresas' && (

@@ -39,7 +39,8 @@ const suites = [
   { name: 'Bloque C: Reportes Unificados, Sin Asteriscos y Paginación Real', path: 'server/tests/test_bloque_c_reportes.ts' },
   { name: 'Bloque B: Plan Contable General Empresarial Completo, Correctoras y Jerarquía', path: 'server/tests/test_bloque_b_plan_contable.ts' },
   { name: 'Bloque A: Subdiarios Personalizables y Registro por Subdiario', path: 'server/tests/test_bloque_a_subdiarios.ts' },
-  { name: 'Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia', path: 'server/tests/test_bloque_f_hallazgos.ts' }
+  { name: 'Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia', path: 'server/tests/test_bloque_f_hallazgos.ts' },
+  { name: 'Bloque E: Análisis de Cuentas, Auditoría, Cuentas de Control y Antigüedad de Saldos', path: 'server/tests/test_bloque_e_analisis_cuentas.ts' }
 ];
 
 console.log('========================================================================');
