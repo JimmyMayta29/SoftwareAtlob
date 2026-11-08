@@ -99,7 +99,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           />
           <div>
             <div className="font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5 text-sm">
-              Atlob Consultores <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-blue-200">ERP</span>
+              ATLOB <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-blue-200">ERP</span>
             </div>
             <div className="text-[10px] text-slate-400 font-medium -mt-0.5 truncate max-w-[180px]">
               {usuario.estudioNombre}

@@ -5,6 +5,7 @@ import {
   BookOpen, 
   CheckCircle2, 
   AlertCircle, 
+  Info,
   Search, 
   Printer, 
   Sparkles,
@@ -340,32 +341,50 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
       </div>
 
       {/* 3. Banner de Cuadre General y Consistencia con Hoja de Trabajo */}
-      <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono shadow-xs ${
-        reporte.estaCuadrado
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          : 'bg-rose-50 border-rose-300 text-rose-900'
-      }`}>
-        <div className="flex items-center gap-2">
-          {reporte.estaCuadrado ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          )}
-          <span className="font-bold text-sm font-sans">
-            {reporte.estaCuadrado 
-              ? 'Libro Diario Cuadrado (Total Débito = Total Crédito) — Consistente con Hoja de Trabajo' 
-              : 'Advertencia: Descuadre en el Libro Diario'}
-          </span>
+      {subdiariosVisibles.length === 0 || (reporte.totalGeneralDebito === 0 && reporte.totalGeneralCredito === 0) ? (
+        <div className="p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono shadow-xs bg-slate-50 border-slate-200 text-slate-700">
+          <div className="flex items-center gap-2">
+            <Info className="w-5 h-5 text-slate-500 shrink-0" />
+            <span className="font-bold text-sm font-sans">
+              Sin movimientos en este período
+            </span>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap">
+            <span>Total Débito: <strong>S/ 0.00</strong></span>
+            <span>Total Crédito: <strong>S/ 0.00</strong></span>
+            <span className="font-semibold bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500">
+              Diferencia: S/ 0.00
+            </span>
+          </div>
         </div>
+      ) : (
+        <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono shadow-xs ${
+          reporte.estaCuadrado
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-rose-50 border-rose-300 text-rose-900'
+        }`}>
+          <div className="flex items-center gap-2">
+            {reporte.estaCuadrado ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <span className="font-bold text-sm font-sans">
+              {reporte.estaCuadrado 
+                ? 'Libro Diario Cuadrado (Total Débito = Total Crédito) — Consistente con Hoja de Trabajo' 
+                : 'Advertencia: Descuadre en el Libro Diario'}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
-          <span>Total Débito: <strong>S/ {reporte.totalGeneralDebito.toFixed(2)}</strong></span>
-          <span>Total Crédito: <strong>S/ {reporte.totalGeneralCredito.toFixed(2)}</strong></span>
-          <span className="font-bold bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-slate-900">
-            Diferencia: S/ {reporte.diferenciaGeneral.toFixed(2)}
-          </span>
+          <div className="flex items-center gap-4 flex-wrap">
+            <span>Total Débito: <strong>S/ {reporte.totalGeneralDebito.toFixed(2)}</strong></span>
+            <span>Total Crédito: <strong>S/ {reporte.totalGeneralCredito.toFixed(2)}</strong></span>
+            <span className="font-bold bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-slate-900">
+              Diferencia: S/ {reporte.diferenciaGeneral.toFixed(2)}
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 4. Estructura jerárquica del Libro Diario */}
       {subdiariosVisibles.length === 0 && (

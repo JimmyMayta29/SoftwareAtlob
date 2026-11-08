@@ -25,6 +25,9 @@ import { LoginView } from './components/views/LoginView';
 import atlobLogo from './assets/brand/atlob_logo_horizontal.webp';
 import { useToast } from './context/ToastContext';
 import { useReportStyle } from './context/ReportStyleContext';
+import { tipoCambioApi, TipoCambioDTO } from './api/tipoCambioApi';
+import { ModalTipoCambioManual } from './components/modals/ModalTipoCambioManual';
+import { calcularAlertaVencimientoUI } from './utils/cronogramaSunat';
 
 // Separated Views — 1 option = 1 exclusive view
 import { VouchersView } from './components/views/VouchersView';
@@ -133,7 +136,17 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
   const [activeModuleTitle, setActiveModuleTitle] = useState<string>('');
   const [ultimaAccion, setUltimaAccion] = useState<string>('Listo');
-  const [perfil, setPerfil] = useState<string>('Jimmy Mayta (Administrador principal)');
+  const [perfil, setPerfil] = useState<string>(conectado && usuario?.nombre ? usuario.nombre : 'Administrador');
+  const [tipoCambioGlobal, setTipoCambioGlobal] = useState<TipoCambioDTO | null>(null);
+  const [isModalTcGlobalOpen, setIsModalTcGlobalOpen] = useState(false);
+
+  useEffect(() => {
+    let activo = true;
+    tipoCambioApi.obtenerVigente().then((tc) => {
+      if (activo) setTipoCambioGlobal(tc);
+    }).catch(() => {});
+    return () => { activo = false; };
+  }, []);
 
   // Modales
   const [isCalculadoraOpen, setIsCalculadoraOpen] = useState(false);
@@ -173,6 +186,10 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
 
   const rolActual = conectado ? (empresaActiva ? rolEnEmpresa : usuario.rolGlobal) : obtenerCodigoRolDesdePerfil(perfil);
   const esAdmin = rolActual === 'ADMIN_ESTUDIO' || rolActual === 'ADMINISTRADOR' || perfil === 'ADMINISTRADOR';
+  const usuarioNombreVisible = conectado ? (usuario?.nombre || usuario?.email || 'Administrador') : perfil;
+  const alertaVencimiento = useMemo(() => {
+    return calcularAlertaVencimientoUI(empresaActual.ruc, periodo);
+  }, [empresaActual.ruc, periodo]);
 
   const todosItemsHoja = useMemo(() => obtenerItemsHojaMenu(MENU_DATA), []);
   const comandosFiltrados = useMemo(() => {
@@ -364,7 +381,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   periodo={periodo}
                   isPeriodoCerrado={isPeriodoCerrado}
                   empresa={empresaActual}
-                  usuarioNombre={perfil}
+                  usuarioNombre={usuarioNombreVisible}
                   usuarioRol={rolActual}
                 />
               )}
@@ -374,7 +391,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   periodo={periodo}
                   empresa={empresaActual}
                   usuarioRol={rolActual}
-                  usuarioNombre={perfil}
+                  usuarioNombre={usuarioNombreVisible}
                   isPeriodoCerrado={isPeriodoCerrado}
                 />
               )}
@@ -653,45 +670,72 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
         )}
       </main>
 
-      {/* 3. BARRA DE ESTADO INFERIOR */}
-      <footer className="w-full flex-shrink-0 flex items-center justify-between px-2.5 py-0.5 text-[11px] bg-[#E8ECF1] border-t border-[#D1D5DB] select-none text-[#111827]">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <span className="font-mono">
+      {/* 3. BARRA DE ESTADO INFERIOR RESPONSIVE */}
+      <footer className="w-full flex-shrink-0 flex items-center justify-between px-2.5 h-6 text-[11px] bg-[#E8ECF1] border-t border-[#D1D5DB] select-none text-[#111827] overflow-hidden whitespace-nowrap">
+        <div className="flex items-center gap-2.5 overflow-hidden">
+          <span className="font-mono shrink-0">
             <strong>RUC:</strong> {empresaActual.ruc}
           </span>
-          <span className="text-[#9CA3AF]">|</span>
+          <span className="text-[#9CA3AF] shrink-0">|</span>
           <button
             type="button"
             onClick={() => handleTopBarAction('Tributos › Cronograma de vencimientos', 'cronograma-vencimientos')}
-            className="font-mono text-[#B45309] font-bold hover:underline"
-            title="Ver Cronograma de Vencimientos SUNAT"
+            className={`font-mono font-bold hover:underline shrink-0 ${
+              alertaVencimiento.esVencido
+                ? 'text-[#DC2626] bg-[#FEF2F2] border border-[#FCA5A5] px-1.5 py-0.2 rounded'
+                : 'text-[#B45309]'
+            }`}
+            title={`Vencimiento tributario PDT 621 para RUC terminado en dígito ${alertaVencimiento.digito} (Período ${periodo})`}
           >
-            Venc. PDT 621 [Díg. {empresaActual.ultimoDigitoRuc || empresaActual.ruc.slice(-1)}]: {empresaActual.vencimientoPdt621 || '2026-10-22'} (7 días)
+            Venc. PDT 621 [Díg. {alertaVencimiento.digito}]: {alertaVencimiento.fechaVencimiento} ({alertaVencimiento.etiquetaDias})
           </button>
-          <span className="text-[#9CA3AF]">|</span>
-          <span className="font-mono">
-            <strong>TC SBS:</strong> Compra 3.748 / Venta 3.758
+          <span className="text-[#9CA3AF] shrink-0">|</span>
+          <button
+            type="button"
+            onClick={() => setIsModalTcGlobalOpen(true)}
+            className="font-mono hover:underline cursor-pointer shrink-0"
+            title={
+              tipoCambioGlobal
+                ? `Tipo de cambio fecha ${tipoCambioGlobal.fecha} (Fuente: ${tipoCambioGlobal.fuente}). Clic para actualizar.`
+                : 'Sin tipo de cambio cargado para la fecha. Clic para ingresar.'
+            }
+          >
+            {tipoCambioGlobal ? (
+              <span>
+                <strong>TC ({tipoCambioGlobal.fecha.slice(5)}):</strong> C: {tipoCambioGlobal.compra.toFixed(3)} / V: {tipoCambioGlobal.venta.toFixed(3)}
+              </span>
+            ) : (
+              <span className="text-[#D97706] font-bold bg-[#FEF3C7] border border-[#FCD34D] px-1 py-0.2 rounded">
+                TC: Sin tipo de cambio
+              </span>
+            )}
+          </button>
+          <span className="text-[#9CA3AF] shrink-0">|</span>
+          <span className="shrink-0 truncate max-w-[220px]" title={`Usuario en sesión: ${usuarioNombreVisible} (${rolActual})`}>
+            <strong>Usuario:</strong> {usuarioNombreVisible} <span className="text-[#4B5563]">({rolActual})</span>
           </span>
-          <span className="text-[#9CA3AF]">|</span>
-          <span>
-            <strong>Usuario:</strong> {perfil}
-          </span>
-          <span className="text-[#9CA3AF]">|</span>
-          <span className="text-[#1E6F42] font-bold">
+          <span className="text-[#9CA3AF] shrink-0 hidden md:inline">|</span>
+          <span className="text-[#1E6F42] font-bold shrink-0 hidden md:inline">
             ● En línea · Base aislada
           </span>
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <span className="text-[#4B5563] truncate max-w-[320px]">
+        <div className="flex items-center gap-2.5 flex-shrink-0">
+          <span className="text-[#4B5563] truncate max-w-[150px] lg:max-w-[260px]" title={`Acción: ${ultimaAccion}`}>
             Acción: <strong className="text-[#111827]">{ultimaAccion}</strong>
           </span>
-          <span className="text-[#9CA3AF]">|</span>
-          <span className="text-[#4B5563]">
-            Atlob Consultores ERP · Desarrollado por Jimmy Mayta
+          <span className="text-[#9CA3AF] hidden xl:inline">|</span>
+          <span className="text-[#4B5563] hidden xl:inline">
+            ATLOB ERP · Desarrollado por Jimmy Mayta
           </span>
         </div>
       </footer>
+
+      <ModalTipoCambioManual
+        isOpen={isModalTcGlobalOpen}
+        onClose={() => setIsModalTcGlobalOpen(false)}
+        onGuardado={(tc) => setTipoCambioGlobal(tc)}
+      />
 
       {/* PALETA DE COMANDOS [Ctrl+Shift+P] */}
       <VentanaModal

@@ -23,6 +23,7 @@ import {
   useDuplicarAsiento 
 } from '../../hooks/useAsientos';
 import { useToast } from '../../context/ToastContext';
+import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { 
   VoucherHeader, 
   VoucherGrid, 
@@ -35,6 +36,8 @@ import {
 } from '../voucher';
 import { CuentaPCGE, buscarCuentaPCGE } from '../../data/pcgeAccounts';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
+import { ModalTipoCambioManual } from '../modals/ModalTipoCambioManual';
+import { tipoCambioApi, TipoCambioDTO } from '../../api/tipoCambioApi';
 import { construirDefinicionVoucherContableEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 
 interface VouchersViewProps {
@@ -52,11 +55,14 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   periodo,
   isPeriodoCerrado = false,
   empresa,
-  usuarioNombre = 'ADMINISTRADOR',
-  usuarioRol = 'ADMIN_ESTUDIO',
+  usuarioNombre,
+  usuarioRol,
   subdiarioFijo
 }) => {
   const { success, error, warning, info } = useToast();
+  const { usuario, rolEnEmpresa } = useEmpresaPeriodo();
+  const nombreOperador = usuarioNombre || usuario?.nombre || usuario?.email || 'Administrador';
+  const rolOperador = usuarioRol || rolEnEmpresa || usuario?.rolGlobal || 'ADMINISTRADOR';
   const empresaActual = empresa || EMPRESAS_CLIENTES_DEMO.find((e) => e.id === empresaId) || EMPRESAS_CLIENTES_DEMO[0];
 
   // Modo de vista: 'CAPTURA' (ventana de escritorio de alta densidad) o 'HISTORIAL' (lista de asientos)
@@ -78,8 +84,37 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   const [fechaContable, setFechaContable] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
   const [fechaEmisionDocRef, setFechaEmisionDocRef] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
   const [moneda, setMoneda] = useState<'PEN' | 'USD'>('PEN');
-  const [tipoCambioCompra, setTipoCambioCompra] = useState<number>(3.748);
-  const [tipoCambioVenta, setTipoCambioVenta] = useState<number>(3.752);
+  const [tipoCambioCompra, setTipoCambioCompra] = useState<number>(0);
+  const [tipoCambioVenta, setTipoCambioVenta] = useState<number>(0);
+  const [isModalTcOpen, setIsModalTcOpen] = useState(false);
+
+  useEffect(() => {
+    let activo = true;
+    tipoCambioApi.obtenerPorFecha(fechaContable).then((tc) => {
+      if (!activo) return;
+      if (tc) {
+        setTipoCambioCompra(tc.compra);
+        setTipoCambioVenta(tc.venta);
+      } else {
+        tipoCambioApi.obtenerVigente(fechaContable).then((vig) => {
+          if (!activo) return;
+          if (vig) {
+            setTipoCambioCompra(vig.compra);
+            setTipoCambioVenta(vig.venta);
+          } else {
+            setTipoCambioCompra(0);
+            setTipoCambioVenta(0);
+          }
+        });
+      }
+    }).catch(() => {
+      if (activo) {
+        setTipoCambioCompra(0);
+        setTipoCambioVenta(0);
+      }
+    });
+    return () => { activo = false; };
+  }, [fechaContable]);
   const [glosaGeneral, setGlosaGeneral] = useState<string>('');
   const [estadoVoucher, setEstadoVoucher] = useState<'BORRADOR' | 'CONTABILIZADO' | 'ANULADO'>('BORRADOR');
   const [cuoVoucher, setCuoVoucher] = useState<string | undefined>(undefined);
@@ -197,15 +232,15 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
         codigoCuenta: '',
         denominacion: '',
         centroCosto: '',
-        anexoTipoDoc: '6',
+        anexoTipoDoc: '',
         anexoNumDoc: '',
         anexoNombre: '',
-        tipoComprobante: '01',
+        tipoComprobante: '',
         serieComprobante: '',
         numeroComprobante: '',
         fechaEmisionDoc: fechaContable,
         fechaVencimientoDoc: '',
-        glosaLinea: glosaGeneral,
+        glosaLinea: glosaGeneral || '',
         debe: 0,
         haber: 0,
         debeUsd: 0,
@@ -215,10 +250,6 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   };
 
   const handleEliminarFila = (rowIndex: number) => {
-    if (filas.length <= 2) {
-      warning('El asiento contable requiere al menos 2 líneas para cumplir la partida doble.');
-      return;
-    }
     setFilas((prev) => {
       const filtered = prev.filter((_, idx) => idx !== rowIndex);
       return filtered.map((f, idx) => ({ ...f, linea: idx + 1 }));
@@ -277,47 +308,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
     setEstadoVoucher('BORRADOR');
     setCuoVoucher(undefined);
     setNumeroVoucher(`0109${String(Math.floor(Math.random() * 9000) + 1000)}`);
-    setGlosaGeneral('Por las operaciones contables del período');
-    setFilas([
-      {
-        linea: 1,
-        codigoCuenta: '',
-        denominacion: '',
-        centroCosto: '',
-        anexoTipoDoc: '6',
-        anexoNumDoc: '',
-        anexoNombre: '',
-        tipoComprobante: '01',
-        serieComprobante: '',
-        numeroComprobante: '',
-        fechaEmisionDoc: fechaContable,
-        fechaVencimientoDoc: '',
-        glosaLinea: 'Por las operaciones contables del período',
-        debe: 0,
-        haber: 0,
-        debeUsd: 0,
-        haberUsd: 0,
-      },
-      {
-        linea: 2,
-        codigoCuenta: '',
-        denominacion: '',
-        centroCosto: '',
-        anexoTipoDoc: '6',
-        anexoNumDoc: '',
-        anexoNombre: '',
-        tipoComprobante: '01',
-        serieComprobante: '',
-        numeroComprobante: '',
-        fechaEmisionDoc: fechaContable,
-        fechaVencimientoDoc: '',
-        glosaLinea: 'Por las operaciones contables del período',
-        debe: 0,
-        haber: 0,
-        debeUsd: 0,
-        haberUsd: 0,
-      },
-    ]);
+    setGlosaGeneral('');
+    setFilas([]);
     success('Nuevo voucher contable iniciado en blanco.');
   };
 
@@ -471,7 +463,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             empresaRazonSocial={empresaActual.razonSocial}
             empresaRuc={empresaActual.ruc}
             periodo={periodo}
-            usuarioNombre={usuarioNombre}
+            usuarioNombre={nombreOperador}
             subdiario={subdiario}
             subdiarioFijo={subdiarioFijo}
             numeroVoucher={numeroVoucher}
@@ -489,11 +481,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             onFechaContableChange={setFechaContable}
             onFechaEmisionDocRefChange={setFechaEmisionDocRef}
             onMonedaChange={setMoneda}
-            onActualizarTipoCambio={() => {
-              setTipoCambioCompra(3.748);
-              setTipoCambioVenta(3.752);
-              success('Tipo de cambio SBS actualizado.');
-            }}
+            onActualizarTipoCambio={() => setIsModalTcOpen(true)}
             onGlosaGeneralChange={setGlosaGeneral}
             onNuevo={handleNuevoVoucher}
             onGuardarBorrador={handleGuardarBorrador}
@@ -537,8 +525,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
             empresaRuc={empresaActual.ruc}
             empresaRazonSocial={empresaActual.razonSocial}
             periodo={periodo}
-            usuarioNombre={usuarioNombre}
-            usuarioRol={usuarioRol}
+            usuarioNombre={nombreOperador}
+            usuarioRol={rolOperador}
             tipoCambioVenta={tipoCambioVenta}
             primerErrorValidacion={primerError}
             mensajeEstado={
@@ -546,6 +534,16 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
                 ? `Voucher contabilizado con CUO ${cuoVoucher || numeroVoucher}. Correlativo inmutable.`
                 : undefined
             }
+          />
+
+          <ModalTipoCambioManual
+            isOpen={isModalTcOpen}
+            onClose={() => setIsModalTcOpen(false)}
+            fechaInicial={fechaContable}
+            onGuardado={(tc) => {
+              setTipoCambioCompra(tc.compra);
+              setTipoCambioVenta(tc.venta);
+            }}
           />
         </div>
       ) : (

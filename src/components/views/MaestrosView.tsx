@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FolderTree, 
   Search, 
@@ -15,6 +15,8 @@ import { PLAN_CONTABLE_PCGE } from '../../data/pcgeAccounts';
 import { TIPOS_CAMBIO_SBS_DEMO, CATALOGO_ENTIDADES_DEMO } from '../../data/maestros';
 import { SUBDIARIOS_ESTANDAR, TipoCambioSbs, EntidadCatalogo } from '../../types';
 import { useToast } from '../../context/ToastContext';
+import { tipoCambioApi } from '../../api/tipoCambioApi';
+import { ModalTipoCambioManual } from '../modals/ModalTipoCambioManual';
 
 export const MaestrosView: React.FC = () => {
   const { success } = useToast();
@@ -23,9 +25,21 @@ export const MaestrosView: React.FC = () => {
   // Search states
   const [searchPcge, setSearchPcge] = useState('');
   const [searchEntidad, setSearchEntidad] = useState('');
-  const [tiposCambio, setTiposCambio] = useState<TipoCambioSbs[]>(TIPOS_CAMBIO_SBS_DEMO);
+  const [tiposCambio, setTiposCambio] = useState<any[]>(TIPOS_CAMBIO_SBS_DEMO);
   const [entidades, setEntidades] = useState<EntidadCatalogo[]>(CATALOGO_ENTIDADES_DEMO);
-  const [actualizandoTc, setActualizandoTc] = useState(false);
+  const [isModalTcOpen, setIsModalTcOpen] = useState(false);
+
+  const cargarTiposCambio = () => {
+    tipoCambioApi.listar(50).then((lista) => {
+      if (lista && lista.length > 0) {
+        setTiposCambio(lista);
+      }
+    }).catch(() => {});
+  };
+
+  useEffect(() => {
+    cargarTiposCambio();
+  }, []);
 
   const pcgeFiltrado = PLAN_CONTABLE_PCGE.filter(c => 
     c.codigo.includes(searchPcge) || c.nombre.toLowerCase().includes(searchPcge.toLowerCase())
@@ -35,14 +49,6 @@ export const MaestrosView: React.FC = () => {
     e.numeroDocumento.includes(searchEntidad) || 
     e.razonSocial.toLowerCase().includes(searchEntidad.toLowerCase())
   );
-
-  const handleActualizarTcSbs = () => {
-    setActualizandoTc(true);
-    setTimeout(() => {
-      setActualizandoTc(false);
-      success('Tipos de Cambio SBS actualizados con el Web Service oficial de la Superintendencia de Banca y Seguros.', 'SBS Sincronizado');
-    }, 600);
-  };
 
   return (
     <div className="space-y-4">
@@ -81,7 +87,7 @@ export const MaestrosView: React.FC = () => {
           }`}
         >
           <Coins className="w-4 h-4" />
-          Tipos de Cambio SBS
+          Tipos de Cambio Oficiales
         </button>
         <button
           onClick={() => setTab('ENTIDADES')}
@@ -159,20 +165,19 @@ export const MaestrosView: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 2: Tipo de Cambio SBS */}
+      {/* Tab 2: Tipos de Cambio Oficiales */}
       {tab === 'TIPO_CAMBIO' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs text-xs">
             <div className="text-slate-600">
-              Cotización oficial de la Superintendencia de Banca, Seguros y AFP (SBS) para Dólar Americano (USD).
+              Cotización oficial de compra y venta registrada en la base de datos (tabla <strong className="font-mono text-slate-800">tipos_cambio</strong>).
             </div>
             <button
-              onClick={handleActualizarTcSbs}
-              disabled={actualizandoTc}
-              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+              onClick={() => setIsModalTcOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-[#01172C] hover:bg-[#1E3A5F] text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${actualizandoTc ? 'animate-spin' : ''}`} />
-              Sincronizar TC SBS en Línea
+              <Plus className="w-3.5 h-3.5" />
+              <span>Registrar / Actualizar Tipo de Cambio</span>
             </button>
           </div>
 
@@ -289,6 +294,12 @@ export const MaestrosView: React.FC = () => {
           </table>
         </div>
       )}
+
+      <ModalTipoCambioManual
+        isOpen={isModalTcOpen}
+        onClose={() => setIsModalTcOpen(false)}
+        onGuardado={cargarTiposCambio}
+      />
     </div>
   );
 };

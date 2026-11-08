@@ -6,7 +6,7 @@ const router = Router({ mergeParams: true });
 // GET /api/empresas/:empresaId/plan-cuentas
 router.get('/', async (req, res) => {
   try {
-    const { empresaId } = req.params;
+    const empresaId = (req.params as any).empresaId;
     const mapa = await pcgeService.obtenerMapaCuentasEmpresa(empresaId);
     const cuentas = Array.from(mapa.values()).sort((a, b) => 
       a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
@@ -38,7 +38,7 @@ router.get('/', async (req, res) => {
 // POST /api/empresas/:empresaId/plan-cuentas/completar
 router.post('/completar', async (req, res) => {
   try {
-    const { empresaId } = req.params;
+    const empresaId = (req.params as any).empresaId;
     const resultado = await pcgeService.completarPlanDesdeCatalogoBase(empresaId);
     res.json({
       ok: true,
@@ -53,7 +53,7 @@ router.post('/completar', async (req, res) => {
 // POST /api/empresas/:empresaId/plan-cuentas
 router.post('/', async (req, res) => {
   try {
-    const { empresaId } = req.params;
+    const empresaId = (req.params as any).empresaId;
     const { codigo, nombre, esRegistro, naturalezaSaldo, clasificacionEeff } = req.body;
     const nueva = await pcgeService.crearSubcuenta(empresaId, {
       codigo,
@@ -75,7 +75,8 @@ router.post('/', async (req, res) => {
 // DELETE /api/empresas/:empresaId/plan-cuentas/:codigo
 router.delete('/:codigo', async (req, res) => {
   try {
-    const { empresaId, codigo } = req.params;
+    const empresaId = (req.params as any).empresaId;
+    const { codigo } = req.params;
     const resultado = await pcgeService.eliminarCuenta(empresaId, codigo);
     res.json({
       ok: true,
@@ -90,7 +91,8 @@ router.delete('/:codigo', async (req, res) => {
 // PATCH /api/empresas/:empresaId/plan-cuentas/:codigo/inactiva
 router.patch('/:codigo/inactiva', async (req, res) => {
   try {
-    const { empresaId, codigo } = req.params;
+    const empresaId = (req.params as any).empresaId;
+    const { codigo } = req.params;
     const { inactiva = true } = req.body;
     await pcgeService.marcarInactiva(empresaId, codigo, !!inactiva);
     res.json({

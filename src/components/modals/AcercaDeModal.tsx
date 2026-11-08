@@ -57,7 +57,7 @@ export const AcercaDeModal: React.FC<AcercaDeModalProps> = ({ isOpen, onClose })
               height={22}
             />
             <span className="font-bold text-sm tracking-wide">
-              Atlob Consultores ERP
+              ATLOB ERP
             </span>
           </div>
           <button

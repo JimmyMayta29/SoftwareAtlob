@@ -386,29 +386,37 @@ export const VoucherHeader: React.FC<VoucherHeaderProps> = ({
           />
         </div>
 
-        {/* Tipo de Cambio SBS */}
+        {/* Tipo de Cambio Unificado */}
         <div className="col-span-12 sm:col-span-4 flex items-center gap-1.5">
-          <label className="w-20 font-bold text-slate-700 shrink-0">T.C. SBS:</label>
+          <label className="w-20 font-bold text-slate-700 shrink-0">Tipo Cambio:</label>
           <div className="flex-1 flex items-center gap-1">
-            <span className="text-[10px] text-slate-600">C:</span>
-            <input
-              type="text"
-              readOnly
-              value={tipoCambioCompra.toFixed(3)}
-              className="w-14 bg-slate-100 border border-slate-300 px-1 py-0.5 text-slate-800 font-mono text-xs text-right"
-            />
-            <span className="text-[10px] text-slate-600">V:</span>
-            <input
-              type="text"
-              readOnly
-              value={tipoCambioVenta.toFixed(3)}
-              className="w-14 bg-slate-100 border border-slate-300 px-1 py-0.5 text-slate-800 font-mono text-xs text-right font-bold"
-            />
+            {tipoCambioCompra > 0 && tipoCambioVenta > 0 ? (
+              <>
+                <span className="text-[10px] text-slate-600">C:</span>
+                <input
+                  type="text"
+                  readOnly
+                  value={tipoCambioCompra.toFixed(3)}
+                  className="w-14 bg-slate-100 border border-slate-300 px-1 py-0.5 text-slate-800 font-mono text-xs text-right"
+                />
+                <span className="text-[10px] text-slate-600">V:</span>
+                <input
+                  type="text"
+                  readOnly
+                  value={tipoCambioVenta.toFixed(3)}
+                  className="w-14 bg-slate-100 border border-slate-300 px-1 py-0.5 text-slate-800 font-mono text-xs text-right font-bold"
+                />
+              </>
+            ) : (
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                Sin tipo de cambio
+              </span>
+            )}
             <button
               onClick={onActualizarTipoCambio}
               disabled={esContabilizado}
               className="p-1 bg-white hover:bg-slate-50 border border-slate-400 text-slate-700 cursor-pointer shadow-2xs"
-              title="Consultar tipo de cambio SBS oficial"
+              title="Ingresar o actualizar tipo de cambio"
             >
               <RefreshCw className="w-3 h-3 text-blue-600" />
             </button>

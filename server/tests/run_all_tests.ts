@@ -38,7 +38,8 @@ const suites = [
   { name: 'Identidad de Marca, Login Ágil & Seguridad', path: 'server/tests/test_marca_y_login_seguridad.ts' },
   { name: 'Bloque C: Reportes Unificados, Sin Asteriscos y Paginación Real', path: 'server/tests/test_bloque_c_reportes.ts' },
   { name: 'Bloque B: Plan Contable General Empresarial Completo, Correctoras y Jerarquía', path: 'server/tests/test_bloque_b_plan_contable.ts' },
-  { name: 'Bloque A: Subdiarios Personalizables y Registro por Subdiario', path: 'server/tests/test_bloque_a_subdiarios.ts' }
+  { name: 'Bloque A: Subdiarios Personalizables y Registro por Subdiario', path: 'server/tests/test_bloque_a_subdiarios.ts' },
+  { name: 'Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia', path: 'server/tests/test_bloque_f_hallazgos.ts' }
 ];
 
 console.log('========================================================================');

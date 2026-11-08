@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiClient } from './client';
 
 export type TipoOperacionSubdiario =
   | 'APERTURA'
@@ -30,24 +30,17 @@ export interface SubdiarioItem {
 
 export const subdiariosApi = {
   async listar(empresaId: string, options?: { soloActivos?: boolean; permiteManual?: boolean }): Promise<SubdiarioItem[]> {
-    const params = new URLSearchParams();
-    if (options?.soloActivos !== undefined) params.set('soloActivos', String(options.soloActivos));
-    if (options?.permiteManual !== undefined) params.set('permiteManual', String(options.permiteManual));
+    const params: Record<string, any> = {};
+    if (options?.soloActivos !== undefined) params.soloActivos = options.soloActivos;
+    if (options?.permiteManual !== undefined) params.permiteManual = options.permiteManual;
 
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    const res = await apiRequest<{ success: boolean; data: SubdiarioItem[] }>(
-      `/empresas/${empresaId}/subdiarios${qs}`,
-      { method: 'GET' }
-    );
-    return res.data || [];
+    const res: any = await apiClient.get(`/empresas/${empresaId}/subdiarios`, { params });
+    return res?.data || res || [];
   },
 
   async obtener(empresaId: string, id: string): Promise<SubdiarioItem> {
-    const res = await apiRequest<{ success: boolean; data: SubdiarioItem }>(
-      `/empresas/${empresaId}/subdiarios/${id}`,
-      { method: 'GET' }
-    );
-    return res.data;
+    const res: any = await apiClient.get(`/empresas/${empresaId}/subdiarios/${id}`);
+    return res?.data || res;
   },
 
   async crear(
@@ -60,15 +53,8 @@ export const subdiariosApi = {
       permiteAsientoManual?: boolean;
     }
   ): Promise<SubdiarioItem> {
-    const res = await apiRequest<{ success: boolean; data: SubdiarioItem }>(
-      `/empresas/${empresaId}/subdiarios`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }
-    );
-    return res.data;
+    const res: any = await apiClient.post(`/empresas/${empresaId}/subdiarios`, data);
+    return res?.data || res;
   },
 
   async actualizar(
@@ -81,23 +67,12 @@ export const subdiariosApi = {
       permiteAsientoManual?: boolean;
     }
   ): Promise<SubdiarioItem> {
-    const res = await apiRequest<{ success: boolean; data: SubdiarioItem }>(
-      `/empresas/${empresaId}/subdiarios/${id}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }
-    );
-    return res.data;
+    const res: any = await apiClient.put(`/empresas/${empresaId}/subdiarios/${id}`, data);
+    return res?.data || res;
   },
 
   async eliminar(empresaId: string, id: string): Promise<{ eliminada: boolean }> {
-    const res = await apiRequest<{ success: boolean; eliminada: boolean }>(
-      `/empresas/${empresaId}/subdiarios/${id}`,
-      { method: 'DELETE' }
-    );
-    return res;
+    const res: any = await apiClient.delete(`/empresas/${empresaId}/subdiarios/${id}`);
+    return res?.data || res;
   }
 };
-

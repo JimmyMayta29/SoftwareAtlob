@@ -258,14 +258,10 @@ export const TopBar: React.FC<TopBarProps> = ({
               <strong>Período:</strong> {periodoNombre}
             </span>
             <span
-              className={`px-1.5 py-0.5 border font-bold font-mono ${
-                ambienteSunat === 'PRODUCCION'
-                  ? 'bg-[#ECFDF5] border-[#1E6F42] text-[#1E6F42]'
-                  : 'bg-[#FFFBEB] border-[#B45309] text-[#B45309]'
-              }`}
-              title="Ambiente de conexión SUNAT configurado para la empresa activa"
+              className="px-1.5 py-0.5 border font-bold font-mono bg-[#FFFBEB] border-[#B45309] text-[#B45309]"
+              title="Integración SUNAT simulada sin conexión en línea hasta configurar credenciales oficiales"
             >
-              SUNAT: {ambienteSunat === 'PRODUCCION' ? 'PRODUCCIÓN' : 'BETA'}
+              SUNAT: Simulado / sin conexión
             </span>
           </div>
         </div>

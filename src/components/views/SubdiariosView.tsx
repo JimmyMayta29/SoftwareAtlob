@@ -133,7 +133,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
     }
 
     try {
-      await anularMutation.mutateAsync({ asientoId: asiento.id, motivo: motivo.trim() });
+      await anularMutation.mutateAsync({ id: asiento.id, motivo: motivo.trim() });
       success(`Asiento ${asiento.numero || asiento.id} extornado exitosamente.`);
       refetchAsientos();
     } catch (err: any) {
@@ -417,11 +417,8 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
           isOpen={visorModalOpen}
           onClose={() => setVisorModalOpen(false)}
           definicion={construirDefinicionVoucherContableEstandar(
-            voucherParaVer,
-            empresa?.razonSocial || 'EMPRESA DEMO S.A.C.',
-            empresa?.ruc || '20100035392',
-            periodo,
-            usuarioNombre
+            empresa || ({ razonSocial: 'EMPRESA DEMO S.A.C.', ruc: '20100035392' } as EmpresaCliente),
+            voucherParaVer
           )}
         />
       )}

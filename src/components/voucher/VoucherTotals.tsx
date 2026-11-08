@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info } from 'lucide-react';
 
 interface VoucherTotalsProps {
   totalDebePen: number;
@@ -27,7 +27,12 @@ export const VoucherTotals: React.FC<VoucherTotalsProps> = ({
     <div className="bg-slate-200 border-t border-b border-slate-400 px-3 py-1.5 flex flex-wrap items-center justify-between font-mono text-xs select-none">
       {/* Indicador de Cuadre de Partida Doble */}
       <div className="flex items-center gap-2">
-        {estaCuadrado ? (
+        {cantidadLineas === 0 || (totalDebePen === 0 && totalHaberPen === 0) ? (
+          <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 text-slate-700 px-2 py-0.5 font-bold text-[11px]">
+            <Info className="w-3.5 h-3.5 text-slate-500" />
+            <span>SIN MOVIMIENTOS</span>
+          </div>
+        ) : estaCuadrado ? (
           <div className="flex items-center gap-1.5 bg-emerald-100 border border-emerald-500 text-emerald-900 px-2 py-0.5 font-bold text-[11px]">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
             <span>PARTIDA DOBLE EXACTA (DIF: S/ 0.00)</span>

@@ -525,34 +525,60 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
       </div>
 
       {/* Indicador de Cuadre con Libro Diario Banner */}
-      <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-3 text-xs ${
-        cuadre?.estaCuadrado !== false
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          : 'bg-amber-50 border-amber-200 text-amber-900'
-      }`}>
-        <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg ${cuadre?.estaCuadrado !== false ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'}`}>
-            {cuadre?.estaCuadrado !== false ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+      {itemsCompras.length === 0 ? (
+        <div className="p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-3 text-xs bg-slate-50 border-slate-200 text-slate-700">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-slate-200 text-slate-700">
+              <Info className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold flex items-center gap-2">
+                <span>Sin movimientos en el período</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white border border-slate-200 text-slate-600">
+                  Periodo {periodo}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                No se registran comprobantes de compras en el período seleccionado.
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="font-bold flex items-center gap-2">
-              <span>{cuadre?.estaCuadrado !== false ? 'Libro Cuadrado con el Diario' : 'Descuadre Detectado con el Libro Diario'}</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/70">
-                Periodo {periodo}
-              </span>
-            </div>
-            <div className="text-[11px] opacity-90">
-              {cuadre?.mensaje || 'El total de crédito fiscal IGV de compras coincide exactamente con la cuenta 40111 del Libro Diario.'}
-            </div>
+          <div className="flex items-center gap-3 font-mono text-[11px] shrink-0 text-slate-500">
+            <span>IGV Registro: <strong>S/ 0.00</strong></span>
+            <span>|</span>
+            <span>Cuenta 40111: <strong>S/ 0.00</strong></span>
           </div>
         </div>
+      ) : (
+        <div className={`p-3 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-3 text-xs ${
+          cuadre?.estaCuadrado !== false
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}>
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${cuadre?.estaCuadrado !== false ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'}`}>
+              {cuadre?.estaCuadrado !== false ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+            </div>
+            <div>
+              <div className="font-bold flex items-center gap-2">
+                <span>{cuadre?.estaCuadrado !== false ? 'Libro Cuadrado con el Diario' : 'Descuadre Detectado con el Libro Diario'}</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/70">
+                  Periodo {periodo}
+                </span>
+              </div>
+              <div className="text-[11px] opacity-90">
+                {cuadre?.mensaje || 'El total de crédito fiscal IGV de compras coincide exactamente con la cuenta 40111 del Libro Diario.'}
+              </div>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-3 font-mono text-[11px] shrink-0">
-          <span>IGV Registro: <strong>S/ {libroReporte?.totales?.totalIgv?.toFixed(2) || '0.00'}</strong></span>
-          <span>|</span>
-          <span>Cuenta 40111 (Debe): <strong>S/ {cuadre?.totalDebeCuenta40111Diario?.toFixed(2) || '0.00'}</strong></span>
+          <div className="flex items-center gap-3 font-mono text-[11px] shrink-0">
+            <span>IGV Registro: <strong>S/ {libroReporte?.totales?.totalIgv?.toFixed(2) || '0.00'}</strong></span>
+            <span>|</span>
+            <span>Cuenta 40111 (Debe): <strong>S/ {cuadre?.totalDebeCuenta40111Diario?.toFixed(2) || '0.00'}</strong></span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ========================================================================= */}
       {/* VISTA 1: DIGITACIÓN RÁPIDA (TECLADO PRIMERO)                              */}
@@ -716,7 +742,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   ) : (
                     <>
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Consultar SUNAT</span>
+                      <span>Consultar SUNAT (Simulado)</span>
                     </>
                   )}
                 </button>
@@ -803,7 +829,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                       {/* Origen de los datos */}
                       {resultadoConsultaRuc?.origen && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 text-slate-600">
-                          {resultadoConsultaRuc.origen === 'CACHE_LOCAL' ? '⚡ Caché DB' : '🌐 SUNAT Online'}
+                          {resultadoConsultaRuc.origen === 'CACHE_LOCAL' ? '⚡ Caché DB' : 'Simulado / sin conexión'}
                         </span>
                       )}
 

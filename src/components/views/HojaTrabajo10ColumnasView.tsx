@@ -6,6 +6,7 @@ import {
   Download, 
   AlertTriangle, 
   CheckCircle2, 
+  Info,
   SlidersHorizontal, 
   Calendar, 
   Eye, 
@@ -209,80 +210,96 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
       </div>
 
       {/* 3. Panel de Controles de Validación & Alerta Roja de Descuadre */}
-      <div className={`p-4 rounded-2xl border text-xs shadow-xs transition-all ${
-        controlesCuadre.todoCuadrado
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          : 'bg-rose-50 border-rose-300 text-rose-900 ring-2 ring-rose-400'
-      }`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {reporte.filas.length === 0 || (totales.montosDebe === 0 && totales.montosHaber === 0) ? (
+        <div className="p-4 rounded-2xl border text-xs shadow-xs bg-slate-50 border-slate-200 text-slate-700">
           <div className="flex items-center gap-2.5">
-            {controlesCuadre.todoCuadrado ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 animate-pulse" />
-            )}
+            <Info className="w-5 h-5 text-slate-500 shrink-0" />
             <div>
               <span className="font-bold text-sm font-sans block">
-                {controlesCuadre.todoCuadrado 
-                  ? 'Hoja de Trabajo 10 Columnas Cuadrada y Validada' 
-                  : 'ALERTA DE DESCUADRE EN HOJA DE TRABAJO'}
+                Sin movimientos en este período
               </span>
               <span className="text-[11px] opacity-80">
-                {controlesCuadre.todoCuadrado 
-                  ? 'Las 5 verificaciones oficiales de cuadre (Montos, Saldos, Balance, Naturaleza y Función) cumplen la partida doble.' 
-                  : 'Se detectaron inconsistencias en las sumas o discrepancias entre Naturaleza y Función.'}
+                No se registran saldos acumulados en las cuentas contables del período seleccionado.
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={`p-4 rounded-2xl border text-xs shadow-xs transition-all ${
+          controlesCuadre.todoCuadrado
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-rose-50 border-rose-300 text-rose-900 ring-2 ring-rose-400'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              {controlesCuadre.todoCuadrado ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 animate-pulse" />
+              )}
+              <div>
+                <span className="font-bold text-sm font-sans block">
+                  {controlesCuadre.todoCuadrado 
+                    ? 'Hoja de Trabajo 10 Columnas Cuadrada y Validada' 
+                    : 'ALERTA DE DESCUADRE EN HOJA DE TRABAJO'}
+                </span>
+                <span className="text-[11px] opacity-80">
+                  {controlesCuadre.todoCuadrado 
+                    ? 'Las 5 verificaciones oficiales de cuadre (Montos, Saldos, Balance, Naturaleza y Función) cumplen la partida doble.' 
+                    : 'Se detectaron inconsistencias en las sumas o discrepancias entre Naturaleza y Función.'}
+                </span>
+              </div>
+            </div>
+
+            {/* Badges de las 4 verificaciones clave */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
+                controlesCuadre.montosCuadrados 
+                  ? 'bg-white text-emerald-700 border-emerald-300' 
+                  : 'bg-rose-100 text-rose-800 border-rose-300'
+              }`}>
+                D = C: {controlesCuadre.montosCuadrados ? '✓ OK' : `Dif S/ ${controlesCuadre.diferenciaMontos.toFixed(2)}`}
+              </span>
+
+              <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
+                controlesCuadre.saldosCuadrados 
+                  ? 'bg-white text-emerald-700 border-emerald-300' 
+                  : 'bg-rose-100 text-rose-800 border-rose-300'
+              }`}>
+                Deudor = Acreedor: {controlesCuadre.saldosCuadrados ? '✓ OK' : `Dif S/ ${controlesCuadre.diferenciaSaldos.toFixed(2)}`}
+              </span>
+
+              <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
+                controlesCuadre.balanceCuadrado 
+                  ? 'bg-white text-emerald-700 border-emerald-300' 
+                  : 'bg-rose-100 text-rose-800 border-rose-300'
+              }`}>
+                Balance: {controlesCuadre.balanceCuadrado ? '✓ OK' : 'DESCUADRADO'}
+              </span>
+
+              <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
+                controlesCuadre.resultadosCoinciden 
+                  ? 'bg-white text-emerald-700 border-emerald-300' 
+                  : 'bg-rose-100 text-rose-900 border-rose-400 font-extrabold'
+              }`}>
+                Naturaleza = Función: {controlesCuadre.resultadosCoinciden ? '✓ OK' : `DIF: S/ ${controlesCuadre.diferenciaNaturalezaFuncion.toFixed(2)}`}
               </span>
             </div>
           </div>
 
-          {/* Badges de las 4 verificaciones clave */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
-              controlesCuadre.montosCuadrados 
-                ? 'bg-white text-emerald-700 border-emerald-300' 
-                : 'bg-rose-100 text-rose-800 border-rose-300'
-            }`}>
-              D = C: {controlesCuadre.montosCuadrados ? '✓ OK' : `Dif S/ ${controlesCuadre.diferenciaMontos.toFixed(2)}`}
-            </span>
-
-            <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
-              controlesCuadre.saldosCuadrados 
-                ? 'bg-white text-emerald-700 border-emerald-300' 
-                : 'bg-rose-100 text-rose-800 border-rose-300'
-            }`}>
-              Deudor = Acreedor: {controlesCuadre.saldosCuadrados ? '✓ OK' : `Dif S/ ${controlesCuadre.diferenciaSaldos.toFixed(2)}`}
-            </span>
-
-            <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
-              controlesCuadre.balanceCuadrado 
-                ? 'bg-white text-emerald-700 border-emerald-300' 
-                : 'bg-rose-100 text-rose-800 border-rose-300'
-            }`}>
-              Balance: {controlesCuadre.balanceCuadrado ? '✓ OK' : 'DESCUADRADO'}
-            </span>
-
-            <span className={`px-2.5 py-1 rounded-lg font-mono font-bold text-[11px] border ${
-              controlesCuadre.resultadosCoinciden 
-                ? 'bg-white text-emerald-700 border-emerald-300' 
-                : 'bg-rose-100 text-rose-900 border-rose-400 font-extrabold'
-            }`}>
-              Naturaleza = Función: {controlesCuadre.resultadosCoinciden ? '✓ OK' : `DIF: S/ ${controlesCuadre.diferenciaNaturalezaFuncion.toFixed(2)}`}
-            </span>
-          </div>
+          {/* Lista de alertas rojas si hubiere descuadre */}
+          {!controlesCuadre.todoCuadrado && controlesCuadre.alertas.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-rose-200 space-y-1">
+              {controlesCuadre.alertas.map((al, idx) => (
+                <div key={idx} className="flex items-center gap-2 font-mono text-[11px] text-rose-800 font-semibold">
+                  <span>•</span>
+                  <span>{al}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-
-        {/* Lista de alertas rojas si hubiere descuadre */}
-        {!controlesCuadre.todoCuadrado && controlesCuadre.alertas.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-rose-200 space-y-1">
-            {controlesCuadre.alertas.map((al, idx) => (
-              <div key={idx} className="flex items-center gap-2 font-mono text-[11px] text-rose-800 font-semibold">
-                <span>•</span>
-                <span>{al}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* 4. Tabla de la Hoja de Trabajo de 10 Columnas */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
