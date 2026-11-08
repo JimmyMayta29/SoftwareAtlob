@@ -1,4 +1,5 @@
 import { db } from '../config/database';
+import type { PoolClient } from 'pg';
 import { auditoriaChainService } from '../services/auditoriaChainService';
 import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
 
@@ -32,16 +33,17 @@ function filtrarRegistro<T extends RegistroAuditoria>(registro: T) {
 }
 
 export const auditoriaRepository = {
-  async registrar(evento: RegistroAuditoria): Promise<void> {
+  async registrar(evento: RegistroAuditoria, client?: PoolClient): Promise<void> {
     const registro = filtrarRegistro(evento);
     if (db.isPostgresConnected()) {
       try {
-        await db.query(`
+        const sql = `
           INSERT INTO auditoria (
             tenant_id, empresa_id, usuario_id, usuario_email, tabla_afectada,
             registro_id, accion, datos_anteriores, datos_nuevos, direccion_ip, user_agent
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        `, [
+        `;
+        const params = [
           registro.tenantId || null,
           registro.empresaId || null,
           registro.usuarioId || null,
@@ -53,9 +55,12 @@ export const auditoriaRepository = {
           JSON.stringify(registro.datosNuevos) ?? null,
           registro.direccionIp || null,
           registro.userAgent || null
-        ]);
+        ];
+        if (client) await client.query(sql, params);
+        else await db.query(sql, params);
         return;
       } catch (err) {
+        if (client) throw err;
         console.error('Error registrando auditoría en PostgreSQL:', sanitizarMensaje(err));
       }
     }

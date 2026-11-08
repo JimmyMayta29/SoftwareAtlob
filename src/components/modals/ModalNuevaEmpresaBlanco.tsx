@@ -46,6 +46,7 @@ export const ModalNuevaEmpresaBlanco: React.FC<ModalNuevaEmpresaBlancoProps> = (
   const [contadorColegiatura, setContadorColegiatura] = useState('');
 
   const [ejercicio, setEjercicio] = useState<number>(2026);
+  const [metodoInventario, setMetodoInventario] = useState<'' | 'PERIODICO' | 'PERMANENTE'>('');
   const [monedaPrincipal, setMonedaPrincipal] = useState<'PEN' | 'USD'>('PEN');
   const [guardando, setGuardando] = useState(false);
 
@@ -98,6 +99,7 @@ export const ModalNuevaEmpresaBlanco: React.FC<ModalNuevaEmpresaBlancoProps> = (
           contadorNombre: contadorNombre.trim() || undefined,
           contadorColegiatura: contadorColegiatura.trim() || undefined,
           ejercicio,
+          metodoInventario: metodoInventario || undefined,
           monedaPrincipal
       });
       if (!data.success) {
@@ -230,6 +232,19 @@ export const ModalNuevaEmpresaBlanco: React.FC<ModalNuevaEmpresaBlancoProps> = (
                   className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+            </div>
+            <div className="mt-3">
+              <label htmlFor="empresa-metodo-inventario" className="block text-xs font-semibold text-slate-700 mb-1">Método de inventario</label>
+              <select
+                id="empresa-metodo-inventario"
+                value={metodoInventario}
+                onChange={e => setMetodoInventario(e.target.value as typeof metodoInventario)}
+                className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="">Seleccione un método para contabilizar compras</option>
+                <option value="PERIODICO">Periódico</option>
+                <option value="PERMANENTE">Permanente</option>
+              </select>
             </div>
           </div>
 

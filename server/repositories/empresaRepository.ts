@@ -112,7 +112,7 @@ export const empresaRepository = {
     return null;
   },
 
-  async crear(empresaData: Omit<EmpresaModel, 'id' | 'createdAt' | 'updatedAt' | 'isActive'> & { usuarioId: string }): Promise<EmpresaModel> {
+  async crear({ ejercicio, ...empresaData }: Omit<EmpresaModel, 'id' | 'createdAt' | 'updatedAt' | 'isActive'> & { usuarioId: string; ejercicio?: number }): Promise<EmpresaModel> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -126,13 +126,13 @@ export const empresaRepository = {
           INSERT INTO empresas (
             tenant_id, codigo_empresa, ruc, razon_social, nombre_comercial,
             regimen_tributario, domicilio_fiscal, departamento, provincia, distrito,
-            contacto_nombre, contacto_telefono, contacto_email, moneda_principal
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            contacto_nombre, contacto_telefono, contacto_email, moneda_principal, metodo_inventario
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
           RETURNING id, tenant_id as "tenantId", codigo_empresa as "codigoEmpresa",
                     ruc, razon_social as "razonSocial", nombre_comercial as "nombreComercial",
                     regimen_tributario as "regimenTributario", domicilio_fiscal as "domicilioFiscal",
                     contacto_nombre as "contactoNombre", contacto_telefono as "contactoTelefono",
-                    contacto_email as "contactoEmail", moneda_principal as "monedaPrincipal",
+                    contacto_email as "contactoEmail", moneda_principal as "monedaPrincipal", metodo_inventario as "metodoInventario",
                     is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"
         `, [
           empresaData.tenantId,
@@ -148,11 +148,24 @@ export const empresaRepository = {
           empresaData.contactoNombre || null,
           empresaData.contactoTelefono || null,
           empresaData.contactoEmail || null,
-          empresaData.monedaPrincipal || 'PEN'
+          empresaData.monedaPrincipal || 'PEN',
+          empresaData.metodoInventario ?? null
         ]);
 
         const nuevaEmpresa = insertRes.rows[0];
         await establecerContextoEmpresa(client, nuevaEmpresa.id, empresaData.usuarioId);
+
+        if (ejercicio !== undefined) {
+          const { rows: [nuevoEjercicio] } = await client.query(
+            'INSERT INTO ejercicios (empresa_id, anio) VALUES ($1, $2) RETURNING id',
+            [nuevaEmpresa.id, ejercicio]
+          );
+          await client.query(`
+            INSERT INTO periodos (empresa_id, ejercicio_id, anio, mes, codigo_periodo)
+            SELECT $1, $2, $3::smallint, mes, $3::smallint::text || '-' || LPAD(mes::text, 2, '0')
+            FROM generate_series(1, 12) AS mes
+          `, [nuevaEmpresa.id, nuevoEjercicio.id, ejercicio]);
+        }
 
         // 2. Asignar Membresía al creador (ADMINISTRADOR)
         await client.query(`

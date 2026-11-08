@@ -1,4 +1,5 @@
 import { db } from '../config/database';
+import { randomUUID } from 'node:crypto';
 
 export interface AnexoModel {
   id: string;
@@ -160,7 +161,7 @@ export const anexoService = {
       return existente;
     }
 
-    const id = `anx-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const id = db.isPostgresConnected() ? randomUUID() : `anx-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const nuevo: AnexoModel = {
       id,
       empresaId,

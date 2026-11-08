@@ -36,11 +36,13 @@ import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
 interface MisEmpresasNivel1ViewProps {
   empresas: EmpresaCliente[];
   onAddEmpresa: (nueva: EmpresaCliente) => void;
+  onCrearEmpresa?: () => void;
 }
 
 export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
   empresas,
-  onAddEmpresa
+  onAddEmpresa,
+  onCrearEmpresa
 }) => {
   const { entrarAEmpresa, usuario, setIsSearchModalOpen } = useEmpresaPeriodo();
   const { success, error: toastError } = useToast();
@@ -217,7 +219,7 @@ export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
             </button>
 
             <button
-              onClick={() => setIsModalBlancoOpen(true)}
+              onClick={onCrearEmpresa ?? (() => setIsModalBlancoOpen(true))}
               className="px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-blue-500/25 flex items-center gap-1.5 transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -330,7 +332,7 @@ export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
             { titulo: 'Asignación de Régimen Tributario', cumplido: false, descripcion: 'MYPE Tributario, Régimen General, Régimen Especial o NRUS' },
             { titulo: 'Inicialización de Catálogos PCGE', cumplido: true, descripcion: 'Plan Contable General Empresarial 2019/2020 y subdiarios estándar predefinidos' }
           ]}
-          onRegistrarNuevo={() => setIsModalBlancoOpen(true)}
+          onRegistrarNuevo={onCrearEmpresa ?? (() => setIsModalBlancoOpen(true))}
           textoRegistrar="Registrar Empresa en Blanco"
           onCargarPlantilla={handleRestablecerDemo}
           textoPlantilla="Cargar Empresa Demo S.A.C."

@@ -3,7 +3,8 @@
  * Desarrollado por Jimmy Mayta
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { X, FolderTree, Search } from 'lucide-react';
 import { EmpresaCliente, AsientoContable, Comprobante } from './types';
 import { EMPRESAS_CLIENTES_DEMO, crearDatosInicialesEmpresa } from './data/empresasClientes';
@@ -15,7 +16,12 @@ import { TopBar, obtenerCodigoRolDesdePerfil } from './components/desktop/TopBar
 import { VentanaModal } from './components/ui/VentanaModal';
 
 // Contexts
-import { EmpresaPeriodoProvider, useEmpresaPeriodo } from './context/EmpresaPeriodoContext';
+import { EmpresaPeriodoProvider, useEmpresaPeriodo, type UsuarioEstudio } from './context/EmpresaPeriodoContext';
+import { authApi, type Sesion } from './api/authApi';
+import { empresasApi } from './api/empresasApi';
+import { guardarSesion, limpiarSesion, obtenerAccessToken } from './api/session';
+import { AsistenteSetupInicial } from './components/setup/AsistenteSetupInicial';
+import { LoginView } from './components/views/LoginView';
 import { useToast } from './context/ToastContext';
 import { useReportStyle } from './context/ReportStyleContext';
 
@@ -97,7 +103,14 @@ import { ModalBackupEmpresa } from './components/modals/ModalBackupEmpresa';
 import { ModalNuevaEmpresaBlanco } from './components/modals/ModalNuevaEmpresaBlanco';
 import { PdfExportModal } from './components/modals/PdfExportModal';
 
-function DesktopWorkspaceContent() {
+const EMPRESA_SIN_SELECCION: EmpresaCliente = {
+  id: '', ruc: '', razonSocial: 'Sin empresa seleccionada', nombreComercial: '', direccionFiscal: '',
+  contactoNombre: '', contactoTelefono: '', contactoEmail: '', regimenTributario: 'REGIMEN_GENERAL',
+  tasaRentaMensual: 0, ambienteSunat: 'BETA_TEST', ultimoDigitoRuc: '', vencimientoPdt621: '',
+  vencimientoSire: '', vencimientoPlame: '', estadoDeclaracion: 'POR_VENCER', preliquidacionNotificada: false,
+};
+
+function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { empresasIniciales: EmpresaCliente[]; conectado?: boolean }) {
   const {
     empresaActiva,
     periodo,
@@ -105,12 +118,15 @@ function DesktopWorkspaceContent() {
     isPeriodoCerrado,
     setIsSearchModalOpen,
     isSearchModalOpen,
+    usuario,
+    rolEnEmpresa,
+    cerrarSesion,
   } = useEmpresaPeriodo();
 
   const { success, info } = useToast();
   const { setReportStyle } = useReportStyle();
 
-  const [empresasLista, setEmpresasLista] = useState<EmpresaCliente[]>(EMPRESAS_CLIENTES_DEMO);
+  const [empresasLista, setEmpresasLista] = useState<EmpresaCliente[]>(empresasIniciales);
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
   const [activeModuleTitle, setActiveModuleTitle] = useState<string>('');
   const [ultimaAccion, setUltimaAccion] = useState<string>('Listo');
@@ -128,11 +144,13 @@ function DesktopWorkspaceContent() {
   const [commandQuery, setCommandQuery] = useState('');
 
   // Datos contables de la empresa activa
-  const empresaActual = empresaActiva || EMPRESAS_CLIENTES_DEMO[0];
+  const empresaActual = empresaActiva || (conectado ? EMPRESA_SIN_SELECCION : EMPRESAS_CLIENTES_DEMO[0]);
   const empresaId = empresaActual.id;
   const dataState = useMemo(
-    () => crearDatosInicialesEmpresa(empresaId, empresaActual.ruc, empresaActual.razonSocial),
-    [empresaId, empresaActual.ruc, empresaActual.razonSocial]
+    () => conectado
+      ? { asientos: [], compras: [], ventas: [], movimientosBancarios: [], trabajadoresPlanilla: [], honorarios: [], saldoAnteriorIgv: 0 }
+      : crearDatosInicialesEmpresa(empresaId, empresaActual.ruc, empresaActual.razonSocial),
+    [conectado, empresaId, empresaActual.ruc, empresaActual.razonSocial]
   );
 
   const [asientos, setAsientos] = useState<AsientoContable[]>(dataState.asientos);
@@ -150,7 +168,7 @@ function DesktopWorkspaceContent() {
     );
   }, [compras, ventas, periodo, empresaActual.tasaRentaMensual, saldoAnteriorIgv]);
 
-  const rolActual = obtenerCodigoRolDesdePerfil(perfil);
+  const rolActual = conectado ? (empresaActiva ? rolEnEmpresa : usuario.rolGlobal) : obtenerCodigoRolDesdePerfil(perfil);
   const esAdmin = rolActual === 'ADMIN_ESTUDIO' || rolActual === 'ADMINISTRADOR' || perfil === 'ADMINISTRADOR';
 
   const todosItemsHoja = useMemo(() => obtenerItemsHojaMenu(MENU_DATA), []);
@@ -190,6 +208,7 @@ function DesktopWorkspaceContent() {
         return;
       }
       if (itemId === 'datos-empresa' || itemId === 'configurar-empresa') {
+        if (conectado && !empresaActiva) return;
         setIsConfigEmpresaOpen(true);
         return;
       }
@@ -210,6 +229,7 @@ function DesktopWorkspaceContent() {
         return;
       }
       if (itemId === 'cerrar-sesion') {
+        if (conectado) { void cerrarSesion(); return; }
         setActiveModuleId(null);
         info('Sesión cerrada y contexto reiniciado.', 'Sesión');
         return;
@@ -230,6 +250,7 @@ function DesktopWorkspaceContent() {
         return;
       }
       if (itemId === 'restaurar-demo') {
+        if (conectado) return;
         setCompras(dataState.compras);
         setVentas(dataState.ventas);
         setAsientos(dataState.asientos);
@@ -238,10 +259,14 @@ function DesktopWorkspaceContent() {
       }
 
       // Abrir vista dedicada en el área de trabajo
+      if (conectado && !empresaActiva && itemId !== 'cartera-empresas') {
+        info('Selecciona una empresa para abrir este módulo.');
+        return;
+      }
       setActiveModuleId(itemId);
       setActiveModuleTitle(ruta);
     },
-    [dataState, info, setIsSearchModalOpen, setReportStyle, success]
+    [cerrarSesion, conectado, dataState, empresaActiva, info, setIsSearchModalOpen, setReportStyle, success]
   );
 
   const handleCerrarModulo = () => {
@@ -249,9 +274,15 @@ function DesktopWorkspaceContent() {
     setUltimaAccion('Área de trabajo (módulo cerrado)');
   };
 
-  const handleAddEmpresa = (nueva: EmpresaCliente) => {
-    setEmpresasLista([nueva, ...empresasLista]);
-    entrarAEmpresa(nueva);
+  const handleAddEmpresa = async (nueva: EmpresaCliente) => {
+    if (conectado) {
+      const empresas = await empresasApi.listar();
+      setEmpresasLista(empresas);
+      if (await entrarAEmpresa(empresas.find(empresa => empresa.id === nueva.id) ?? nueva)) setActiveModuleId(null);
+    } else {
+      setEmpresasLista(prev => [nueva, ...prev]);
+      await entrarAEmpresa(nueva);
+    }
     setIsNuevaEmpresaOpen(false);
     success(`Empresa ${nueva.razonSocial} registrada y seleccionada como activa.`, 'Empresa Registrada');
   };
@@ -265,7 +296,8 @@ function DesktopWorkspaceContent() {
         empresaRuc={empresaActual.ruc}
         periodoNombre={periodo}
         ambienteSunat={empresaActual.ambienteSunat || 'BETA'}
-        perfilSeleccionado={perfil}
+        perfilSeleccionado={conectado ? usuario.nombre : perfil}
+        rolAutenticado={conectado ? rolActual : undefined}
         onCambiarPerfil={(nuevo) => {
           setPerfil(nuevo);
           setUltimaAccion(`Rol cambiado a: ${nuevo}`);
@@ -278,7 +310,9 @@ function DesktopWorkspaceContent() {
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
       <main className="flex-1 flex flex-col bg-[#F5F7FA] overflow-hidden relative">
-        {activeModuleId ? (
+        {conectado && !empresaActiva && (!activeModuleId || activeModuleId === 'cartera-empresas') ? (
+          <MisEmpresasNivel1View empresas={empresasLista} onAddEmpresa={handleAddEmpresa} onCrearEmpresa={() => setIsNuevaEmpresaOpen(true)} />
+        ) : activeModuleId ? (
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#FFFFFF]">
             {/* Barra de título interna de la vista activa */}
             <div className="flex-shrink-0 flex items-center justify-between px-3 py-1 bg-[#E8ECF1] border-b border-[#D1D5DB] text-[12px]">
@@ -324,6 +358,7 @@ function DesktopWorkspaceContent() {
                   asientos={asientos}
                   empresa={empresaActual}
                   periodo={periodo}
+                  persistente={conectado}
                   onGenerarAsientosMasivos={() => success('Asientos contables centralizados en el Libro Diario.')}
                 />
               )}
@@ -461,6 +496,7 @@ function DesktopWorkspaceContent() {
                 <MisEmpresasNivel1View
                   empresas={empresasLista}
                   onAddEmpresa={handleAddEmpresa}
+                  onCrearEmpresa={conectado ? () => setIsNuevaEmpresaOpen(true) : undefined}
                 />
               )}
               {(activeModuleId === 'indicadores-estudio' || activeModuleId === 'tablero-vencimientos-estudio') && (
@@ -747,7 +783,7 @@ function DesktopWorkspaceContent() {
           onClose={() => setIsNuevaEmpresaOpen(false)}
           onEmpresaCreada={(nueva: any) => {
             const emp: EmpresaCliente = {
-              id: nueva.id || `emp-${Date.now()}`,
+              id: nueva.id,
               codigoEmpresa: nueva.codigoEmpresa || 'EMP',
               ruc: nueva.ruc,
               razonSocial: nueva.razonSocial,
@@ -757,6 +793,7 @@ function DesktopWorkspaceContent() {
               contactoTelefono: nueva.contactoTelefono || '',
               contactoEmail: nueva.contactoEmail || '',
               regimenTributario: nueva.regimenTributario || 'MYPE_TRIBUTARIO',
+              metodoInventario: nueva.metodoInventario,
               tasaRentaMensual: 0.01,
               ambienteSunat: 'PRODUCCION',
               ultimoDigitoRuc: String(nueva.ruc).slice(-1),
@@ -769,7 +806,7 @@ function DesktopWorkspaceContent() {
               montoPreliquidacionRenta: 0,
               trabajadoresPlanilla: 1,
             };
-            handleAddEmpresa(emp);
+            void handleAddEmpresa(emp).catch(() => info('Empresa guardada. Vuelve a abrir la cartera para actualizarla.'));
           }}
         />
       )}
@@ -791,7 +828,67 @@ function DesktopWorkspaceContent() {
   );
 }
 
+function AplicacionConSesion() {
+  const queryClient = useQueryClient();
+  const [estado, setEstado] = useState<'cargando' | 'setup' | 'login' | 'error'>('cargando');
+  const [intento, setIntento] = useState(0);
+  const [estudio, setEstudio] = useState('ATLOB ERP');
+  const [sesion, setSesion] = useState<{ usuario: UsuarioEstudio; empresas: EmpresaCliente[] } | null>(null);
+
+  useEffect(() => {
+    let vigente = true;
+    const expirar = () => { queryClient.clear(); setSesion(null); setEstado('login'); };
+    window.addEventListener('atlob_session_expired', expirar);
+    void (async () => {
+      try {
+        const setup = await authApi.estadoSetup();
+        if (!vigente) return;
+        const nombre = setup.estudio?.nombreEstudio || 'ATLOB ERP';
+        setEstudio(nombre);
+        if (!setup.configurado) { setEstado('setup'); return; }
+        if (obtenerAccessToken()) {
+          const perfil = await authApi.perfil();
+          const empresas = await empresasApi.listar();
+          if (vigente) setSesion({ usuario: { ...perfil.usuario, estudioNombre: nombre }, empresas });
+        }
+        if (vigente) setEstado('login');
+      } catch (error: any) {
+        if (vigente) setEstado(error.response?.status === 401 ? 'login' : 'error');
+      }
+    })();
+    return () => { vigente = false; window.removeEventListener('atlob_session_expired', expirar); };
+  }, [intento, queryClient]);
+
+  const abrirSesion = async (resultado: Sesion) => {
+    guardarSesion(resultado);
+    try {
+      const empresas = await empresasApi.listar();
+      setSesion({ usuario: { ...resultado.usuario, estudioNombre: resultado.estudio?.nombreEstudio || estudio }, empresas });
+    } catch (error) {
+      limpiarSesion();
+      throw error;
+    }
+  };
+
+  if (sesion) return (
+    <EmpresaPeriodoProvider initialEmpresas={sesion.empresas} usuario={sesion.usuario} onCerrarSesion={async () => {
+      try { await authApi.logout(); } finally { limpiarSesion(); }
+    }}>
+      <DesktopWorkspaceContent empresasIniciales={sesion.empresas} conectado />
+    </EmpresaPeriodoProvider>
+  );
+  if (estado === 'setup') return <AsistenteSetupInicial onSetupCompletado={abrirSesion} />;
+  if (estado === 'login') return <LoginView onAutenticado={abrirSesion} />;
+  return (
+    <main className="min-h-screen grid place-content-center gap-4 text-center p-6">
+      <p role={estado === 'error' ? 'alert' : 'status'}>{estado === 'error' ? 'No se pudo consultar el servidor. Comprueba la conexión y vuelve a intentar.' : 'Comprobando el estado del estudio…'}</p>
+      {estado === 'error' && <button type="button" onClick={() => { setEstado('cargando'); setIntento(i => i + 1); }} className="underline text-blue-700">Reintentar</button>}
+    </main>
+  );
+}
+
 export default function App() {
+  if (import.meta.env.PROD) return <AplicacionConSesion />;
   const usuarioInicial = {
     id: 'usr-admin-01',
     email: 'jimmymayta29@gmail.com',
@@ -806,7 +903,7 @@ export default function App() {
       usuario={usuarioInicial}
       onCerrarSesion={async () => {}}
     >
-      <DesktopWorkspaceContent />
+      <DesktopWorkspaceContent empresasIniciales={EMPRESAS_CLIENTES_DEMO} />
     </EmpresaPeriodoProvider>
   );
 }

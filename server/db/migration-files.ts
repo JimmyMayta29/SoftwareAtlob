@@ -1,0 +1,17 @@
+export const MIGRATION_FILES = [
+  'schema_a_preflight.sql',
+  'schema.sql',
+  'schema_fase2.sql',
+  'schema_fase3.sql',
+  'schema_fase4.sql',
+  'schema_fase5.sql',
+  'schema_fase6.sql',
+  'schema_fase7.sql',
+  'schema_a_compat.sql',
+  'triggers_fase2.sql',
+  'schema_fase8_tributos.sql',
+  'schema_fase9_planillas.sql',
+  'schema_fase10_normativa_asientos.sql',
+  'schema_fase11_automatizacion_inventarios.sql',
+  'schema_aislamiento_empresa.sql',
+] as const;

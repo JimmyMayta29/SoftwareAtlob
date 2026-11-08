@@ -1,4 +1,5 @@
 import { db, establecerContextoEmpresa } from '../config/database';
+import type { PoolClient } from 'pg';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaRepository } from '../repositories/empresaRepository';
@@ -172,7 +173,7 @@ export const asientoService = {
   /**
    * Crea un nuevo asiento en estado BORRADOR. Los borradores NO consumen correlativo.
    */
-  async crearBorrador(empresaId: string, input: AsientoInput, userId: string) {
+  async crearBorrador(empresaId: string, input: AsientoInput, userId: string, conexion?: PoolClient) {
     const id = `asiento-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     const version = 1;
@@ -208,11 +209,7 @@ export const asientoService = {
     }
 
     if (db.isPostgresConnected()) {
-      const client = await db.getClient();
-      try {
-        await client.query('BEGIN');
-        await establecerContextoEmpresa(client, empresaId, userId);
-
+      const persistir = async (client: PoolClient) => {
         // Verificar período abierto
         const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [input.periodoId]);
         if (pRes.rows[0]?.estado === 'CERRADO') {
@@ -254,24 +251,19 @@ export const asientoService = {
           ]);
         }
 
-        await client.query('COMMIT');
-
-        await auditoriaRepository.registrar({
-          empresaId,
-          usuarioId: userId,
-          tablaAfectada: 'asientos',
-          registroId: asientoCreado.id,
-          accion: 'INSERT',
-          datosNuevos: { ...asientoCreado, totalDebe: Money.toNumber(sumDebe), totalHaber: Money.toNumber(sumHaber) }
-        });
-
         return { ...asientoCreado, totalDebe: Money.toNumber(sumDebe), totalHaber: Money.toNumber(sumHaber), detalles: input.detalles };
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
-      }
+      };
+      const asiento = conexion ? await persistir(conexion) : await db.withTenantAndEmpresa(userId, empresaId, persistir);
+      const { detalles, ...cabecera } = asiento;
+      await auditoriaRepository.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'asientos',
+        registroId: asiento.id,
+        accion: 'INSERT',
+        datosNuevos: cabecera
+      }, conexion);
+      return asiento;
     }
 
     const nuevoAsiento = {
@@ -399,13 +391,9 @@ export const asientoService = {
   /**
    * Contabiliza un asiento: valida estricta partida doble, asigna correlativo atómico y sella el registro.
    */
-  async contabilizar(asientoId: string, empresaId: string, userId: string, options?: { enforceSegregacion?: boolean }) {
+  async contabilizar(asientoId: string, empresaId: string, userId: string, options?: { enforceSegregacion?: boolean }, conexion?: PoolClient) {
     if (db.isPostgresConnected()) {
-      const client = await db.getClient();
-      try {
-        await client.query('BEGIN');
-        await establecerContextoEmpresa(client, empresaId, userId);
-
+      const persistir = async (client: PoolClient) => {
         const aRes = await client.query(`
           SELECT a.*, p.codigo_periodo, s.codigo as subdiario_codigo
           FROM asientos a
@@ -462,24 +450,18 @@ export const asientoService = {
           RETURNING *
         `, [numeroCorrelativo, cuoOficial, userId, asientoId]);
 
-        await client.query('COMMIT');
-
-        await auditoriaRepository.registrar({
-          empresaId,
-          usuarioId: userId,
-          tablaAfectada: 'asientos',
-          registroId: asientoId,
-          accion: 'UPDATE',
-          datosNuevos: { estado: 'CONTABILIZADO', numero: numeroCorrelativo, cuo: cuoOficial }
-        });
-
         return updateRes.rows[0];
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
-      }
+      };
+      const asiento = conexion ? await persistir(conexion) : await db.withTenantAndEmpresa(userId, empresaId, persistir);
+      await auditoriaRepository.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'asientos',
+        registroId: asientoId,
+        accion: 'UPDATE',
+        datosNuevos: { estado: 'CONTABILIZADO', numero: asiento.numero, cuo: asiento.cuo }
+      }, conexion);
+      return asiento;
     }
 
     // Fallback memoria

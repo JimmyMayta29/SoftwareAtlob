@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseSync } from 'rolldown/utils';
 
 // Huellas de los literales SOL/SIRE retirados del historial de las vistas y de los datos demo.
-const huellasHistoricas = new Set([
+export const huellasHistoricas = new Set([
   '2aca9c329c8d44003ea476c2c17f4feeecd69b85b1a855dd249bb620ccd1a3fc',
   '358980ba52b81c1e3ae7e08ddaef1c7b1464244f5ba60986d253fc656dd9f422',
   '7c1a1cb64a47945b3d664d588d23c94f9f3dd219edf51896e9ad6f2c1f6719ad',
@@ -23,13 +24,15 @@ const huella = (valor: string) => createHash('sha256').update(valor).digest('hex
 const extensionesCodigo = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const campoEnTexto = /(?<![\w-])(["']?)(usuario[_-]?sol|clave[_-]?sol|client[_-]?(?:id|secret)(?:[_-]?sire)?|secreto[_-]?(?:sire|api)|jwt[_-]?(?:refresh[_-]?)?secret|sunat[_-]?encryption[_-]?key)\1\s*[:=]\s*(["'])([^\r\n]+?)\3/gi;
 
-function detectar(ruta: string, contenido: string, huellas = huellasHistoricas): string[] {
+export function detectar(ruta: string, contenido: string, huellas = huellasHistoricas): string[] {
   const hallazgos = new Set<string>();
   if (jwt.test(contenido)) hallazgos.add('JWT literal');
   if (claveApi.test(contenido)) hallazgos.add('Clave API literal');
 
   function revisarLiteral(valor: string) {
-    if (huellas.has(huella(valor))) hallazgos.add('Huella de literal histórico');
+    if (huellas.has(huella(valor)) || (/^[0-9a-f]+$/i.test(valor) && huellas.has(huella(valor.toLowerCase())))) {
+      hallazgos.add('Huella de literal histórico');
+    }
   }
 
   type Nodo = {
@@ -77,21 +80,23 @@ assert.deepEqual(detectar('prueba.ts', 'const datos = { claveSol: "valor-sinteti
 assert.deepEqual(detectar('prueba.js', 'const n="texto-de-prueba";', new Set([huella('texto-de-prueba')])), ['Huella de literal histórico']);
 assert.deepEqual(detectar('prueba.ts', ['eyJabcdefgh', 'abcdefghij', 'klmnopqrst'].join('.')), ['JWT literal']);
 
-const extensiones = new Set([...extensionesCodigo, '.json', '.map', '.html', '.css', '.svg', '.txt', '.webmanifest']);
-const raices = process.argv.includes('--dist') ? ['src', 'dist'] : ['src'];
-let archivos = 0;
-for (const raiz of raices) {
-  const entradas = readdirSync(raiz, { recursive: true, withFileTypes: true });
-  const textos = entradas.filter(item => item.isFile() && extensiones.has(extname(item.name).toLowerCase()));
-  if (!textos.length) throw new Error('Sin archivos para escanear en ' + raiz);
-  for (const item of textos) {
-    const ruta = join(item.parentPath, item.name);
-    const hallazgos = detectar(ruta, readFileSync(ruta, 'utf8'));
-    if (hallazgos.length) {
-      console.error(ruta + ' (' + hallazgos.join(', ') + ')');
-      process.exitCode = 1;
+export const extensionesEscaneables = new Set([...extensionesCodigo, '.json', '.map', '.html', '.css', '.svg', '.txt', '.webmanifest', '.sql']);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const raices = process.argv.includes('--dist') ? ['src', 'dist'] : ['src'];
+  let archivos = 0;
+  for (const raiz of raices) {
+    const entradas = readdirSync(raiz, { recursive: true, withFileTypes: true });
+    const textos = entradas.filter(item => item.isFile() && extensionesEscaneables.has(extname(item.name).toLowerCase()));
+    if (!textos.length) throw new Error('Sin archivos para escanear en ' + raiz);
+    for (const item of textos) {
+      const ruta = join(item.parentPath, item.name);
+      const hallazgos = detectar(ruta, readFileSync(ruta, 'utf8'));
+      if (hallazgos.length) {
+        console.error(ruta + ' (' + hallazgos.join(', ') + ')');
+        process.exitCode = 1;
+      }
     }
+    archivos += textos.length;
   }
-  archivos += textos.length;
+  console.log('ESCANEO_SECRETOS ' + raices.join(' + ') + ' | archivos=' + archivos + ' | EXIT=' + (process.exitCode || 0));
 }
-console.log('ESCANEO_SECRETOS ' + raices.join(' + ') + ' | archivos=' + archivos + ' | EXIT=' + (process.exitCode || 0));

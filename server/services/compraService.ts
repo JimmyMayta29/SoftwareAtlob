@@ -1,10 +1,13 @@
 import { db } from '../config/database';
+import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { Money } from '../utils/decimal';
 import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
 import { periodoService } from './periodoService';
 import { anexoService } from './anexoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { empresaRepository } from '../repositories/empresaRepository';
 
 export interface CompraInput {
   periodoId: string;
@@ -85,6 +88,33 @@ export type CuentaPorPagarModel = any;
 export const CXP_MEMORIA: any[] = [];
 export const DETRACCIONES_MEMORIA: any[] = [];
 
+const columnasCompra = `
+  c.id, c.empresa_id AS "empresaId", c.periodo_id AS "periodoId", c.fecha_emision::text AS "fechaEmision",
+  c.fecha_vencimiento::text AS "fechaVencimiento", c.fecha_contable::text AS "fechaContable",
+  c.tipo_comprobante AS "tipoComprobante", c.serie, c.numero, c.proveedor_id AS "proveedorId",
+  a.razon_social AS "proveedorNombre", a.numero_documento AS "proveedorRuc", c.moneda,
+  c.tipo_cambio::float8 AS "tipoCambio", c.base_gravada::float8 AS "baseGravada", c.igv::float8 AS igv,
+  c.base_no_gravada::float8 AS "baseNoGravada", c.exonerado::float8 AS exonerado, c.isc::float8 AS isc,
+  c.icbper::float8 AS icbper, c.otros_tributos::float8 AS "otrosTributos", c.total::float8 AS total,
+  c.tipo_adquisicion AS "tipoAdquisicion", c.forma_pago AS "formaPago", c.dias_credito AS "diasCredito",
+  c.tiene_detraccion AS "tieneDetraccion", c.tiene_retencion AS "tieneRetencion", c.estado,
+  c.asiento_id AS "asientoId", ast.numero AS "asientoNumero", c.asiento_id IS NOT NULL AS "asientoGenerado",
+  c.version, c.created_at AS "createdAt", c.updated_at AS "updatedAt"
+`;
+
+async function resolverPeriodoCompra(empresaId: string, periodoId: string, client?: PoolClient) {
+  if (!db.isPostgresConnected()) return periodoService.obtenerPorCodigo(empresaId, periodoId);
+  const sql = `
+    SELECT id, estado FROM periodos WHERE empresa_id = $1 AND (id::text = $2 OR codigo_periodo = $2)
+    ${client ? 'FOR SHARE' : ''}
+  `;
+  const params = [empresaId, periodoId];
+  type Periodo = { id: string; estado: string };
+  const { rows: [periodo] } = await (client ? client.query<Periodo>(sql, params) : db.query<Periodo>(sql, params));
+  if (!periodo) throw new Error('PERIODO_NO_ENCONTRADO: Seleccione un período de la empresa.');
+  return periodo;
+}
+
 export const compraService = {
   /**
    * Valida la coherencia de importes aritméticos y el cálculo del 18% de IGV
@@ -131,7 +161,7 @@ export const compraService = {
           ${ignorarId ? 'AND id != $6' : ''}
           AND estado != 'ANULADO'
       `;
-      const params = ignorarId ? [empresaId, tipo, serie, numero, proveedorId, ignorarId] : [empresaId, tipo, serie, numero, proveedorId];
+      const params = ignorarId ? [empresaId, tipo, serie.toUpperCase(), numero, proveedorId, ignorarId] : [empresaId, tipo, serie.toUpperCase(), numero, proveedorId];
       const res = await db.query(sql, params);
       if (res.rows.length > 0) {
         throw new Error(`COMPROBANTE_DUPLICADO: Ya existe un comprobante registrado con tipo ${tipo} ${serie}-${numero} para este proveedor.`);
@@ -157,7 +187,7 @@ export const compraService = {
    */
   async crearBorrador(empresaId: string, input: CompraInput, userId: string): Promise<CompraModel> {
     // Validar período abierto
-    const periodo = await periodoService.obtenerPorCodigo(empresaId, input.periodoId);
+    const periodo = await resolverPeriodoCompra(empresaId, input.periodoId);
     if (periodo && periodo.estado === 'CERRADO') {
       throw new Error('PERIODO_CERRADO: No se pueden crear comprobantes en un período contable cerrado.');
     }
@@ -165,17 +195,18 @@ export const compraService = {
     this.validarCoherencia(input);
     await this.verificarDuplicado(empresaId, input.tipoComprobante, input.serie, input.numero, input.proveedorId);
 
-    const id = `comp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const id = db.isPostgresConnected() ? randomUUID() : `comp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const now = new Date().toISOString();
 
     const anexo = await anexoService.obtenerPorId(empresaId, input.proveedorId);
+    if (db.isPostgresConnected() && !anexo) throw new Error('PROVEEDOR_NO_ENCONTRADO: Seleccione un proveedor de la empresa.');
     const provRuc = anexo?.numeroDocumento || (input.proveedorId.startsWith('prv-') ? input.proveedorId.replace('prv-', '') : (input.proveedorId.length === 11 ? input.proveedorId : undefined));
     const provNombre = anexo?.razonSocial || (provRuc ? `PROVEEDOR ${provRuc}` : input.proveedorId);
 
     const borrador: CompraModel = {
       id,
       empresaId,
-      periodoId: input.periodoId,
+      periodoId: db.isPostgresConnected() ? periodo!.id : input.periodoId,
       fechaEmision: input.fechaEmision,
       fechaVencimiento: input.fechaVencimiento || null,
       fechaContable: input.fechaContable,
@@ -261,7 +292,7 @@ export const compraService = {
       throw new Error(`VERSION_DESACTUALIZADA: El comprobante ha sido modificado por otro usuario (versión actual: ${actual.version}, provista: ${expectedVersion}).`);
     }
 
-    const periodo = await periodoService.obtenerPorCodigo(empresaId, input.periodoId || actual.periodoId);
+    const periodo = await resolverPeriodoCompra(empresaId, input.periodoId || actual.periodoId);
     if (periodo && periodo.estado === 'CERRADO') {
       throw new Error('PERIODO_CERRADO: No se pueden modificar comprobantes en un período contable cerrado.');
     }
@@ -274,7 +305,7 @@ export const compraService = {
 
     const actualizado: CompraModel = {
       ...actual,
-      periodoId: input.periodoId,
+      periodoId: db.isPostgresConnected() ? periodo!.id : input.periodoId,
       fechaEmision: input.fechaEmision,
       fechaVencimiento: input.fechaVencimiento || null,
       fechaContable: input.fechaContable,
@@ -302,7 +333,7 @@ export const compraService = {
     };
 
     if (db.isPostgresConnected()) {
-      await db.query(`
+      const resultado = await db.query(`
         UPDATE comprobantes_compra
         SET periodo_id = $1, fecha_emision = $2, fecha_vencimiento = $3, fecha_contable = $4,
             tipo_comprobante = $5, serie = $6, numero = $7, proveedor_id = $8,
@@ -321,6 +352,7 @@ export const compraService = {
         actualizado.diasCredito, actualizado.tieneDetraccion, actualizado.tieneRetencion,
         nuevaVersion, userId, id, empresaId, expectedVersion
       ]);
+      if (resultado.rowCount === 0) throw new Error('VERSION_DESACTUALIZADA: El comprobante ha sido modificado.');
     } else {
       const idx = COMPRAS_MEMORIA.findIndex(c => c.id === id && c.empresaId === empresaId);
       if (idx !== -1) {
@@ -427,7 +459,7 @@ export const compraService = {
     // 1. Validaciones
     this.validarCoherencia(input);
 
-    const periodo = await periodoService.obtenerPorCodigo(empresaId, input.periodoId);
+    const periodo = await resolverPeriodoCompra(empresaId, input.periodoId);
     if (periodo && periodo.estado === 'CERRADO') {
       throw new Error('PERIODO_CERRADO: No se pueden registrar compras en un período contable cerrado.');
     }
@@ -435,6 +467,7 @@ export const compraService = {
     // 2. Consulta y advertencias del Proveedor (Habido / No Habido, Activo / Baja)
     const advertencias: string[] = [];
     const anexo = await anexoService.obtenerPorId(empresaId, input.proveedorId);
+    if (db.isPostgresConnected() && !anexo) throw new Error('PROVEEDOR_NO_ENCONTRADO: Seleccione un proveedor de la empresa.');
     if (anexo) {
       if (anexo.condicionSunat === 'NO_HABIDO') {
         advertencias.push('PROVEEDOR_NO_HABIDO_ADVERTENCIA: El proveedor figura con condición NO HABIDO. Según el Art. 65-A del TUO del IGV, no da derecho a crédito fiscal a menos que subsane al cierre del ejercicio.');
@@ -449,6 +482,10 @@ export const compraService = {
     const formaPago = input.formaPago || 'CONTADO';
     const esServicio = !!input.esServicio;
     const esActivo = !!input.esActivo;
+    if (db.isPostgresConnected() && (esServicio || esActivo)) {
+      const empresa = await empresaRepository.obtenerPorId(empresaId);
+      if (!empresa?.metodoInventario) throw new Error('METODO_INVENTARIO_REQUERIDO: Configure el método de inventario de la empresa.');
+    }
 
     let tipoOp: 'COMPRA_MERCADERIA' | 'COMPRA_SERVICIO' | 'COMPRA_ACTIVO' = 'COMPRA_MERCADERIA';
     if (esActivo) tipoOp = 'COMPRA_ACTIVO';
@@ -491,187 +528,221 @@ export const compraService = {
       });
     }
 
-    // 4. Crear Asiento y Contabilizarlo mediante AsientoService
-    const asientoBorrador = await asientoService.crearBorrador(empresaId, {
-      periodoId: input.periodoId,
-      subdiarioId: '01', // Subdiario oficial 01 - Registro de Compras
-      fecha: input.fechaContable,
-      glosa: prop.glosaGeneral,
-      moneda,
-      tipoCambio,
-      origen: 'AUTOMATICO',
-      origenId: `${input.serie}-${input.numero}`,
-      detalles: prop.lineas.map((l: any) => ({
-        linea: l.linea,
-        cuentaId: l.cuentaId || `cta-${l.codigoCuenta}`,
-        anexoId: l.anexoId || input.proveedorId,
-        debe: l.debe,
-        haber: l.haber,
-        debeMe: l.debeMe,
-        haberMe: l.haberMe,
-        docTipo: l.docTipo || input.tipoComprobante,
-        docSerie: l.docSerie || input.serie,
-        docNumero: l.docNumero || input.numero,
-        glosaLinea: l.glosaLinea
-      }))
-    }, userId);
+    const persistir = async (client?: PoolClient): Promise<CompraModel> => {
+      let periodoId = input.periodoId;
+      let subdiarioId = '01';
+      const cuentas = new Map<string, string>();
+      if (client) {
+        if (existingId) {
+          const { rows: [actual] } = await client.query(`
+            SELECT estado, version FROM comprobantes_compra WHERE id = $1 AND empresa_id = $2 FOR UPDATE
+          `, [existingId, empresaId]);
+          if (actual?.estado !== 'BORRADOR' || actual.version !== version) {
+            throw new Error('VERSION_DESACTUALIZADA: El comprobante ha sido modificado.');
+          }
+        }
+        const periodoActual = await resolverPeriodoCompra(empresaId, periodoId, client);
+        if (periodoActual?.estado !== 'ABIERTO') throw new Error('PERIODO_CERRADO: No se pueden registrar compras en este período.');
+        periodoId = periodoActual.id;
+        const { rows: [subdiario] } = await client.query('SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = $2', [empresaId, subdiarioId]);
+        if (!subdiario) throw new Error('SUBDIARIO_NO_ENCONTRADO: Configure el subdiario de compras de la empresa.');
+        subdiarioId = subdiario.id;
+        const referencias = prop.lineas.map((linea: any) => (linea.cuentaId || linea.codigoCuenta).replace(/^cta-/, ''));
+        const { rows } = await client.query<{ id: string; codigo: string }>(`
+          SELECT id, codigo FROM plan_cuentas WHERE empresa_id = $1 AND (codigo = ANY($2::text[]) OR id::text = ANY($2::text[]))
+        `, [empresaId, referencias]);
+        for (const { id, codigo } of rows) {
+          cuentas.set(id, id);
+          cuentas.set(codigo, id);
+        }
+        if (referencias.some((referencia: string) => !cuentas.has(referencia))) {
+          throw new Error('CUENTA_NO_ENCONTRADA: Falta una cuenta en el plan contable de la empresa.');
+        }
+      }
 
-    const asientoContabilizado = await asientoService.contabilizar(asientoBorrador.id, empresaId, userId);
+      // 4. Crear y contabilizar el asiento en la misma transacción del comprobante.
+      const asientoBorrador = await asientoService.crearBorrador(empresaId, {
+        periodoId,
+        subdiarioId,
+        fecha: input.fechaContable,
+        glosa: prop.glosaGeneral,
+        moneda,
+        tipoCambio,
+        origen: client ? 'COMPRA' : 'AUTOMATICO',
+        origenId: `${input.serie}-${input.numero}`,
+        detalles: prop.lineas.map((l: any) => ({
+          linea: l.linea,
+          cuentaId: client ? cuentas.get((l.cuentaId || l.codigoCuenta).replace(/^cta-/, ''))! : l.cuentaId || `cta-${l.codigoCuenta}`,
+          anexoId: l.anexoId || input.proveedorId,
+          debe: l.debe,
+          haber: l.haber,
+          debeMe: l.debeMe,
+          haberMe: l.haberMe,
+          docTipo: l.docTipo || input.tipoComprobante,
+          docSerie: l.docSerie || input.serie,
+          docNumero: l.docNumero || input.numero,
+          glosaLinea: l.glosaLinea
+        }))
+      }, userId, client);
 
-    const compraId = existingId || `comp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const now = new Date().toISOString();
+      const asientoContabilizado = await asientoService.contabilizar(asientoBorrador.id, empresaId, userId, undefined, client);
 
-    const compraRegistrada: CompraModel = {
-      id: compraId,
-      empresaId,
-      periodoId: input.periodoId,
-      fechaEmision: input.fechaEmision,
-      fechaVencimiento: input.fechaVencimiento || null,
-      fechaContable: input.fechaContable,
-      tipoComprobante: input.tipoComprobante,
-      serie: input.serie.toUpperCase(),
-      numero: input.numero,
-      proveedorId: input.proveedorId,
-      proveedorNombre: anexo?.razonSocial || (input.proveedorId.startsWith('prv-') ? 'PROVEEDOR ' + input.proveedorId.replace('prv-', '') : input.proveedorId),
-      proveedorRuc: anexo?.numeroDocumento || (input.proveedorId.startsWith('prv-') ? input.proveedorId.replace('prv-', '') : (input.proveedorId.length === 11 ? input.proveedorId : undefined)),
-      moneda,
-      tipoCambio,
-      baseGravada: input.baseGravada,
-      igv: input.igv,
-      baseNoGravada: input.baseNoGravada || 0,
-      exonerado: input.exonerado || 0,
-      isc: input.isc || 0,
-      icbper: input.icbper || 0,
-      otrosTributos: input.otrosTributos || 0,
-      total: input.total,
-      tipoAdquisicion: input.tipoAdquisicion || '1',
-      formaPago,
-      diasCredito: input.diasCredito || 0,
-      tieneDetraccion: !!input.tieneDetraccion,
-      tieneRetencion: !!input.tieneRetencion,
-      estado: 'REGISTRADO',
-      asientoGenerado: true,
-      asientoId: asientoContabilizado.id,
-      asientoNumero: asientoContabilizado.numero,
-      version: version + 1,
-      advertencias,
-      createdAt: now,
-      updatedAt: now
+      const compraId = existingId || (client ? randomUUID() : `comp-${Date.now()}-${Math.floor(Math.random() * 1000)}`);
+      const now = new Date().toISOString();
+
+      const compraRegistrada: CompraModel = {
+        id: compraId,
+        empresaId,
+        periodoId,
+        fechaEmision: input.fechaEmision,
+        fechaVencimiento: input.fechaVencimiento || null,
+        fechaContable: input.fechaContable,
+        tipoComprobante: input.tipoComprobante,
+        serie: input.serie.toUpperCase(),
+        numero: input.numero,
+        proveedorId: input.proveedorId,
+        proveedorNombre: anexo?.razonSocial || (input.proveedorId.startsWith('prv-') ? 'PROVEEDOR ' + input.proveedorId.replace('prv-', '') : input.proveedorId),
+        proveedorRuc: anexo?.numeroDocumento || (input.proveedorId.startsWith('prv-') ? input.proveedorId.replace('prv-', '') : (input.proveedorId.length === 11 ? input.proveedorId : undefined)),
+        moneda,
+        tipoCambio,
+        baseGravada: input.baseGravada,
+        igv: input.igv,
+        baseNoGravada: input.baseNoGravada || 0,
+        exonerado: input.exonerado || 0,
+        isc: input.isc || 0,
+        icbper: input.icbper || 0,
+        otrosTributos: input.otrosTributos || 0,
+        total: input.total,
+        tipoAdquisicion: input.tipoAdquisicion || '1',
+        formaPago,
+        diasCredito: input.diasCredito || 0,
+        tieneDetraccion: !!input.tieneDetraccion,
+        tieneRetencion: !!input.tieneRetencion,
+        estado: 'REGISTRADO',
+        asientoGenerado: true,
+        asientoId: asientoContabilizado.id,
+        asientoNumero: asientoContabilizado.numero,
+        version: version + 1,
+        advertencias,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      if (client) {
+        if (existingId) {
+          await client.query(`
+            UPDATE comprobantes_compra
+            SET estado = 'REGISTRADO', asiento_id = $1, version = version + 1, updated_at = NOW(), updated_by = $2
+            WHERE id = $3 AND empresa_id = $4
+          `, [asientoContabilizado.id, userId, compraId, empresaId]);
+        } else {
+          await client.query(`
+            INSERT INTO comprobantes_compra (
+              id, empresa_id, periodo_id, fecha_emision, fecha_vencimiento, fecha_contable,
+              tipo_comprobante, serie, numero, proveedor_id, moneda, tipo_cambio,
+              base_gravada, igv, base_no_gravada, exonerado, isc, icbper, otros_tributos,
+              total, tipo_adquisicion, forma_pago, dias_credito, tiene_detraccion, tiene_retencion,
+              estado, origen, asiento_id, version, created_by
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+              'REGISTRADO', 'MANUAL', $26, 2, $27
+            )
+          `, [
+            compraId, empresaId, periodoId, input.fechaEmision, input.fechaVencimiento || null, input.fechaContable,
+            input.tipoComprobante, compraRegistrada.serie, input.numero, input.proveedorId, moneda, tipoCambio,
+            compraRegistrada.baseGravada, compraRegistrada.igv, compraRegistrada.baseNoGravada, compraRegistrada.exonerado,
+            compraRegistrada.isc, compraRegistrada.icbper, compraRegistrada.otrosTributos, compraRegistrada.total,
+            compraRegistrada.tipoAdquisicion, formaPago, compraRegistrada.diasCredito, compraRegistrada.tieneDetraccion, compraRegistrada.tieneRetencion,
+            asientoContabilizado.id, userId
+          ]);
+        }
+
+        // Si es a Crédito, crear Cuenta por Pagar
+        if (formaPago === 'CREDITO') {
+          await client.query(`
+            INSERT INTO cuentas_por_pagar (
+              empresa_id, comprobante_id, proveedor_id, moneda, importe_original,
+              saldo, fecha_emision, fecha_vencimiento, estado
+            ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, 'PENDIENTE')
+            ON CONFLICT (comprobante_id) DO UPDATE SET saldo = EXCLUDED.saldo, estado = 'PENDIENTE'
+          `, [
+            empresaId, compraId, input.proveedorId, moneda, compraRegistrada.total,
+            input.fechaEmision, input.fechaVencimiento || input.fechaEmision
+          ]);
+        }
+
+        // Si tiene detracción, registrar
+        if (input.tieneDetraccion) {
+          const pctDet = input.porcentajeDetraccion || 12.0;
+          const montoDet = Money.round(Money.create(input.total).times(pctDet).dividedBy(100));
+          await client.query(`
+            INSERT INTO detracciones (
+              empresa_id, tipo_operacion, comprobante_id, codigo_bien_servicio,
+              porcentaje, monto, estado
+            ) VALUES ($1, 'COMPRA', $2, $3, $4, $5, 'PENDIENTE')
+          `, [
+            empresaId, compraId, input.codigoBienDetraccion || '022',
+            pctDet, Money.toNumber(montoDet)
+          ]);
+        }
+      } else {
+        if (existingId) {
+          const idx = COMPRAS_MEMORIA.findIndex(c => c.id === existingId && c.empresaId === empresaId);
+          if (idx !== -1) COMPRAS_MEMORIA[idx] = compraRegistrada;
+        } else {
+          COMPRAS_MEMORIA.unshift(compraRegistrada);
+        }
+
+        if (formaPago === 'CREDITO') {
+          CXP_MEMORIA.unshift({
+            id: `cxp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            empresaId,
+            comprobanteId: compraId,
+            proveedorId: input.proveedorId,
+            proveedorNombre: anexo?.razonSocial || 'PROVEEDOR',
+            proveedorRuc: anexo?.numeroDocumento || '20000000001',
+            serie: input.serie,
+            numero: input.numero,
+            tipoComprobante: input.tipoComprobante,
+            moneda,
+            importeOriginal: compraRegistrada.total,
+            saldo: compraRegistrada.total,
+            fechaEmision: input.fechaEmision,
+            fechaVencimiento: input.fechaVencimiento || input.fechaEmision,
+            estado: 'PENDIENTE'
+          });
+        }
+
+        if (input.tieneDetraccion) {
+          const pctDet = input.porcentajeDetraccion || 12.0;
+          const montoDet = Money.round(Money.create(input.total).times(pctDet).dividedBy(100));
+          DETRACCIONES_MEMORIA.unshift({
+            id: `det-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            empresaId,
+            tipoOperacion: 'COMPRA',
+            comprobanteId: compraId,
+            codigoBienServicio: input.codigoBienDetraccion || '022',
+            porcentaje: pctDet,
+            monto: Money.toNumber(montoDet),
+            estado: 'PENDIENTE',
+            createdAt: now
+          });
+        }
+      }
+
+      await auditoriaRepository.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'comprobantes_compra',
+        registroId: compraId,
+        accion: 'INSERT',
+        datosNuevos: compraRegistrada
+      }, client);
+
+      return compraRegistrada;
     };
-
-    if (db.isPostgresConnected()) {
-      if (existingId) {
-        await db.query(`
-          UPDATE comprobantes_compra
-          SET estado = 'REGISTRADO', asiento_id = $1, version = version + 1, updated_at = NOW(), updated_by = $2
-          WHERE id = $3 AND empresa_id = $4
-        `, [asientoContabilizado.id, userId, compraId, empresaId]);
-      } else {
-        await db.query(`
-          INSERT INTO comprobantes_compra (
-            id, empresa_id, periodo_id, fecha_emision, fecha_vencimiento, fecha_contable,
-            tipo_comprobante, serie, numero, proveedor_id, moneda, tipo_cambio,
-            base_gravada, igv, base_no_gravada, exonerado, isc, icbper, otros_tributos,
-            total, tipo_adquisicion, forma_pago, dias_credito, tiene_detraccion, tiene_retencion,
-            estado, origen, asiento_id, version, created_by
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-            'REGISTRADO', 'MANUAL', $26, 2, $27
-          )
-        `, [
-          compraId, empresaId, input.periodoId, input.fechaEmision, input.fechaVencimiento || null, input.fechaContable,
-          input.tipoComprobante, input.serie, input.numero, input.proveedorId, moneda, tipoCambio,
-          compraRegistrada.baseGravada, compraRegistrada.igv, compraRegistrada.baseNoGravada, compraRegistrada.exonerado,
-          compraRegistrada.isc, compraRegistrada.icbper, compraRegistrada.otrosTributos, compraRegistrada.total,
-          compraRegistrada.tipoAdquisicion, formaPago, compraRegistrada.diasCredito, compraRegistrada.tieneDetraccion, compraRegistrada.tieneRetencion,
-          asientoContabilizado.id, userId
-        ]);
-      }
-
-      // Si es a Crédito, crear Cuenta por Pagar
-      if (formaPago === 'CREDITO') {
-        await db.query(`
-          INSERT INTO cuentas_por_pagar (
-            empresa_id, comprobante_id, proveedor_id, moneda, importe_original,
-            saldo, fecha_emision, fecha_vencimiento, estado
-          ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, 'PENDIENTE')
-          ON CONFLICT (comprobante_id) DO UPDATE SET saldo = EXCLUDED.saldo, estado = 'PENDIENTE'
-        `, [
-          empresaId, compraId, input.proveedorId, moneda, compraRegistrada.total,
-          input.fechaEmision, input.fechaVencimiento || input.fechaEmision
-        ]);
-      }
-
-      // Si tiene detracción, registrar
-      if (input.tieneDetraccion) {
-        const pctDet = input.porcentajeDetraccion || 12.0;
-        const montoDet = Money.round(Money.create(input.total).times(pctDet).dividedBy(100));
-        await db.query(`
-          INSERT INTO detracciones (
-            empresa_id, tipo_operacion, comprobante_id, codigo_bien_servicio,
-            porcentaje, monto, estado
-          ) VALUES ($1, 'COMPRA', $2, $3, $4, $5, 'PENDIENTE')
-        `, [
-          empresaId, compraId, input.codigoBienDetraccion || '022',
-          pctDet, Money.toNumber(montoDet)
-        ]);
-      }
-    } else {
-      if (existingId) {
-        const idx = COMPRAS_MEMORIA.findIndex(c => c.id === existingId && c.empresaId === empresaId);
-        if (idx !== -1) COMPRAS_MEMORIA[idx] = compraRegistrada;
-      } else {
-        COMPRAS_MEMORIA.unshift(compraRegistrada);
-      }
-
-      if (formaPago === 'CREDITO') {
-        CXP_MEMORIA.unshift({
-          id: `cxp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          empresaId,
-          comprobanteId: compraId,
-          proveedorId: input.proveedorId,
-          proveedorNombre: anexo?.razonSocial || 'PROVEEDOR',
-          proveedorRuc: anexo?.numeroDocumento || '20000000001',
-          serie: input.serie,
-          numero: input.numero,
-          tipoComprobante: input.tipoComprobante,
-          moneda,
-          importeOriginal: compraRegistrada.total,
-          saldo: compraRegistrada.total,
-          fechaEmision: input.fechaEmision,
-          fechaVencimiento: input.fechaVencimiento || input.fechaEmision,
-          estado: 'PENDIENTE'
-        });
-      }
-
-      if (input.tieneDetraccion) {
-        const pctDet = input.porcentajeDetraccion || 12.0;
-        const montoDet = Money.round(Money.create(input.total).times(pctDet).dividedBy(100));
-        DETRACCIONES_MEMORIA.unshift({
-          id: `det-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          empresaId,
-          tipoOperacion: 'COMPRA',
-          comprobanteId: compraId,
-          codigoBienServicio: input.codigoBienDetraccion || '022',
-          porcentaje: pctDet,
-          monto: Money.toNumber(montoDet),
-          estado: 'PENDIENTE',
-          createdAt: now
-        });
-      }
-    }
-
-    await auditoriaRepository.registrar({
-      empresaId,
-      usuarioId: userId,
-      tablaAfectada: 'comprobantes_compra',
-      registroId: compraId,
-      accion: 'INSERT',
-      datosNuevos: compraRegistrada
-    });
-
-    return compraRegistrada;
+    return db.isPostgresConnected() ? db.withTenantAndEmpresa(userId, empresaId, persistir) : persistir();
   },
 
   /**
@@ -799,12 +870,11 @@ export const compraService = {
    */
   async obtenerPorId(empresaId: string, id: string): Promise<CompraModel | null> {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
-        SELECT c.*, a.razon_social as "proveedorNombre", a.numero_documento as "proveedorRuc",
-               ast.numero as "asientoNumero"
+      const res = await db.query<CompraModel>(`
+        SELECT ${columnasCompra}
         FROM comprobantes_compra c
-        JOIN anexos a ON a.id = c.proveedor_id
-        LEFT JOIN asientos ast ON ast.id = c.asiento_id
+        JOIN anexos a ON a.id = c.proveedor_id AND a.empresa_id = c.empresa_id
+        LEFT JOIN asientos ast ON ast.id = c.asiento_id AND ast.empresa_id = c.empresa_id
         WHERE c.id = $1 AND c.empresa_id = $2
       `, [id, empresaId]);
       return res.rows[0] || null;
@@ -838,7 +908,7 @@ export const compraService = {
 
       if (params.periodoId) {
         values.push(params.periodoId);
-        where += ` AND c.periodo_id = $${values.length}`;
+        where += ` AND (p.id::text = $${values.length} OR p.codigo_periodo = $${values.length})`;
       }
       if (params.tipoComprobante) {
         values.push(params.tipoComprobante);
@@ -867,7 +937,8 @@ export const compraService = {
 
       const countRes = await db.query(`
         SELECT COUNT(*) as total FROM comprobantes_compra c
-        JOIN anexos a ON a.id = c.proveedor_id
+        JOIN anexos a ON a.id = c.proveedor_id AND a.empresa_id = c.empresa_id
+        JOIN periodos p ON p.id = c.periodo_id AND p.empresa_id = c.empresa_id
         ${where}
       `, values);
       const total = parseInt(countRes.rows[0]?.total || '0', 10);
@@ -876,12 +947,12 @@ export const compraService = {
       const sortOrder = params.sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
       values.push(limit, offset);
-      const dataRes = await db.query(`
-        SELECT c.*, a.razon_social as "proveedorNombre", a.numero_documento as "proveedorRuc",
-               ast.numero as "asientoNumero"
+      const dataRes = await db.query<CompraModel>(`
+        SELECT ${columnasCompra}
         FROM comprobantes_compra c
-        JOIN anexos a ON a.id = c.proveedor_id
-        LEFT JOIN asientos ast ON ast.id = c.asiento_id
+        JOIN anexos a ON a.id = c.proveedor_id AND a.empresa_id = c.empresa_id
+        JOIN periodos p ON p.id = c.periodo_id AND p.empresa_id = c.empresa_id
+        LEFT JOIN asientos ast ON ast.id = c.asiento_id AND ast.empresa_id = c.empresa_id
         ${where}
         ORDER BY ${sortBy} ${sortOrder}
         LIMIT $${values.length - 1} OFFSET $${values.length}
@@ -966,8 +1037,10 @@ export const compraService = {
         SELECT COALESCE(SUM(ad.debe), 0) as total_debe
         FROM asiento_detalle ad
         JOIN asientos a ON a.id = ad.asiento_id
+        JOIN periodos p ON p.id = a.periodo_id AND p.empresa_id = a.empresa_id
+        JOIN subdiarios s ON s.id = a.subdiario_id AND s.empresa_id = a.empresa_id
         JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
-        WHERE a.empresa_id = $1 AND a.periodo_id = $2 AND a.subdiario_id = '01'
+        WHERE a.empresa_id = $1 AND (p.id::text = $2 OR p.codigo_periodo = $2) AND s.codigo = '01'
           AND a.estado = 'CONTABILIZADO' AND pc.codigo LIKE '40111%'
       `, [empresaId, periodoId]);
       totalDiarioIgv = parseFloat(resDiario.rows[0]?.total_debe || '0');

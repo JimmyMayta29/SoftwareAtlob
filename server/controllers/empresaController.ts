@@ -29,6 +29,7 @@ export const crearEmpresaSchema = z.object({
   contadorNombre: z.string().min(3).optional(),
   contadorColegiatura: z.string().min(3).optional(),
   ejercicio: z.number().int().min(2020).max(2035).default(2026),
+  metodoInventario: z.enum(['PERIODICO', 'PERMANENTE']).optional(),
   monedaPrincipal: z.enum(['PEN', 'USD']).default('PEN')
 });
 
@@ -114,6 +115,8 @@ export const empresaController = {
         contactoNombre: req.body.contactoNombre,
         contactoTelefono: req.body.contactoTelefono,
         contactoEmail: req.body.contactoEmail,
+        ejercicio: req.body.ejercicio,
+        metodoInventario: req.body.metodoInventario,
         monedaPrincipal: req.body.monedaPrincipal || 'PEN'
       });
 

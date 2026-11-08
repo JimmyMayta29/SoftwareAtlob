@@ -18,6 +18,7 @@ interface TopBarProps {
   periodoNombre?: string;
   ambienteSunat?: 'BETA' | 'BETA_TEST' | 'PRODUCCION';
   perfilSeleccionado: string;
+  rolAutenticado?: string;
   onCambiarPerfil: (nuevoPerfil: string) => void;
   onAbrirPaletaComandos?: () => void;
 }
@@ -38,6 +39,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   periodoNombre = '2026-03',
   ambienteSunat = 'BETA',
   perfilSeleccionado,
+  rolAutenticado,
   onCambiarPerfil,
   onAbrirPaletaComandos,
 }) => {
@@ -47,7 +49,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const menuButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const rolActual = obtenerCodigoRolDesdePerfil(perfilSeleccionado);
+  const rolActual = obtenerCodigoRolDesdePerfil(rolAutenticado ?? perfilSeleccionado);
   const esAuditor = rolActual === 'AUDITOR';
   const esAdmin = rolActual === 'ADMIN' || rolActual === 'ADMINISTRADOR' || rolActual === 'ADMIN_ESTUDIO';
 
@@ -265,7 +267,9 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <div className="flex items-center gap-3 flex-shrink-0 text-[11px]">
           <div className="flex items-center gap-1">
-            <label htmlFor="select-perfil" className="text-[#4B5563]">
+            {rolAutenticado ? (
+              <span className="text-[#4B5563]">{perfilSeleccionado} · {rolAutenticado}</span>
+            ) : <><label htmlFor="select-perfil" className="text-[#4B5563]">
               Rol activo:
             </label>
             <select
@@ -280,7 +284,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               <option value="Contador">Contador (CONTADOR)</option>
               <option value="Asistente Contable">Asistente (ASISTENTE)</option>
               <option value="Auditor">Auditor (AUDITOR - Solo lectura)</option>
-            </select>
+            </select></>}
           </div>
           <span className="text-[#4B5563] hidden sm:inline">
             Desarrollado por Jimmy Mayta

@@ -356,15 +356,17 @@ export const librosEEFFService = {
 
       const res = await db.query(`
         SELECT a.id, a.empresa_id as "empresaId", a.numero as "asientoNumero",
-               a.fecha, a.glosa, a.moneda, a.tipo_cambio as "tipoCambio",
+               a.fecha, a.glosa, a.moneda, a.tipo_cambio as "tipoCambio", a.cuo, a.origen, a.estado,
                p.codigo_periodo as "periodo", s.codigo as "subdiario",
                json_agg(json_build_object(
+                 'id', d.id,
                  'linea', d.linea,
                  'codigoCuenta', c.codigo,
                  'denominacionCuenta', c.nombre,
                  'debe', d.debe,
                  'haber', d.haber,
-                 'glosa', d.glosa_linea
+                 'glosa', d.glosa_linea,
+                 'documentoReferencia', concat_ws('-', d.doc_serie, d.doc_numero)
                ) ORDER BY d.linea) as items
         FROM asientos a
         JOIN periodos p ON p.id = a.periodo_id

@@ -91,8 +91,7 @@ export const AsistenteSetupInicial: React.FC<AsistenteSetupInicialProps> = ({
             throw new Error('No se pudo generar el secreto de autenticación.');
           }
         })
-        .catch(err => {
-          console.error('Error cargando secreto MFA:', err);
+        .catch(() => {
           setErrorMensaje('No se pudo generar el secreto 2FA. Intente de nuevo.');
         })
         .finally(() => setCargandoMfa(false));

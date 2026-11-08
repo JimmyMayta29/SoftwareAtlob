@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { AsientoContable } from '../types';
 
 export interface DetalleDto {
   id?: string;
@@ -45,6 +46,13 @@ export interface AsientoDto {
   createdAt: string;
   detalles?: DetalleDto[];
 }
+
+type AsientoLibroDiarioDto = Pick<AsientoContable, 'id' | 'empresaId' | 'periodo' | 'subdiario' | 'fecha' | 'moneda' | 'cuo' | 'estado' | 'items' | 'totalDebe' | 'totalHaber' | 'cuadrado'> & {
+  asientoNumero: string;
+  glosa: string;
+  origen: string;
+  tipoCambio: number | string;
+};
 
 export const asientosApi = {
   async listar(empresaId: string, params: Record<string, any> = {}): Promise<{ data: AsientoDto[]; total: number; page: number; totalPages: number }> {
@@ -107,7 +115,7 @@ export const asientosApi = {
     return res.data;
   },
 
-  async obtenerLibroDiario(empresaId: string, params: Record<string, any> = {}) {
+  async obtenerLibroDiario(empresaId: string, params: Record<string, any> = {}): Promise<{ asientos: AsientoLibroDiarioDto[] }> {
     const res: any = await apiClient.get(`/empresas/${empresaId}/libro-diario`, { params });
     return res.data;
   }

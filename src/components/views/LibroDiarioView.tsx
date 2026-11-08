@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { asientosApi } from '../../api/asientosApi';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -32,6 +34,7 @@ import { VisorReporteModal } from '../modals/VisorReporteModal';
 
 interface LibroDiarioViewProps {
   asientos: AsientoContable[];
+  persistente?: boolean;
   empresa: EmpresaCliente;
   periodo: string;
   onGenerarAsientosMasivos: () => void;
@@ -39,13 +42,35 @@ interface LibroDiarioViewProps {
 }
 
 export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
-  asientos,
+  asientos: asientosLocal,
+  persistente = false,
   empresa,
   periodo,
   onGenerarAsientosMasivos,
   onAbrirAsiento
 }) => {
   const { info, success } = useToast();
+  const libro = useQuery({
+    queryKey: ['asientos', empresa.id, 'libro-diario', periodo],
+    queryFn: () => asientosApi.obtenerLibroDiario(empresa.id, { periodo }),
+    enabled: persistente,
+  });
+  const asientos = useMemo<AsientoContable[]>(() => {
+    if (!persistente) return asientosLocal;
+    return (libro.data?.asientos ?? []).map(asiento => {
+      const operaciones = ['COMPRA', 'VENTA', 'DESTINO', 'PAGO', 'DETRACCION', 'APERTURA', 'AJUSTE', 'PLANILLA'] as const;
+      const tipoOperacion = operaciones.find(operacion => operacion === asiento.origen) ?? 'AJUSTE';
+      return {
+        ...asiento,
+        numeroAsiento: asiento.asientoNumero,
+        glosaGeneral: asiento.glosa,
+        fecha: asiento.fecha.slice(0, 10),
+        tipoCambio: Number(asiento.tipoCambio),
+        tipoOperacion,
+        origenAutomatico: asiento.origen !== 'MANUAL',
+      };
+    });
+  }, [persistente, asientosLocal, libro.data]);
 
   // Filtros y opciones
   const [searchTerm, setSearchTerm] = useState('');
@@ -132,6 +157,18 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
       info(`Abriendo detalle del voucher/asiento ${voucherNumero}...`, 'Asiento Contable');
     }
   };
+
+  if (persistente && libro.isPending) {
+    return <p role="status" className="p-4 text-sm text-slate-600">Cargando Libro Diario…</p>;
+  }
+  if (persistente && libro.isError) {
+    return (
+      <div role="alert" className="p-4 text-sm text-red-700">
+        No se pudo cargar el Libro Diario.{' '}
+        <button type="button" className="underline" onClick={() => void libro.refetch()}>Reintentar</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
