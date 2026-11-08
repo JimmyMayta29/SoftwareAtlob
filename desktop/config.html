@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'">
+  <title>Conexión a PostgreSQL · ATLOB ERP</title>
+  <link rel="stylesheet" href="config.css">
+  <script src="config-renderer.js" defer></script>
+</head>
+<body>
+  <main>
+    <p class="marca">ATLOB ERP</p>
+    <h1>Conexión a PostgreSQL</h1>
+    <p>Introduce los datos de tu servidor PostgreSQL local. Windows cifra la configuración para tu perfil de usuario.</p>
+    <form id="conexion" novalidate>
+      <fieldset id="campos">
+        <div class="fila">
+          <label>Servidor <input name="host" value="127.0.0.1" maxlength="64" required></label>
+          <label>Puerto <input name="puerto" value="5432" inputmode="numeric" maxlength="5" required></label>
+        </div>
+        <label>Base de datos <input name="base" value="sistema_contable" maxlength="63" required></label>
+        <label>Usuario de PostgreSQL <input name="usuario" value="contabilidad_app" maxlength="63" autocomplete="username" required></label>
+        <label>Contraseña <input type="password" name="contrasena" autocomplete="off" maxlength="4096" required></label>
+        <label class="opcion" id="opcion-migrar" hidden>
+          <input name="migrar" type="checkbox">
+          <span>Autorizo preparar el esquema de esta base con el migrador de la aplicación.</span>
+        </label>
+      </fieldset>
+      <p id="estado" class="estado" role="status" aria-live="polite"></p>
+      <div class="acciones">
+        <button id="reintentar" type="button" hidden>Reintentar conexión guardada</button>
+        <button id="conectar" type="submit">Conectar y continuar</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

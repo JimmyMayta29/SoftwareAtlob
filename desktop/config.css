@@ -1,0 +1,25 @@
+:root {
+  color-scheme: light;
+  font: 16px system-ui, sans-serif;
+  color: #142239;
+  background: #edf2f8;
+}
+
+body { margin: 0; padding: 24px; }
+main { max-width: 530px; margin: auto; padding: 26px 30px; border: 1px solid #c8d4e2; border-radius: 12px; background: #fff; }
+.marca { color: #284974; font-size: .78rem; font-weight: 750; letter-spacing: .1em; }
+h1 { margin: 0; font-size: 1.7rem; }
+p { line-height: 1.45; }
+fieldset { border: 0; margin: 0; padding: 0; }
+label { display: block; margin-top: 14px; font-size: .9rem; font-weight: 600; }
+input:not([type="checkbox"]) { box-sizing: border-box; display: block; width: 100%; margin-top: 5px; padding: 9px 10px; border: 1px solid #8091a5; border-radius: 5px; font: inherit; }
+.fila { display: grid; grid-template-columns: 1fr minmax(90px, 26%); gap: 12px; }
+.opcion { display: flex; gap: 8px; align-items: start; font-weight: 400; }
+[hidden] { display: none !important; }
+.estado { min-height: 1.45em; margin: 12px 0; font-size: .9rem; }
+.error { color: #9a1c27; }
+.acciones { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+button { padding: 9px 12px; border: 1px solid #1d4276; border-radius: 5px; background: #fff; color: #1d4276; font: inherit; font-weight: 650; cursor: pointer; }
+button[type="submit"] { background: #1d4276; color: #fff; }
+button:disabled { opacity: .55; cursor: wait; }
+:focus-visible { outline: 3px solid #287acf; outline-offset: 2px; }

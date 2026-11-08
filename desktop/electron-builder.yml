@@ -1,0 +1,28 @@
+appId: pe.atlob.erp
+productName: ATLOB ERP
+directories:
+  app: build/desktop/app
+  output: release
+files:
+  - package.json
+  - desktop/**/*
+  - "!**/node_modules{,/**}"
+asar: true
+asarUnpack:
+  - desktop/generated/**
+beforeBuild: desktop/after-pack.cjs
+afterPack: desktop/after-pack.cjs
+forceCodeSigning: false
+win:
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  artifactName: ATLOB-ERP-${version}-Setup-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+portable:
+  artifactName: ATLOB-ERP-${version}-Portable-${arch}.${ext}

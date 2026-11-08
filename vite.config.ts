@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // Las variables privadas de Express se leen exclusivamente en el servidor.
+    envDir: false as const,
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),
