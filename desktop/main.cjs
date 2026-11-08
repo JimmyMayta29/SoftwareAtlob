@@ -170,9 +170,13 @@ function archivoConfiguracion() {
 }
 
 function nuevaVentana(opciones, permiteNavegacion) {
+  const rutaIcono = process.platform === 'win32'
+    ? join(__dirname, 'build', 'icon.ico')
+    : join(__dirname, 'build', 'icon.png');
   const ventana = new BrowserWindow({
     ...opciones,
     title: 'ATLOB ERP',
+    icon: rutaIcono,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {

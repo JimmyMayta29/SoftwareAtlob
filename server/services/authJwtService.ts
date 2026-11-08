@@ -75,7 +75,10 @@ interface RegistroIntentosLogin {
 const INTENTOS_FALLIDOS_LOGIN = new Map<string, RegistroIntentosLogin>();
 const MAX_INTENTOS_FALLIDOS = 5;
 const VENTANA_INTENTOS_MS = 5 * 60 * 1000;
-const DURACION_BLOQUEO_MS = 5 * 60 * 1000;
+const DURACION_BLOQUEO_BASE_MS = 60 * 1000; // Base 1 minuto progresivo
+
+// Hash bcrypt precalculado para respuesta en tiempo constante ante usuarios inexistentes (previene timing attacks)
+const DUMMY_BCRYPT_HASH = '$2a$10$e8kZ1qP6mX7rT9uV3wY5z.A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P';
 
 export function establecerMfaRequeridoMemoria(requerido: boolean | null): void {
   MFA_REQUERIDO_ESTUDIO_MEMORIA = requerido;
@@ -282,16 +285,26 @@ export const authJwtService = {
     return USUARIOS_ESTUDIO_MEMORIA.some(u => u.rolGlobal === 'ADMINISTRADOR' && u.isActive && u.mfaActivado);
   },
 
-  async login(email: string, passwordPlano: string, totpCode?: string, empresaPreferencia?: string): Promise<SesionUsuario> {
+  async login(email: string, passwordPlano: string, totpCode?: string, empresaPreferencia?: string, origenIp?: string): Promise<SesionUsuario> {
     exigirAlmacenDisponible();
     if (typeof email !== 'string' || typeof passwordPlano !== 'string') {
       throw new Error('CREDENCIALES_INVALIDAS: Usuario o contraseña incorrectos.');
     }
     const emailNormalizado = email.toLowerCase().trim();
+    const claveIp = origenIp ? `ip:${origenIp.trim()}` : '';
     const ahora = Date.now();
-    const registroIntento = INTENTOS_FALLIDOS_LOGIN.get(emailNormalizado);
-    if (registroIntento && registroIntento.bloqueadoHastaMs > ahora) {
-      throw new Error('CUENTA_BLOQUEADA_TEMPORALMENTE: Demasiados intentos fallidos. Espere unos minutos antes de volver a intentar.');
+
+    const regUsuario = INTENTOS_FALLIDOS_LOGIN.get(emailNormalizado);
+    const regIp = claveIp ? INTENTOS_FALLIDOS_LOGIN.get(claveIp) : undefined;
+    const registroBloqueante = (regUsuario && regUsuario.bloqueadoHastaMs > ahora)
+      ? regUsuario
+      : (regIp && regIp.bloqueadoHastaMs > ahora)
+        ? regIp
+        : null;
+
+    if (registroBloqueante) {
+      const segundosRestantes = Math.max(1, Math.ceil((registroBloqueante.bloqueadoHastaMs - ahora) / 1000));
+      throw new Error(`CUENTA_BLOQUEADA_TEMPORALMENTE: Demasiados intentos fallidos. Espere ${segundosRestantes} segundos antes de volver a intentar.`);
     }
 
     let usuario: UsuarioEstudioModel | undefined;
@@ -301,17 +314,34 @@ export const authJwtService = {
     } else {
       usuario = USUARIOS_ESTUDIO_MEMORIA.find(u => u.email.toLowerCase() === emailNormalizado && u.isActive);
     }
-    if (!usuario || !await bcrypt.compare(passwordPlano, usuario.passwordHash)) {
-      const dentroVentana = registroIntento && (ahora - registroIntento.ultimoFalloMs) <= VENTANA_INTENTOS_MS;
-      const fallos = dentroVentana ? registroIntento.fallos + 1 : 1;
-      INTENTOS_FALLIDOS_LOGIN.set(emailNormalizado, {
-        fallos,
-        ultimoFalloMs: ahora,
-        bloqueadoHastaMs: fallos >= MAX_INTENTOS_FALLIDOS ? ahora + DURACION_BLOQUEO_MS : 0
-      });
+
+    // Tiempo constante: evaluar bcrypt tanto si el usuario existe como si no existe
+    const hashAComparar = usuario ? usuario.passwordHash : DUMMY_BCRYPT_HASH;
+    const passwordValida = await bcrypt.compare(passwordPlano, hashAComparar);
+
+    if (!usuario || !passwordValida) {
+      const registrarFallo = (clave: string) => {
+        const reg = INTENTOS_FALLIDOS_LOGIN.get(clave);
+        const dentroVentana = reg && (ahora - reg.ultimoFalloMs) <= VENTANA_INTENTOS_MS;
+        const fallos = dentroVentana ? reg.fallos + 1 : 1;
+        let bloqueadoHastaMs = 0;
+        if (fallos >= MAX_INTENTOS_FALLIDOS) {
+          const exceso = fallos - MAX_INTENTOS_FALLIDOS;
+          const factor = Math.min(15, Math.pow(2, exceso)); // 1m, 2m, 4m, 8m... max 15m
+          bloqueadoHastaMs = ahora + (DURACION_BLOQUEO_BASE_MS * factor);
+        }
+        INTENTOS_FALLIDOS_LOGIN.set(clave, { fallos, ultimoFalloMs: ahora, bloqueadoHastaMs });
+      };
+
+      registrarFallo(emailNormalizado);
+      if (claveIp) registrarFallo(claveIp);
+
       throw new Error('CREDENCIALES_INVALIDAS: Usuario o contraseña incorrectos.');
     }
+
+    // Login con contraseña correcta: limpiar historial de fallos
     INTENTOS_FALLIDOS_LOGIN.delete(emailNormalizado);
+    if (claveIp) INTENTOS_FALLIDOS_LOGIN.delete(claveIp);
 
     const mfaRequeridoEstudio = await this.obtenerMfaRequeridoEstudio();
     const exigeMfa = usuario.mfaActivado || (mfaRequeridoEstudio && usuario.rolGlobal === 'ADMINISTRADOR');

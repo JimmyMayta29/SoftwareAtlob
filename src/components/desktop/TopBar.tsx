@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
 import {
   BookOpen,
   GitCompare,
@@ -232,9 +233,13 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* 1. BARRA DE TÍTULO */}
       <div className="flex items-center justify-between px-2.5 py-1 text-[13px] bg-[#E8ECF1] border-b border-[#D1D5DB] leading-none">
         <div className="flex items-center gap-2 overflow-hidden">
-          <div className="w-[18px] h-[18px] bg-[#1D4ED8] flex items-center justify-center text-[#FFFFFF] font-bold text-[11px] flex-shrink-0">
-            A
-          </div>
+          <img
+            src={atlobIsotipo}
+            alt="ATLOB ERP"
+            className="w-[18px] h-[18px] object-contain flex-shrink-0"
+            width={18}
+            height={18}
+          />
           <span className="font-bold text-[#111827] whitespace-nowrap">
             Atlob Consultores ERP
           </span>

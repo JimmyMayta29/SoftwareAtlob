@@ -24,6 +24,7 @@ import { apiClient } from '../../api/client';
 import { useReportStyle } from '../../context/ReportStyleContext';
 import { useToast } from '../../context/ToastContext';
 import { BackgroundJobsPanel } from './BackgroundJobsPanel';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
 
 interface TitleBarProps {
   empresaActiva?: EmpresaCliente | null;
@@ -89,9 +90,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <div className="flex items-center gap-3">
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-2 pr-3 border-r border-slate-200">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 flex items-center justify-center font-black text-white text-sm shadow-sm">
-            A
-          </div>
+          <img
+            src={atlobIsotipo}
+            alt="ATLOB ERP"
+            className="w-8 h-8 object-contain drop-shadow-xs"
+            width={32}
+            height={32}
+          />
           <div>
             <div className="font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5 text-sm">
               Atlob Consultores <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-blue-200">ERP</span>

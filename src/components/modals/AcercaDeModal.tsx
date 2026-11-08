@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Award, CheckCircle2, X } from 'lucide-react';
 import { obtenerAccessToken } from '../../api/session';
 import { ResumenLicenciaDTO, usuariosLicenciaApi } from '../../api/usuariosLicenciaApi';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
+import atlobLogo from '../../assets/brand/atlob_logo_horizontal.webp';
 
 interface AcercaDeModalProps {
   isOpen: boolean;
@@ -47,9 +49,13 @@ export const AcercaDeModal: React.FC<AcercaDeModalProps> = ({ isOpen, onClose })
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white">
           <div className="flex items-center space-x-2.5">
-            <div className="w-[22px] h-[22px] rounded-[4px] bg-[#1D4ED8] flex items-center justify-center text-white font-bold text-[13px] shadow">
-              A
-            </div>
+            <img
+              src={atlobIsotipo}
+              alt="ATLOB ERP"
+              className="w-[22px] h-[22px] object-contain"
+              width={22}
+              height={22}
+            />
             <span className="font-bold text-sm tracking-wide">
               Atlob Consultores ERP
             </span>
@@ -65,7 +71,14 @@ export const AcercaDeModal: React.FC<AcercaDeModalProps> = ({ isOpen, onClose })
 
         {/* Contenido */}
         <div className="p-6 space-y-4">
-          <div className="text-center pb-3 border-b border-slate-200 dark:border-slate-700">
+          <div className="text-center pb-3 border-b border-slate-200 dark:border-slate-700 flex flex-col items-center">
+            <img
+              src={atlobLogo}
+              alt="ATLOB ERP"
+              className="h-9 w-auto object-contain mb-2"
+              width={160}
+              height={60}
+            />
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
               Sistema Contable & Tributario SUNAT / PCGE
             </h2>

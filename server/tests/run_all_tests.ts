@@ -34,7 +34,8 @@ const suites = [
   { name: 'Fase 5 (Planillas): RMV, AFP vs ONP, 5ta Proyectada, Gratificaciones/CTS, Baja Mitad de Mes y PLAME/T-Registro', path: 'server/tests/run_tests_fase5_planillas.ts' },
   { name: 'A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria', path: 'server/tests/test_produccion_sin_db.ts' },
   { name: 'Optimización Visual Normativa: Reportes Uniformes y Vouchers de Escritorio', path: 'server/tests/run_tests_reportes_y_vouchers_normativos.ts' },
-  { name: 'Automatización de Asientos, Consolidación Mensual y Cinta de 7 Accesos', path: 'server/tests/run_tests_automatizacion_asientos_y_cinta.ts' }
+  { name: 'Automatización de Asientos, Consolidación Mensual y Cinta de 7 Accesos', path: 'server/tests/run_tests_automatizacion_asientos_y_cinta.ts' },
+  { name: 'Identidad de Marca, Login Ágil & Seguridad', path: 'server/tests/test_marca_y_login_seguridad.ts' }
 ];
 
 console.log('========================================================================');

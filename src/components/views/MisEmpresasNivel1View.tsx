@@ -28,6 +28,7 @@ import {
 import { EmpresaCliente } from '../../types';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
 import { ModalNuevaEmpresaBlanco } from '../modals/ModalNuevaEmpresaBlanco';
 import { ModalImportacionCsv } from '../modals/ModalImportacionCsv';
 import { ModalBackupEmpresa } from '../modals/ModalBackupEmpresa';
@@ -173,7 +174,13 @@ export const MisEmpresasNivel1View: React.FC<MisEmpresasNivel1ViewProps> = ({
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold">
-              <Building2 className="w-3.5 h-3.5 text-blue-300" />
+              <img
+                src={atlobIsotipo}
+                alt="ATLOB ERP"
+                className="w-3.5 h-3.5 object-contain"
+                width={14}
+                height={14}
+              />
               Nivel 1: Estudio Contable & Cartera Centralizada
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">

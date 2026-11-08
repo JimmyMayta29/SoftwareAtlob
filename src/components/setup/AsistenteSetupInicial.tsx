@@ -13,6 +13,8 @@ import {
 import { Sesion } from '../../api/authApi';
 import { apiClient } from '../../api/client';
 import { evaluarFortalezaPasswordUI, validarRucModulo11UI } from '../../utils/fortalezaPassword';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
+import atlobLogoBlanco from '../../assets/brand/atlob_logo_horizontal_blanco.webp';
 
 interface AsistenteSetupInicialProps {
   onSetupCompletado: (sesion: Sesion) => Promise<void>;
@@ -104,16 +106,22 @@ export const AsistenteSetupInicial: React.FC<AsistenteSetupInicialProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-6 py-5 text-white">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-indigo-500/20 border border-indigo-400/30 rounded-xl flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-indigo-300" />
-            </div>
+    <div className="min-h-screen bg-[#F0F4F8] flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl overflow-hidden border border-[#CBD5E1]">
+        <div className="bg-[#01172C] px-6 py-5 text-white">
+          <div className="flex items-center gap-3.5">
+            <img
+              src={atlobIsotipo}
+              alt="ATLOB ERP"
+              className="w-11 h-11 object-contain shrink-0"
+              width={44}
+              height={44}
+            />
             <div>
-              <h1 className="text-xl font-bold tracking-tight">Bienvenido a ATLOB ERP</h1>
-              <p className="text-xs text-indigo-200/90 mt-0.5">
+              <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                Bienvenido a ATLOB ERP
+              </h1>
+              <p className="text-xs text-[#94A3B8] mt-0.5">
                 Configure su estudio y la cuenta titular de este equipo en un solo paso.
               </p>
             </div>

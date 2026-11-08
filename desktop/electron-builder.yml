@@ -1,5 +1,6 @@
 appId: pe.atlob.erp
 productName: ATLOB ERP
+copyright: "Copyright © 2026 Atlob Consultores S.A.C."
 directories:
   app: build/desktop/app
   output: release
@@ -14,6 +15,7 @@ beforeBuild: desktop/after-pack.cjs
 afterPack: desktop/after-pack.cjs
 forceCodeSigning: false
 win:
+  icon: desktop/build/icon.ico
   signAndEditExecutable: false
   target:
     - target: nsis
@@ -24,5 +26,11 @@ nsis:
   artifactName: ATLOB-ERP-${version}-Setup-${arch}.${ext}
   oneClick: false
   perMachine: false
+  installerIcon: desktop/build/icon.ico
+  uninstallerIcon: desktop/build/icon.ico
+  installerSidebar: desktop/build/installerSidebar.bmp
+  uninstallerSidebar: desktop/build/installerSidebar.bmp
+  installerHeader: desktop/build/installerHeader.bmp
+  installerHeaderIcon: desktop/build/icon.ico
 portable:
   artifactName: ATLOB-ERP-${version}-Portable-${arch}.${ext}

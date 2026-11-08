@@ -3,14 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'">
   <title>Conexión a PostgreSQL · ATLOB ERP</title>
   <link rel="stylesheet" href="config.css">
   <script src="config-renderer.js" defer></script>
 </head>
 <body>
   <main>
-    <p class="marca">ATLOB ERP</p>
+    <div class="marca-contenedor">
+      <img src="assets/atlob_logo_horizontal.png" alt="ATLOB ERP" class="marca-logo" width="170" height="63">
+    </div>
     <h1>Conexión a PostgreSQL local</h1>
     <p class="subtitulo">Verifique los datos de su motor PostgreSQL en este equipo. Los valores habituales (<strong>localhost</strong> y puerto <strong>5432</strong>) ya vienen preconfigurados y Windows cifra sus credenciales localmente.</p>
     <form id="conexion" novalidate>

@@ -22,6 +22,7 @@ import { empresasApi } from './api/empresasApi';
 import { guardarSesion, limpiarSesion, obtenerAccessToken } from './api/session';
 import { AsistenteSetupInicial } from './components/setup/AsistenteSetupInicial';
 import { LoginView } from './components/views/LoginView';
+import atlobLogo from './assets/brand/atlob_logo_horizontal.webp';
 import { useToast } from './context/ToastContext';
 import { useReportStyle } from './context/ReportStyleContext';
 
@@ -873,6 +874,29 @@ function AplicacionConSesion() {
     return () => { vigente = false; window.removeEventListener('atlob_session_expired', expirar); };
   }, [intento, queryClient]);
 
+  // Cierre de sesión automático tras 30 minutos de inactividad (Fase 4.3)
+  useEffect(() => {
+    if (!sesion) return;
+    const INACTIVIDAD_MAX_MS = 30 * 60 * 1000;
+    let timer: any;
+
+    const reiniciarTemporizador = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('atlob_session_expired', { detail: { razon: 'INACTIVIDAD' } }));
+      }, INACTIVIDAD_MAX_MS);
+    };
+
+    const eventos = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    eventos.forEach((ev) => window.addEventListener(ev, reiniciarTemporizador, { passive: true }));
+    reiniciarTemporizador();
+
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach((ev) => window.removeEventListener(ev, reiniciarTemporizador));
+    };
+  }, [sesion]);
+
   const abrirSesion = async (resultado: Sesion) => {
     guardarSesion(resultado);
     try {
@@ -892,11 +916,31 @@ function AplicacionConSesion() {
     </EmpresaPeriodoProvider>
   );
   if (estado === 'setup') return <AsistenteSetupInicial onSetupCompletado={abrirSesion} />;
-  if (estado === 'login') return <LoginView onAutenticado={abrirSesion} />;
+  if (estado === 'login') return <LoginView onAutenticado={abrirSesion} nombreEstudio={estudio} version="2026.1" />;
   return (
-    <main className="min-h-screen grid place-content-center gap-4 text-center p-6">
-      <p role={estado === 'error' ? 'alert' : 'status'}>{estado === 'error' ? 'No se pudo consultar el servidor. Comprueba la conexión y vuelve a intentar.' : 'Comprobando el estado del estudio…'}</p>
-      {estado === 'error' && <button type="button" onClick={() => { setEstado('cargando'); setIntento(i => i + 1); }} className="underline text-blue-700">Reintentar</button>}
+    <main className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center p-6 text-center select-none">
+      <div className="bg-white rounded-2xl p-8 border border-[#CBD5E1] shadow-lg max-w-sm w-full flex flex-col items-center">
+        <img src={atlobLogo} alt="ATLOB ERP" className="h-10 w-auto object-contain mb-4" width={180} height={67} />
+        {estado === 'cargando' ? (
+          <>
+            <div className="w-6 h-6 border-2 border-[#01172C] border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p className="text-xs font-semibold text-[#475569]" role="status">Iniciando servicios del estudio…</p>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-xl p-3 mb-3" role="alert">
+              No se pudo conectar con el servidor local de ATLOB ERP. Verifique que PostgreSQL esté activo.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setEstado('cargando'); setIntento(i => i + 1); }}
+              className="px-4 py-2 bg-[#01172C] text-white font-bold text-xs rounded-xl hover:bg-[#082845] transition cursor-pointer"
+            >
+              Reintentar conexión
+            </button>
+          </>
+        )}
+      </div>
     </main>
   );
 }

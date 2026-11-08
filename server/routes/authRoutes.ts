@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { authJwtService } from '../services/authJwtService';
 import { auditoriaChainService } from '../services/auditoriaChainService';
+import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { cryptoService } from '../services/cryptoService';
 import { requireAuth, requireEmpresaMembership, requireMfa, requireRol } from '../middlewares/auth';
 import { successResponse, errorResponse } from '../utils/response';
@@ -14,16 +15,43 @@ const router = Router();
  * Autenticación de usuario con contraseña, TOTP para ADMINISTRADOR y emisión de JWT
  */
 router.post('/login', async (req: Request, res: Response) => {
-  try {
-    const { email, usuario, password, totpCode, empresaPreferencia } = req.body;
-    const identificador = typeof email === 'string' && email.trim() ? email : usuario;
-    if (!identificador || !password) {
-      return errorResponse(res, 'El usuario y la contraseña son obligatorios.', 400);
-    }
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || '127.0.0.1';
+  const { email, usuario, password, totpCode, empresaPreferencia } = req.body;
+  const identificador = typeof email === 'string' && email.trim() ? email : usuario;
+  if (!identificador || !password) {
+    return errorResponse(res, 'El usuario y la contraseña son obligatorios.', 400);
+  }
 
-    const resultado = await authJwtService.login(identificador, password, totpCode, empresaPreferencia);
+  try {
+    const resultado = await authJwtService.login(identificador, password, totpCode, empresaPreferencia, ip);
+
+    // Auditoría de ingreso exitoso (sin contraseñas)
+    void auditoriaRepository.registrar({
+      usuarioId: resultado.usuario.id,
+      usuarioEmail: resultado.usuario.email,
+      tablaAfectada: 'usuarios_estudio',
+      registroId: resultado.usuario.id,
+      accion: 'LOGIN_EXITOSO',
+      direccionIp: ip,
+      userAgent: (req.headers['user-agent'] as string) || 'ATLOB-Desktop',
+      datosNuevos: { resultado: 'EXITO', rolGlobal: resultado.usuario.rolGlobal }
+    }).catch(() => {});
+
     return successResponse(res, resultado, 'Autenticación exitosa.');
   } catch (err: any) {
+    const codigoError = String(err.message || '').split(':')[0].trim();
+
+    // Auditoría de ingreso fallido (sin contraseñas)
+    void auditoriaRepository.registrar({
+      usuarioEmail: String(identificador).toLowerCase().trim(),
+      tablaAfectada: 'usuarios_estudio',
+      registroId: String(identificador).toLowerCase().trim(),
+      accion: 'LOGIN_FALLIDO',
+      direccionIp: ip,
+      userAgent: (req.headers['user-agent'] as string) || 'ATLOB-Desktop',
+      datosNuevos: { resultado: 'FALLIDO', razon: codigoError }
+    }).catch(() => {});
+
     const status = err.message.includes('CUENTA_BLOQUEADA_TEMPORALMENTE')
       ? 429
       : err.message.includes('MFA_')
