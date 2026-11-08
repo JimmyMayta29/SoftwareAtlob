@@ -7,7 +7,6 @@ import {
   construirDefinicionHojaTrabajo10ColEstandar,
   generarReporteEstandarPdfDoc,
   formatearFechaHoraEmision24h,
-  exportarReporteEstandarXls,
   EstandarReportDefinition
 } from '../../src/services/reports/formato_estandar/formatoEstandarEngine';
 import { EMPRESAS_CLIENTES_DEMO, crearDatosInicialesEmpresa } from '../../src/data/empresasClientes';

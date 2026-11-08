@@ -1,4 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db, type DatabaseService } from '../config/database';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export async function runCatalogosSeeds(client: Pick<DatabaseService, 'query'> = db) {
   if (!db.isPostgresConnected()) return;
@@ -66,5 +72,48 @@ export async function runCatalogosSeeds(client: Pick<DatabaseService, 'query'> =
     `, [m.cod, m.desc]);
   }
 
-  console.log('✅ [Seeds] Catálogos SUNAT cargados exitosamente.');
+  // 4. Catálogo Base Oficial PCGE 2026 Clasificado
+  const rutaJson = path.join(__dirname, '../data/pcge_base_v2.json');
+  if (fs.existsSync(rutaJson)) {
+    const raw = fs.readFileSync(rutaJson, 'utf8');
+    const { cuentas } = JSON.parse(raw);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < cuentas.length; i += BATCH_SIZE) {
+      const batch = cuentas.slice(i, i + BATCH_SIZE);
+      const values: any[] = [];
+      const placeholders = batch.map((c: any, idx: number) => {
+        const offset = idx * 13;
+        values.push(
+          c.codigo, c.denominacion, c.elemento, c.nivel, c.codigo_padre || null,
+          c.tipo_cuenta, c.es_registro, c.clasificacion_eeff, c.naturaleza_saldo,
+          c.signo_eeff, c.es_correctora, c.columna_hoja_trabajo, c.cuenta_cierre_relacionada || null
+        );
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`;
+      }).join(', ');
+
+      await client.query(`
+        INSERT INTO pcge_base (
+          codigo, denominacion, elemento, nivel, codigo_padre,
+          tipo_cuenta, es_registro, clasificacion_eeff, naturaleza_saldo,
+          signo_eeff, es_correctora, columna_hoja_trabajo, cuenta_cierre_relacionada
+        ) VALUES ${placeholders}
+        ON CONFLICT (codigo) DO UPDATE SET
+          denominacion = EXCLUDED.denominacion,
+          elemento = EXCLUDED.elemento,
+          nivel = EXCLUDED.nivel,
+          codigo_padre = EXCLUDED.codigo_padre,
+          tipo_cuenta = EXCLUDED.tipo_cuenta,
+          es_registro = EXCLUDED.es_registro,
+          clasificacion_eeff = EXCLUDED.clasificacion_eeff,
+          naturaleza_saldo = EXCLUDED.naturaleza_saldo,
+          signo_eeff = EXCLUDED.signo_eeff,
+          es_correctora = EXCLUDED.es_correctora,
+          columna_hoja_trabajo = EXCLUDED.columna_hoja_trabajo,
+          cuenta_cierre_relacionada = EXCLUDED.cuenta_cierre_relacionada;
+      `, values);
+    }
+    console.log(`✅ [Seeds] Catálogo PCGE Base cargado (${cuentas.length} cuentas oficiales).`);
+  }
+
+  console.log('✅ [Seeds] Catálogos SUNAT y PCGE cargados exitosamente.');
 }

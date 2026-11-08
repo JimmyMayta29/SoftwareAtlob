@@ -27,6 +27,7 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
   { tabla: 'cronograma_vencimientos', ambito: 'compartido', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: null, referencias: [] },
   { tabla: 'parametros_tributarios', ambito: 'compartido', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: null, referencias: [] },
   { tabla: 'permisos', ambito: 'control', exportar: false, motivoExclusion: 'Datos de control, identidades o permisos excluidos.', clavePrimaria: ['id'], remapearClave: false, columnaEmpresa: null, referencias: [] },
+  { tabla: 'pcge_base', ambito: 'compartido', exportar: true, clavePrimaria: ['codigo'], remapearClave: false, columnaEmpresa: null, referencias: [] },
   { tabla: 'plantilla_pcge', ambito: 'compartido', exportar: true, clavePrimaria: ['codigo'], remapearClave: false, columnaEmpresa: null, referencias: [] },
   { tabla: 'ple_libros_config', ambito: 'compartido', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: null, referencias: [] },
   { tabla: 'roles', ambito: 'control', exportar: false, motivoExclusion: 'Datos de control, identidades o permisos excluidos.', clavePrimaria: ['id'], remapearClave: false, columnaEmpresa: null, referencias: [] },

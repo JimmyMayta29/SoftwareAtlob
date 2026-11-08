@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Search } from 'lucide-react';
-import { PLAN_CONTABLE_PCGE, CuentaPCGE } from '../../data/pcgeAccounts';
+import { useQuery } from '@tanstack/react-query';
+import { Search, Sparkles, Plus, Trash2, PowerOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { TablaDensa } from '../ui/TablaDensa';
 import { VentanaModal } from '../ui/VentanaModal';
 import { useToast } from '../../context/ToastContext';
+import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
+import { pcgeApi, CuentaPCGEApi } from '../../api/pcgeApi';
+import { PLAN_CONTABLE_PCGE } from '../../data/pcgeAccounts';
 
 interface PlanCuentasViewProps {
   rolUsuario?: string;
@@ -16,64 +19,162 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
   esAdmin = true
 }) => {
   const puedeEditar = esAdmin || rolUsuario === 'ADMIN_ESTUDIO' || rolUsuario === 'ADMINISTRADOR' || rolUsuario === 'ADMIN';
-  const { success, warning } = useToast();
-  const [cuentas, setCuentas] = useState<CuentaPCGE[]>(PLAN_CONTABLE_PCGE);
+  const { success, warning, error: toastError } = useToast();
+  const { empresaId } = useEmpresaPeriodo();
+
   const [busqueda, setBusqueda] = useState('');
   const [elementoFiltro, setElementoFiltro] = useState<string>('TODOS');
+  const [incluirInactivas, setIncluirInactivas] = useState(true);
   const [modalNuevaOpen, setModalNuevaOpen] = useState(false);
+  const [isCompletando, setIsCompletando] = useState(false);
 
-  // Nueva cuenta form
+  // Formulario nueva subcuenta
   const [codigo, setCodigo] = useState('');
   const [nombre, setNombre] = useState('');
-  const [elemento, setElemento] = useState<number>(6);
-  const [naturaleza, setNaturaleza] = useState<'DEUDORA' | 'ACREEDORA'>('DEUDORA');
-  const [tipo, setTipo] = useState<'ACTIVO' | 'PASIVO' | 'PATRIMONIO' | 'GASTO' | 'INGRESO' | 'ORDEN'>('GASTO');
+  const [naturaleza, setNaturaleza] = useState<'DEUDORA' | 'ACREEDORA' | 'MIXTA'>('DEUDORA');
+  const [clasificacionEeff, setClasificacionEeff] = useState<string>('ACTIVO_CORRIENTE');
+  const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
 
-  const filtradas = cuentas.filter((c) => {
-    const matchElemento = elementoFiltro === 'TODOS' || String(c.elemento) === elementoFiltro;
-    const matchTexto =
-      c.codigo.includes(busqueda.trim()) ||
-      c.nombre.toLowerCase().includes(busqueda.trim().toLowerCase());
-    return matchElemento && matchTexto;
+  // Consulta de cuentas desde la API
+  const planQuery = useQuery({
+    queryKey: ['plan-cuentas', empresaId, elementoFiltro, busqueda, incluirInactivas],
+    queryFn: async () => {
+      if (!empresaId) {
+        return { ok: true, total: PLAN_CONTABLE_PCGE.length, cuentas: PLAN_CONTABLE_PCGE as any };
+      }
+      return pcgeApi.obtenerPlanCuentas(empresaId, {
+        busqueda,
+        elemento: elementoFiltro,
+        incluirInactivas
+      });
+    },
+    enabled: true
   });
 
-  const handleGuardarCuenta = (e: React.FormEvent) => {
-    e.preventDefault();
+  const cuentas: CuentaPCGEApi[] = (planQuery.data?.cuentas || PLAN_CONTABLE_PCGE as any) || [];
+
+  const handleCompletarPlan = async () => {
     if (!puedeEditar) {
-      warning('Acceso denegado: La modificación del Plan de Cuentas está restringida exclusivamente a ADMIN_ESTUDIO / ADMINISTRADOR. Los contadores tienen permiso de solo consulta.', 'Permiso Insuficiente');
+      warning('Acceso denegado: solo Administradores pueden actualizar el catálogo del plan contable.', 'Seguridad');
       return;
     }
-    if (!codigo.trim() || !nombre.trim()) return;
-    const nueva: CuentaPCGE = {
-      codigo: codigo.trim(),
-      nombre: nombre.trim(),
-      elemento: elemento as any,
-      nivel: codigo.trim().length,
-      naturaleza,
-      tipo: (tipo === 'GASTO' || tipo === 'INGRESO' ? 'RESULTADOS' : 'BALANCE') as any,
-      tipoNormativo: (tipo === 'GASTO' || tipo === 'INGRESO' ? 'GESTION' : tipo) as any,
-      permiteMovimiento: codigo.trim().length >= 3,
-      monedaCuenta: 'PEN',
-      requiereAnexo: ['12', '14', '16', '42', '43', '46'].some(p => codigo.startsWith(p)),
-      requiereDocumento: ['12', '16', '42', '43'].some(p => codigo.startsWith(p)),
-      requiereCentroCosto: elemento === 9 || elemento === 6,
-      requiereVencimiento: ['12', '42'].some(p => codigo.startsWith(p)),
-    };
-    setCuentas([nueva, ...cuentas]);
-    setModalNuevaOpen(false);
-    setCodigo('');
-    setNombre('');
-    success(`Subcuenta ${nueva.codigo} - ${nueva.nombre} registrada en el PCGE.`, 'Plan de Cuentas');
+    if (!empresaId) {
+      warning('Seleccione una empresa activa para completar su plan contable.', 'Empresa Requerida');
+      return;
+    }
+
+    try {
+      setIsCompletando(true);
+      const res = await pcgeApi.completarPlanDesdeCatalogoBase(empresaId);
+      if (res.ok) {
+        success(res.mensaje, 'Catálogo Base PCGE');
+        planQuery.refetch();
+      }
+    } catch (err: any) {
+      toastError(err?.response?.data?.error || err.message, 'Error al Completar Plan');
+    } finally {
+      setIsCompletando(false);
+    }
+  };
+
+  const handleGuardarSubcuenta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorValidacion(null);
+    if (!puedeEditar) {
+      warning('Acceso denegado: permiso restringido a administradores.', 'Permiso Insuficiente');
+      return;
+    }
+    if (!codigo.trim() || !nombre.trim()) {
+      setErrorValidacion('Ingrese el código y la denominación de la subcuenta.');
+      return;
+    }
+    if (!empresaId) {
+      warning('Seleccione una empresa activa.', 'Empresa');
+      return;
+    }
+
+    try {
+      const res = await pcgeApi.crearSubcuenta(empresaId, {
+        codigo: codigo.trim(),
+        nombre: nombre.trim(),
+        naturalezaSaldo: naturaleza,
+        clasificacionEeff,
+        esRegistro: true
+      });
+      if (res.ok) {
+        success(`Subcuenta ${res.cuenta.codigo} - ${res.cuenta.nombre} registrada correctamente.`, 'Subcuenta Creada');
+        setModalNuevaOpen(false);
+        setCodigo('');
+        setNombre('');
+        planQuery.refetch();
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message;
+      setErrorValidacion(msg);
+    }
+  };
+
+  const handleEliminarCuenta = async (c: CuentaPCGEApi) => {
+    if (!puedeEditar) {
+      warning('Acceso denegado: permiso restringido.', 'Permisos');
+      return;
+    }
+    if (!empresaId) return;
+
+    if (!confirm(`¿Está seguro de eliminar la cuenta ${c.codigo} - ${c.nombre}? Si tiene movimientos contables será rechazada.`)) {
+      return;
+    }
+
+    try {
+      const res = await pcgeApi.eliminarCuenta(empresaId, c.codigo);
+      if (res.ok) {
+        success(res.mensaje, 'Cuenta Eliminada');
+        planQuery.refetch();
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message;
+      warning(msg, 'No se pudo eliminar');
+    }
+  };
+
+  const handleToggleInactiva = async (c: CuentaPCGEApi) => {
+    if (!puedeEditar) return;
+    if (!empresaId) return;
+
+    try {
+      const nuevoEstado = !c.esInactiva;
+      const res = await pcgeApi.marcarInactiva(empresaId, c.codigo, nuevoEstado);
+      if (res.ok) {
+        success(res.mensaje, 'Estado de Cuenta');
+        planQuery.refetch();
+      }
+    } catch (err: any) {
+      toastError(err?.response?.data?.error || err.message, 'Error');
+    }
   };
 
   return (
     <div className="space-y-2">
       <BarraHerramientasLocal
         tituloModulo="Plan Contable General Empresarial (PCGE)"
-        subtitulo={`${filtradas.length} cuentas analíticas y divisionarias — ${puedeEditar ? 'Modo Administración' : 'Solo Consulta (Contador / Auditor)'}`}
+        subtitulo={`${cuentas.length} cuentas en catálogo — ${puedeEditar ? 'Modo Administración' : 'Solo Consulta (Contador / Auditor)'}`}
         onNuevo={puedeEditar ? () => setModalNuevaOpen(true) : undefined}
         labelNuevo={puedeEditar ? "Nueva Subcuenta" : undefined}
-        onExportar={() => success('Catálogo PCGE exportado en formato CSV.', 'Exportación')}
+        accionesExtra={
+          puedeEditar ? (
+            <button
+              type="button"
+              onClick={handleCompletarPlan}
+              disabled={isCompletando}
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              title="Agrega las cuentas oficiales del catálogo base PCGE que falten en el plan de la empresa"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span>{isCompletando ? 'Completando...' : 'Completar plan con el catálogo base'}</span>
+            </button>
+          ) : undefined
+        }
+        onExportar={() => success('Catálogo PCGE exportado.', 'Exportación')}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-[#CBD5E1] px-3 py-1.5">
@@ -83,74 +184,147 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
             type="text"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Filtrar por código o denominación (ej. 1041, 40111, 6011, 701)..."
+            placeholder="Filtrar por código o denominación (ej. 1041, 191, 391, 701)..."
             className="w-full pl-8 pr-2 py-1 border border-[#CBD5E1] text-[12px] focus:outline-none focus:border-[#1D4ED8]"
           />
         </div>
 
-        <div className="flex items-center gap-1 text-[11px]">
-          <span className="text-[#475569]">Elemento:</span>
-          {['TODOS', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((el) => (
-            <button
-              key={el}
-              type="button"
-              onClick={() => setElementoFiltro(el)}
-              className={`px-2 py-0.5 border cursor-pointer ${
-                elementoFiltro === el
-                  ? 'bg-[#1D4ED8] text-white border-[#1D4ED8] font-bold'
-                  : 'bg-white text-[#0F172A] border-[#CBD5E1] hover:bg-[#F1F5F9]'
-              }`}
-            >
-              {el === 'TODOS' ? 'Todos' : `El. ${el}`}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 text-[11px]">
+          <label className="flex items-center gap-1.5 cursor-pointer text-slate-700 select-none">
+            <input
+              type="checkbox"
+              checked={incluirInactivas}
+              onChange={(e) => setIncluirInactivas(e.target.checked)}
+              className="rounded text-blue-600"
+            />
+            <span>Mostrar cuentas inactivas</span>
+          </label>
+
+          <div className="flex items-center gap-1">
+            <span className="text-[#475569]">Elemento:</span>
+            {['TODOS', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((el) => (
+              <button
+                key={el}
+                type="button"
+                onClick={() => setElementoFiltro(el)}
+                className={`px-2 py-0.5 border cursor-pointer ${
+                  elementoFiltro === el
+                    ? 'bg-[#1D4ED8] text-white border-[#1D4ED8] font-bold'
+                    : 'bg-white text-[#0F172A] border-[#CBD5E1] hover:bg-[#F1F5F9]'
+                }`}
+              >
+                {el === 'TODOS' ? 'Todos' : `El. ${el}`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <TablaDensa
-        datos={filtradas}
+        datos={cuentas}
         rowKey={(c) => c.codigo}
         columnas={[
           {
             key: 'codigo',
             header: 'Código PCGE',
             width: '110px',
-            render: (c) => <span className="font-mono font-bold text-[#1D4ED8]">{c.codigo}</span>
+            render: (c) => (
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-bold text-[#1D4ED8]">{c.codigo}</span>
+                {c.esInactiva && (
+                  <span className="px-1 py-0.2 bg-amber-100 text-amber-800 text-[9px] rounded font-semibold">INACTIVA</span>
+                )}
+              </div>
+            )
           },
           {
             key: 'nombre',
             header: 'Denominación de la Cuenta Contable',
-            render: (c) => <span>{c.nombre}</span>
+            render: (c) => (
+              <div className="flex items-center gap-2">
+                <span>{c.nombre}</span>
+                {c.esCorrectora && (
+                  <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] rounded font-bold" title="Cuenta correctora del Activo con signo negativo">
+                    Correctora (-)
+                  </span>
+                )}
+              </div>
+            )
           },
           {
             key: 'elemento',
             header: 'Elemento',
-            width: '95px',
+            width: '85px',
             align: 'center',
             render: (c) => <span className="tabular-nums">Elemento {c.elemento}</span>
           },
           {
-            key: 'naturaleza',
+            key: 'naturalezaSaldo',
             header: 'Naturaleza',
-            width: '110px',
+            width: '100px',
             align: 'center',
             render: (c) => (
               <span
-                className={`px-1.5 py-0.5 text-[11px] border ${
-                  c.naturaleza === 'DEUDORA'
+                className={`px-1.5 py-0.5 text-[10px] font-bold border rounded ${
+                  c.naturalezaSaldo === 'DEUDORA'
                     ? 'bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]'
-                    : 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]'
+                    : c.naturalezaSaldo === 'ACREEDORA'
+                    ? 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]'
+                    : 'bg-slate-100 text-slate-700 border-slate-300'
                 }`}
               >
-                {c.naturaleza}
+                {c.naturalezaSaldo || 'DEUDORA'}
               </span>
             )
           },
           {
-            key: 'tipo',
+            key: 'clasificacionEeff',
             header: 'Clasificación EE.FF.',
-            width: '130px',
-            render: (c) => <span className="text-[#475569]">{c.tipo}</span>
+            width: '140px',
+            render: (c) => (
+              <span className="text-[11px] text-[#475569] font-mono">
+                {c.clasificacionEeff || 'NO_APLICA'}
+              </span>
+            )
+          },
+          {
+            key: 'signoEeff',
+            header: 'Signo',
+            width: '65px',
+            align: 'center',
+            render: (c) => (
+              <span className={`font-mono font-bold text-xs ${c.signoEeff === -1 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                {c.signoEeff === -1 ? '(-1)' : '(+1)'}
+              </span>
+            )
+          },
+          {
+            key: 'acciones',
+            header: 'Acciones',
+            width: '90px',
+            align: 'center',
+            render: (c) => (
+              puedeEditar ? (
+                <div className="flex items-center justify-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleInactiva(c)}
+                    className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800 cursor-pointer"
+                    title={c.esInactiva ? "Activar cuenta" : "Marcar como inactiva"}
+                  >
+                    <PowerOff className={`w-3.5 h-3.5 ${c.esInactiva ? 'text-amber-600' : 'text-slate-400'}`} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEliminarCuenta(c)}
+                    className="p-1 hover:bg-rose-50 rounded text-slate-400 hover:text-rose-600 cursor-pointer"
+                    title="Eliminar cuenta (solo si no tiene movimientos)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : null
+            )
           }
         ]}
       />
@@ -161,29 +335,37 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
         titulo="Registrar Subcuenta en el Plan Contable (PCGE)"
         ancho="md"
       >
-        <form onSubmit={handleGuardarCuenta} className="space-y-3">
+        <form onSubmit={handleGuardarSubcuenta} className="space-y-3">
+          {errorValidacion && (
+            <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{errorValidacion}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] text-[#475569] mb-0.5">Código Contable (4 a 6 dígitos)</label>
+              <label className="block text-[11px] text-[#475569] mb-0.5">Código de Subcuenta (ej: 10411, 63211)</label>
               <input
                 type="text"
                 required
                 value={codigo}
                 onChange={(e) => setCodigo(e.target.value)}
-                placeholder="Ej: 632101"
+                placeholder="Ej: 10411"
                 className="w-full px-2 py-1 border border-[#CBD5E1] font-mono text-[12px]"
               />
+              <span className="text-[10px] text-slate-400">Debe tener una cuenta padre en el plan.</span>
             </div>
             <div>
-              <label className="block text-[11px] text-[#475569] mb-0.5">Elemento PCGE</label>
+              <label className="block text-[11px] text-[#475569] mb-0.5">Naturaleza del Saldo</label>
               <select
-                value={elemento}
-                onChange={(e) => setElemento(Number(e.target.value))}
-                className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px] bg-white"
+                value={naturaleza}
+                onChange={(e) => setNaturaleza(e.target.value as any)}
+                className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px]"
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                  <option key={n} value={n}>Elemento {n}</option>
-                ))}
+                <option value="DEUDORA">DEUDORA (Activo / Gasto)</option>
+                <option value="ACREEDORA">ACREEDORA (Pasivo / Patrimonio / Ingreso)</option>
+                <option value="MIXTA">MIXTA (Liquidación / Cierre)</option>
               </select>
             </div>
           </div>
@@ -195,50 +377,40 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
               required
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
-              placeholder="Ej: Asesoría contable y tributaria externa"
+              placeholder="Ej: Cuentas corrientes operativas en moneda nacional"
               className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px]"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[11px] text-[#475569] mb-0.5">Naturaleza</label>
-              <select
-                value={naturaleza}
-                onChange={(e) => setNaturaleza(e.target.value as any)}
-                className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px] bg-white"
-              >
-                <option value="DEUDORA">DEUDORA</option>
-                <option value="ACREEDORA">ACREEDORA</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] text-[#475569] mb-0.5">Rubro en EE.FF.</label>
-              <select
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value as any)}
-                className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px] bg-white"
-              >
-                <option value="ACTIVO">ACTIVO</option>
-                <option value="PASIVO">PASIVO</option>
-                <option value="PATRIMONIO">PATRIMONIO</option>
-                <option value="GASTO">GASTO</option>
-                <option value="INGRESO">INGRESO</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-[11px] text-[#475569] mb-0.5">Clasificación Estados Financieros</label>
+            <select
+              value={clasificacionEeff}
+              onChange={(e) => setClasificacionEeff(e.target.value)}
+              className="w-full px-2 py-1 border border-[#CBD5E1] text-[12px]"
+            >
+              <option value="ACTIVO_CORRIENTE">ACTIVO_CORRIENTE</option>
+              <option value="ACTIVO_NO_CORRIENTE">ACTIVO_NO_CORRIENTE</option>
+              <option value="PASIVO_CORRIENTE">PASIVO_CORRIENTE</option>
+              <option value="PASIVO_NO_CORRIENTE">PASIVO_NO_CORRIENTE</option>
+              <option value="PATRIMONIO">PATRIMONIO</option>
+              <option value="GASTO">GASTO (Resultados)</option>
+              <option value="COSTO">COSTO (Producción / Venta)</option>
+              <option value="NO_APLICA">NO_APLICA</option>
+            </select>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-[#CBD5E1]">
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
             <button
               type="button"
               onClick={() => setModalNuevaOpen(false)}
-              className="px-3 py-1 border border-[#CBD5E1] text-[12px] hover:bg-[#F1F5F9]"
+              className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-3 py-1 bg-[#1D4ED8] text-white text-[12px] font-bold hover:bg-[#1E40AF]"
+              className="px-4 py-1.5 bg-[#1D4ED8] hover:bg-blue-700 text-white rounded text-xs font-semibold"
             >
               Guardar Subcuenta
             </button>

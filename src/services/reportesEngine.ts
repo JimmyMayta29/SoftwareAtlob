@@ -265,7 +265,7 @@ export function calcularHojaTrabajo10Columnas(
     const sDeudor = diff > 0 ? diff : 0;
     const sAcreedor = diff < 0 ? Math.abs(diff) : 0;
 
-    const esCorrectora = cta.startsWith('19') || cta.startsWith('29') || cta.startsWith('39');
+    const esCorrectora = cta.startsWith('19') || cta.startsWith('29') || cta.startsWith('36') || cta.startsWith('39');
 
     let invAct = 0;
     let invPas = 0;

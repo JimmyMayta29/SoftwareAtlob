@@ -173,11 +173,28 @@ export const empresaRepository = {
           VALUES ($1, $2, $3, 'ADMINISTRADOR', 'ACTIVO')
         `, [crypto.randomUUID(), empresaData.usuarioId, nuevaEmpresa.id]);
 
-        // 3. Clonar Plan de Cuentas desde plantilla_pcge
+        // 3. Clonar Plan de Cuentas desde pcge_base (nivel registro) y conservar plantilla_pcge
+        await client.query(`
+          INSERT INTO plan_cuentas (
+            empresa_id, codigo, nombre, nivel, tipo_cuenta,
+            permite_movimiento, es_registro, clasificacion_eeff,
+            naturaleza_saldo, signo_eeff, cuenta_cierre_relacionada,
+            es_correctora, es_inactiva
+          )
+          SELECT $1, pb.codigo, pb.denominacion, pb.nivel, pb.tipo_cuenta,
+                 pb.es_registro, pb.es_registro, pb.clasificacion_eeff,
+                 pb.naturaleza_saldo, pb.signo_eeff, pb.cuenta_cierre_relacionada,
+                 pb.es_correctora, FALSE
+          FROM pcge_base pb
+          WHERE pb.es_registro = TRUE
+          ON CONFLICT (empresa_id, codigo) DO NOTHING;
+        `, [nuevaEmpresa.id]);
+
         await client.query(`
           INSERT INTO plan_cuentas (empresa_id, codigo, nombre, nivel, tipo_cuenta, permite_movimiento)
           SELECT $1, codigo, nombre, nivel, tipo_cuenta, permite_movimiento
           FROM plantilla_pcge
+          ON CONFLICT (empresa_id, codigo) DO NOTHING;
         `, [nuevaEmpresa.id]);
 
         // 4. Crear Subdiarios Oficiales por defecto (00 al 09)

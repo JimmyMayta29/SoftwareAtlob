@@ -15,4 +15,5 @@ export const MIGRATION_FILES = [
   'schema_fase11_automatizacion_inventarios.sql',
   'schema_aislamiento_empresa.sql',
   'schema_fase12_inicio_licencia.sql',
+  'schema_fase13_pcge_completo.sql',
 ] as const;

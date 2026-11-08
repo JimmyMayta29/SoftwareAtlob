@@ -3,6 +3,7 @@ import { Money } from '../utils/decimal';
 import { ASIENTOS_MEMORIA } from './asientoService';
 import { buscarCuentaPCGE, PLAN_CONTABLE_PCGE } from '../../src/data/pcgeAccounts';
 import { empresaRepository } from '../repositories/empresaRepository';
+import { pcgeService } from './pcgeService';
 
 export const NOMBRES_SUBDIARIOS: Record<string, string> = {
   '00': 'ASIENTO DE APERTURA / REAPERTURA',
@@ -707,6 +708,7 @@ export const librosEEFFService = {
    */
   async generarEstadoSituacionFinanciera(empresaId: string, periodo: string): Promise<EstadoSituacionFinancieraReporte> {
     const balanceComp = await this.generarBalanceComprobacion(empresaId, periodo);
+    const mapaCuentas = await pcgeService.obtenerMapaCuentasEmpresa(empresaId);
 
     const activoCorriente: Array<{ codigo: string; nombre: string; monto: number }> = [];
     const activoNoCorriente: Array<{ codigo: string; nombre: string; monto: number }> = [];
@@ -717,34 +719,43 @@ export const librosEEFFService = {
     for (const f of balanceComp.filas) {
       const c = f.codigoCuenta;
       const el = f.elemento;
+      const meta = mapaCuentas.get(c);
+      const clasif = meta?.clasificacionEeff;
+      const esCorrectora = meta?.esCorrectora || meta?.signoEeff === -1 || c.startsWith('19') || c.startsWith('29') || c.startsWith('36') || c.startsWith('39');
 
-      if (el === 1 || el === 2) {
-        // Activo Corriente (10 Efectivo, 12 Clientes, 14 Personal, 20 Existencias)
-        const monto = f.saldoDeudor > 0 ? f.saldoDeudor : -f.saldoAcreedor;
+      if (clasif === 'ACTIVO_CORRIENTE' || (!clasif && (el === 1 || el === 2))) {
+        // Activo Corriente (10 Efectivo, 12 Clientes, 14 Personal, 20 Existencias, 19 y 29 restando)
+        let monto = f.saldoDeudor;
+        if (esCorrectora || f.saldoAcreedor > 0) {
+          monto = -f.saldoAcreedor;
+        }
         if (monto !== 0) {
           activoCorriente.push({ codigo: c, nombre: f.nombreCuenta, monto });
         }
-      } else if (el === 3) {
-        // Activo No Corriente (33 Inmuebles, 39 Depreciación restando)
+      } else if (clasif === 'ACTIVO_NO_CORRIENTE' || (!clasif && el === 3)) {
+        // Activo No Corriente (33 Inmuebles, 36 Deterioro y 39 Depreciación restando)
         let monto = f.saldoDeudor;
-        if (c.startsWith('39') || f.saldoAcreedor > 0) {
+        if (esCorrectora || f.saldoAcreedor > 0) {
           monto = -f.saldoAcreedor;
         }
         if (monto !== 0) {
           activoNoCorriente.push({ codigo: c, nombre: f.nombreCuenta, monto });
         }
-      } else if (el === 4) {
-        // Pasivo Corriente (40 Tributos, 41 Remuneraciones, 42 Proveedores) y No Corriente (45 LP)
+      } else if (clasif === 'PASIVO_NO_CORRIENTE' || (!clasif && (c.startsWith('45') || c.startsWith('47')))) {
         const monto = f.saldoAcreedor > 0 ? f.saldoAcreedor : -f.saldoDeudor;
-        if (c.startsWith('45') || c.startsWith('47')) {
+        if (monto !== 0) {
           pasivoNoCorriente.push({ codigo: c, nombre: f.nombreCuenta, monto });
-        } else {
+        }
+      } else if (clasif === 'PASIVO_CORRIENTE' || (!clasif && el === 4)) {
+        const monto = f.saldoAcreedor > 0 ? f.saldoAcreedor : -f.saldoDeudor;
+        if (monto !== 0) {
           pasivoCorriente.push({ codigo: c, nombre: f.nombreCuenta, monto });
         }
-      } else if (el === 5) {
-        // Patrimonio (50 Capital, 58 Reservas, 59 Resultados Acumulados)
+      } else if (clasif === 'PATRIMONIO' || (!clasif && el === 5)) {
         const monto = f.saldoAcreedor > 0 ? f.saldoAcreedor : -f.saldoDeudor;
-        patrimonioNeto.push({ codigo: c, nombre: f.nombreCuenta, monto });
+        if (monto !== 0) {
+          patrimonioNeto.push({ codigo: c, nombre: f.nombreCuenta, monto });
+        }
       }
     }
 
@@ -1171,6 +1182,7 @@ export const librosEEFFService = {
     );
 
     // Sumas acumuladas por cuenta contable
+    const mapaCuentas = await pcgeService.obtenerMapaCuentasEmpresa(empresaId);
     const cuentasMap = new Map<string, { debe: number; haber: number }>();
     for (const a of asientos) {
       for (const it of a.items) {
@@ -1203,8 +1215,9 @@ export const librosEEFFService = {
 
     for (const [cta, sumas] of cuentasConMov) {
       const pcgeInfo = buscarCuentaPCGE(cta);
-      const nombreCuenta = pcgeInfo?.nombre || `Cuenta ${cta}`;
-      const elemento = parseInt(cta.charAt(0), 10) || 1;
+      const meta = mapaCuentas.get(cta);
+      const nombreCuenta = meta?.nombre || pcgeInfo?.nombre || `Cuenta ${cta}`;
+      const elemento = meta?.elemento || parseInt(cta.charAt(0), 10) || 1;
 
       const mDebe = sumas.debe;
       const mHaber = sumas.haber;
@@ -1218,7 +1231,9 @@ export const librosEEFFService = {
         sAcreedor = Money.toNumber(diff.abs());
       }
 
-      const esCorrectora = cta.startsWith('19') || cta.startsWith('29') || cta.startsWith('39');
+      const esCorrectora = meta
+        ? (meta.esCorrectora || meta.signoEeff === -1)
+        : (cta.startsWith('19') || cta.startsWith('29') || cta.startsWith('36') || cta.startsWith('39'));
 
       let invAct = 0;
       let invPas = 0;
@@ -1238,6 +1253,9 @@ export const librosEEFFService = {
             invAct = sDeudor;
             invPas = 0;
           }
+        } else if (esCorrectora && !correctorasActivoEnNegativo) {
+          invAct = 0;
+          invPas = sAcreedor;
         } else {
           invAct = sDeudor;
           invPas = sAcreedor;
