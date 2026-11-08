@@ -142,11 +142,11 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => setModalEstandarOpen(true)}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap"
-            title="Vista previa y exportación en formato estándar oficial B/N"
+            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer whitespace-nowrap"
+            title="Vista previa e impresión / exportación del Libro Mayor"
           >
-            <FileText className="w-4 h-4 text-slate-700" />
-            <span>Reporte estándar</span>
+            <FileText className="w-4 h-4" />
+            <span>Reporte</span>
           </button>
           <select
             value={cuentaSeleccionada}

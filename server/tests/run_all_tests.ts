@@ -35,7 +35,8 @@ const suites = [
   { name: 'A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria', path: 'server/tests/test_produccion_sin_db.ts' },
   { name: 'Optimización Visual Normativa: Reportes Uniformes y Vouchers de Escritorio', path: 'server/tests/run_tests_reportes_y_vouchers_normativos.ts' },
   { name: 'Automatización de Asientos, Consolidación Mensual y Cinta de 7 Accesos', path: 'server/tests/run_tests_automatizacion_asientos_y_cinta.ts' },
-  { name: 'Identidad de Marca, Login Ágil & Seguridad', path: 'server/tests/test_marca_y_login_seguridad.ts' }
+  { name: 'Identidad de Marca, Login Ágil & Seguridad', path: 'server/tests/test_marca_y_login_seguridad.ts' },
+  { name: 'Bloque C: Reportes Unificados, Sin Asteriscos y Paginación Real', path: 'server/tests/test_bloque_c_reportes.ts' }
 ];
 
 console.log('========================================================================');

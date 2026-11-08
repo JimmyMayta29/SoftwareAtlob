@@ -29,7 +29,6 @@ import {
 } from '../../hooks/useOperaciones';
 import { operacionesApi } from '../../api/operacionesApi';
 import { generarSireRvieTxt, exportarComprobantesCsv } from '../../services/sireTxtGenerator';
-import { exportarRegistroVentasPdf } from '../../services/pdfExportService';
 import { construirDefinicionRegistroVentasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
@@ -387,19 +386,11 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
 
           <button
             onClick={() => setModalEstandarOpen(true)}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-            title="Vista previa y exportación en formato estándar oficial"
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            title="Abrir vista previa y exportación del Registro de Ventas"
           >
             <FileText className="w-4 h-4 text-slate-700" />
-            <span>Reporte estándar</span>
-          </button>
-
-          <button
-            onClick={() => exportarRegistroVentasPdf(empresa, legacyVentas, periodo)}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <FileText className="w-4 h-4 text-emerald-600" />
-            PDF (14.4)
+            <span>Reporte</span>
           </button>
         </div>
       </div>
@@ -1169,7 +1160,6 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
           definicion={construirDefinicionRegistroVentasEstandar(empresa, itemsVentas, periodo)}
-          onExportarLegacyPdf={() => exportarRegistroVentasPdf(empresa, legacyVentas, periodo)}
         />
       )}
     </div>

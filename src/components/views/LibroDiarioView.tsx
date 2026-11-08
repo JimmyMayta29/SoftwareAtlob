@@ -11,7 +11,6 @@ import {
   Layers,
   FileText,
   Download,
-  FileSpreadsheet,
   Filter,
   Calendar,
   Eye,
@@ -22,8 +21,6 @@ import {
 import { AsientoContable, EmpresaCliente } from '../../types';
 import { 
   calcularLibroDiarioESTANDAR,
-  exportarLibroDiarioHojaCalculo,
-  exportarLibroDiarioESTANDARPdf,
   LibroDiarioESTANDARReporte,
   OpcionesLibroDiarioESTANDAR
 } from '../../services/reportesEngine';
@@ -132,24 +129,6 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
     success(`Archivo oficial PLE 5.1 descargado: ${reporte.ple51NombreArchivo}`, 'PLE 5.1 Diario');
   };
 
-  const handleExportPdf = () => {
-    exportarLibroDiarioESTANDARPdf(reporte, {
-      incluirFechaImpresion,
-      incluirUsuario,
-      incluirNumeroPagina,
-      saltoPaginaPorSubdiario,
-      usuarioNombre: 'Contador General'
-    });
-  };
-
-  const handleExportHojaCalculo = () => {
-    exportarLibroDiarioHojaCalculo(reporte, {
-      incluirFechaImpresion,
-      incluirUsuario,
-      usuarioNombre: 'Contador General'
-    });
-  };
-
   const handleVoucherDoubleClick = (voucherNumero: string) => {
     if (onAbrirAsiento) {
       onAbrirAsiento(voucherNumero);
@@ -208,28 +187,12 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
               PLE 5.1 (TXT)
             </button>
             <button
-              onClick={handleExportHojaCalculo}
-              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              title="Exportar Libro Diario estructurado a hoja de cálculo con totales"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Hoja de cálculo
-            </button>
-            <button
               onClick={() => setModalEstandarOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-              title="Vista previa y exportación en formato estándar oficial B/N"
-            >
-              <FileText className="w-4 h-4 text-slate-700" />
-              <span>Reporte estándar</span>
-            </button>
-            <button
-              onClick={handleExportPdf}
-              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-              title="Exportar a PDF oficial 5.1 con membrete legal"
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              title="Vista previa e impresión / exportación del Libro Diario"
             >
               <FileText className="w-4 h-4" />
-              Exportar PDF (5.1)
+              <span>Reporte</span>
             </button>
             <button
               onClick={onGenerarAsientosMasivos}
@@ -589,7 +552,6 @@ export const LibroDiarioView: React.FC<LibroDiarioViewProps> = ({
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
           definicion={construirDefinicionLibroDiarioEstandar(empresa, asientos, periodo)}
-          onExportarLegacyPdf={handleExportPdf}
         />
       )}
     </div>

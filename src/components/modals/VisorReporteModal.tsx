@@ -6,16 +6,14 @@ import {
   FileSpreadsheet, 
   FileText, 
   ChevronDown, 
-  Eye, 
-  Sliders,
-  Check,
-  RotateCcw
+  Check
 } from 'lucide-react';
 import { 
   EstandarReportDefinition,
   exportarReporteEstandarPdf,
   exportarReporteEstandarHojaCalculo,
-  formatearImporteEstandar
+  formatearImporteEstandar,
+  formatearFechaHoraEmision24h
 } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { useReportStyle } from '../../context/ReportStyleContext';
 
@@ -39,32 +37,34 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
     setMostrarFechaHoraImpresion 
   } = useReportStyle();
 
-  const [formatoDescarga, setFormatoDescarga] = useState<'PDF' | 'HOJA_CALCULO'>('PDF');
-  const [dropdownDescargaOpen, setDropdownDescargaOpen] = useState(false);
+  const [dropdownExportarOpen, setDropdownExportarOpen] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleDescargar = () => {
+  const handleDescargarPdf = () => {
     const defActualizada: EstandarReportDefinition = {
       ...definicion,
       mostrarFechaHoraImpresion
     };
+    exportarReporteEstandarPdf(defActualizada, reportStyle);
+    setDropdownExportarOpen(false);
+  };
 
-    if (reportStyle === 'actual' && onExportarLegacyPdf) {
-      onExportarLegacyPdf();
-      return;
-    }
-
-    if (formatoDescarga === 'PDF') {
-      exportarReporteEstandarPdf(defActualizada);
-    } else {
-      exportarReporteEstandarHojaCalculo(defActualizada);
-    }
+  const handleDescargarHojaCalculo = () => {
+    const defActualizada: EstandarReportDefinition = {
+      ...definicion,
+      mostrarFechaHoraImpresion
+    };
+    exportarReporteEstandarHojaCalculo(defActualizada);
+    setDropdownExportarOpen(false);
   };
 
   const handlePrint = () => {
+    setDropdownExportarOpen(false);
     window.print();
   };
+
+  const tituloLimpio = definicion.titulo.replace(/\*/g, '').trim().toUpperCase();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
@@ -72,16 +72,18 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
         {/* Barra Superior de Control (No imprimible) */}
         <div className="print:hidden flex flex-wrap items-center justify-between p-3.5 bg-slate-100 border-b border-slate-200 gap-3">
           <div className="flex items-center gap-3">
-            <span className="font-mono text-xs font-bold bg-black text-white px-2 py-0.5 rounded">
-              Formato estándar
+            <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${
+              reportStyle === 'actual' ? 'bg-[#1E3A5F] text-white' : 'bg-black text-white'
+            }`}>
+              {reportStyle === 'actual' ? 'Formato actual' : 'Formato estándar'}
             </span>
             <span className="text-xs font-bold text-slate-800 truncate max-w-md">
-              {definicion.titulo} — {definicion.empresa.razonSocial}
+              {tituloLimpio} — {definicion.empresa.razonSocial}
             </span>
           </div>
 
           <div className="flex items-center flex-wrap gap-2">
-            {/* Conmutador REPORT_STYLE */}
+            {/* Conmutador Formato: Estándar (B/N) vs Actual (Color) */}
             <div className="flex items-center bg-white rounded-xl border border-slate-300 p-0.5 text-xs font-semibold shadow-xs">
               <span className="px-2 text-[11px] text-slate-500 font-bold uppercase">Formato:</span>
               <button
@@ -98,7 +100,7 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                 onClick={() => setReportStyle('actual')}
                 className={`px-2.5 py-1 rounded-lg text-xs transition cursor-pointer font-bold ${
                   reportStyle === 'actual'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'bg-[#1E3A5F] text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -117,65 +119,54 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
               <span className="text-[11px]">Fecha/Hora</span>
             </label>
 
-            {/* Botón Imprimir Nativo */}
-            <button
-              onClick={handlePrint}
-              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-              title="Imprimir (Ctrl+P)"
-            >
-              <Printer className="w-4 h-4 text-slate-600" />
-              <span>Imprimir</span>
-            </button>
-
-            {/* Botón Único de Descarga con Selector de Formato */}
+            {/* Botón Único 'Exportar' con Menú Desplegable */}
             <div className="relative inline-block text-left">
               <div className="inline-flex rounded-xl shadow-xs">
                 <button
-                  onClick={handleDescargar}
-                  className="px-3.5 py-1.5 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-l-xl flex items-center gap-1.5 transition cursor-pointer"
+                  onClick={handleDescargarPdf}
+                  className={`px-3.5 py-1.5 text-white text-xs font-bold rounded-l-xl flex items-center gap-1.5 transition cursor-pointer ${
+                    reportStyle === 'actual' ? 'bg-[#1E3A5F] hover:bg-[#152a45]' : 'bg-black hover:bg-slate-800'
+                  }`}
+                  title="Exportar a PDF"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Descargar {formatoDescarga}</span>
+                  <span>Exportar PDF</span>
                 </button>
                 <button
-                  onClick={() => setDropdownDescargaOpen(!dropdownDescargaOpen)}
-                  className="px-2 py-1.5 bg-black hover:bg-slate-800 text-white text-xs font-bold rounded-r-xl border-l border-slate-700 transition cursor-pointer"
-                  title="Cambiar formato de descarga"
+                  onClick={() => setDropdownExportarOpen(!dropdownExportarOpen)}
+                  className={`px-2 py-1.5 text-white text-xs font-bold rounded-r-xl border-l border-white/20 transition cursor-pointer ${
+                    reportStyle === 'actual' ? 'bg-[#1E3A5F] hover:bg-[#152a45]' : 'bg-black hover:bg-slate-800'
+                  }`}
+                  title="Más opciones de exportación"
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {dropdownDescargaOpen && (
-                <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 text-xs">
+              {dropdownExportarOpen && (
+                <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 text-xs">
                   <button
-                    onClick={() => {
-                      setFormatoDescarga('PDF');
-                      setDropdownDescargaOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 cursor-pointer ${
-                      formatoDescarga === 'PDF' ? 'font-bold text-black' : 'text-slate-700'
-                    }`}
+                    onClick={handleDescargarPdf}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 cursor-pointer font-medium text-slate-800"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-slate-600" /> Documento PDF (.pdf)
-                    </span>
-                    {formatoDescarga === 'PDF' && <Check className="w-3.5 h-3.5 text-black" />}
+                    <FileText className="w-4 h-4 text-slate-600" />
+                    <span>Documento PDF (.pdf)</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      setFormatoDescarga('HOJA_CALCULO');
-                      setDropdownDescargaOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 cursor-pointer ${
-                      formatoDescarga === 'HOJA_CALCULO' ? 'font-bold text-black' : 'text-slate-700'
-                    }`}
+                    onClick={handlePrint}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 cursor-pointer font-medium text-slate-800 border-t border-slate-100"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Hoja de cálculo (.xls)
-                    </span>
-                    {formatoDescarga === 'HOJA_CALCULO' && <Check className="w-3.5 h-3.5 text-black" />}
+                    <Printer className="w-4 h-4 text-slate-600" />
+                    <span>Imprimir (Ctrl+P)</span>
+                  </button>
+
+                  <button
+                    onClick={handleDescargarHojaCalculo}
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 cursor-pointer font-medium text-slate-800 border-t border-slate-100"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    <span>Hoja de cálculo (.xls)</span>
                   </button>
                 </div>
               )}
@@ -192,11 +183,11 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
           </div>
         </div>
 
-        {/* Hoja Imprimible en formato estándar (A4 Landscape / #000 sobre blanco) */}
+        {/* Hoja Imprimible (A4 Landscape / Estándar B/N o Actual Color) */}
         <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-200 print:bg-white print:p-0 print:m-0 flex justify-center">
           <div className="bg-white text-black w-full shadow-lg print:shadow-none p-6 sm:p-8 border border-slate-300 print:border-none font-sans font-light text-[10px] leading-tight select-text">
             
-            {/* 1. Encabezado del reporte */}
+            {/* 1. Encabezado del reporte sin asteriscos */}
             <div className="flex justify-between items-start mb-3 pb-2 border-b border-black">
               {/* Izquierda */}
               <div className="space-y-0.5 text-left">
@@ -214,21 +205,21 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                 </div>
               </div>
 
-              {/* Centro */}
+              {/* Centro: Título Centrado en Mayúsculas Sin Asteriscos */}
               <div className="text-center space-y-0.5">
                 <h1 className="font-bold text-xs tracking-wider text-black">
-                  *** {definicion.titulo.toUpperCase()} ***
+                  {tituloLimpio}
                 </h1>
                 <div className="text-[10px] font-normal">
                   ({definicion.moneda.toUpperCase()})
                 </div>
               </div>
 
-              {/* Derecha (Fecha y hora opcional) */}
+              {/* Derecha (Fecha y hora opcional en 24h) */}
               <div className="text-right text-[9px] text-slate-600 space-y-0.5 min-w-[120px]">
                 {mostrarFechaHoraImpresion && (
                   <div>
-                    Emitido: {new Date().toLocaleDateString('es-PE')} {new Date().toLocaleTimeString('es-PE')}
+                    Emitido: {formatearFechaHoraEmision24h()}
                   </div>
                 )}
               </div>
@@ -237,16 +228,16 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
             {/* 2. Tabla del reporte */}
             <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-left border-collapse font-light text-[9px] font-sans">
-                {/* Cabecera enmarcada repetible en cada página física */}
-                <thead className="border-t-2 border-b-2 border-black">
+                {/* Cabecera */}
+                <thead className={reportStyle === 'actual' ? 'bg-[#1E3A5F] text-white font-bold' : 'border-t-2 border-b-2 border-black font-normal text-black'}>
                   {/* Super Headers */}
                   {definicion.superHeaders && definicion.superHeaders.length > 0 && (
-                    <tr className="border-b border-black font-normal text-center">
+                    <tr className={reportStyle === 'actual' ? 'border-b border-[#2d5280] text-center' : 'border-b border-black font-normal text-center'}>
                       {definicion.superHeaders.map((sh, idx) => (
                         <th
                           key={idx}
                           colSpan={sh.colSpan}
-                          className="p-1 border-r border-black last:border-r-0 font-normal"
+                          className={`p-1 font-semibold ${reportStyle === 'actual' ? 'border-r border-[#2d5280] last:border-r-0' : 'border-r border-black last:border-r-0'}`}
                         >
                           {sh.label}
                         </th>
@@ -255,11 +246,11 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                   )}
 
                   {/* Fila de Columnas */}
-                  <tr className="font-normal">
+                  <tr className="font-semibold">
                     {definicion.columnas.map((col) => (
                       <th
                         key={col.id}
-                        className={`p-1 border-r border-black last:border-r-0 font-normal ${
+                        className={`p-1 ${reportStyle === 'actual' ? 'border-r border-[#2d5280] last:border-r-0' : 'border-r border-black last:border-r-0'} ${
                           col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'
                         }`}
                       >
@@ -283,9 +274,12 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                         </td>
                       </tr>
 
-                      {/* Filas de datos del grupo (sin bordes entre filas) */}
+                      {/* Filas de datos del grupo */}
                       {grupo.filas.map((fila, fIdx) => (
-                        <tr key={fIdx} className="hover:bg-slate-50 print:hover:bg-white transition">
+                        <tr 
+                          key={fIdx} 
+                          className={reportStyle === 'actual' ? (fIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white') : 'hover:bg-slate-50 print:hover:bg-white transition'}
+                        >
                           {definicion.columnas.map((col) => {
                             const val = fila[col.id];
                             return (
@@ -306,7 +300,7 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                         </tr>
                       ))}
 
-                      {/* Fila TOTALES del grupo con línea fina */}
+                      {/* Fila TOTALES del grupo */}
                       <tr className="border-t border-b border-black font-bold">
                         {definicion.columnas.map((col, cIdx) => {
                           if (cIdx === 0) {
@@ -329,8 +323,10 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                     </React.Fragment>
                   ))}
 
-                  {/* Fila TOTAL GENERAL final con doble subrayado */}
-                  <tr className="border-t border-black border-b-4 border-double border-black font-bold text-[9.5px]">
+                  {/* Fila TOTAL GENERAL final */}
+                  <tr className={`border-t border-black border-b-4 border-double border-black font-bold text-[9.5px] ${
+                    reportStyle === 'actual' ? 'bg-slate-100' : ''
+                  }`}>
                     {definicion.columnas.map((col, cIdx) => {
                       if (cIdx === 0) {
                         return (
@@ -355,7 +351,7 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
 
             {/* 3. Pie de página centrado */}
             <div className="mt-6 text-center text-[9px] text-black">
-              Pag. 1
+              Pág. 1 de 1
             </div>
           </div>
         </div>

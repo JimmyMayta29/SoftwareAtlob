@@ -18,8 +18,6 @@ import {
 import { AsientoContable, EmpresaCliente } from '../../types';
 import { 
   calcularHojaTrabajo10Columnas, 
-  exportarHojaTrabajoHojaCalculo,
-  exportarHojaTrabajoPdf,
   HojaTrabajo10ColumnasReporte,
   OpcionesHojaTrabajo10Col
 } from '../../services/reportesEngine';
@@ -82,23 +80,6 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
     }
   };
 
-  const handleExportPdf = () => {
-    exportarHojaTrabajoPdf(reporte, {
-      incluirFechaImpresion,
-      incluirUsuario,
-      incluirNumeroPagina,
-      usuarioNombre: 'Contador General'
-    });
-  };
-
-  const handleExportHojaCalculo = () => {
-    exportarHojaTrabajoHojaCalculo(reporte, {
-      incluirFechaImpresion,
-      incluirUsuario,
-      usuarioNombre: 'Contador General'
-    });
-  };
-
   return (
     <div className="space-y-4">
       {/* 1. Encabezado del reporte */}
@@ -138,34 +119,11 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
             </button>
             <button
               onClick={() => setModalEstandarOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-              title="Vista previa y exportación en formato estándar oficial B/N"
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              title="Vista previa e impresión / exportación de la Hoja de Trabajo"
             >
-              <FileSpreadsheet className="w-4 h-4 text-slate-700" />
-              <span>Reporte estándar</span>
-            </button>
-            <button
-              onClick={handleExportHojaCalculo}
-              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              title="Exportar Hoja de Trabajo 10 Columnas a hoja de cálculo"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              Hoja de cálculo (10 Col)
-            </button>
-            <button
-              onClick={handleExportPdf}
-              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-              title="Exportar a PDF oficial con membrete"
-            >
-              <Download className="w-4 h-4" />
-              Exportar PDF
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <Printer className="w-4 h-4 text-slate-500" />
-              Imprimir
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Reporte</span>
             </button>
           </div>
         </div>
@@ -667,7 +625,6 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
           definicion={construirDefinicionHojaTrabajo10ColEstandar(empresa, asientos, periodo)}
-          onExportarLegacyPdf={handleExportPdf}
         />
       )}
     </div>

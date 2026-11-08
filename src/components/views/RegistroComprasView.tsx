@@ -37,7 +37,6 @@ import {
 } from '../../hooks/useOperaciones';
 import { operacionesApi } from '../../api/operacionesApi';
 import { generarSireRceTxt, exportarComprobantesCsv } from '../../services/sireTxtGenerator';
-import { exportarRegistroComprasPdf } from '../../services/pdfExportService';
 import { VisorDocumentoSunatModal } from '../modals/VisorDocumentoSunatModal';
 import { useReportStyle } from '../../context/ReportStyleContext';
 import { construirDefinicionRegistroComprasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
@@ -515,18 +514,12 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
           </div>
 
           <button
-            onClick={() => {
-              if (reportStyle === 'estandar') {
-                setModalEstandarOpen(true);
-              } else {
-                exportarRegistroComprasPdf(empresa, legacyCompras, periodo);
-              }
-            }}
-            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-            title={reportStyle === 'estandar' ? 'Previsualizar y exportar en formato estándar (B/N)' : 'Exportar Libro PDF Oficial'}
+            onClick={() => setModalEstandarOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            title="Abrir vista previa y exportación del Registro de Compras"
           >
-            <FileText className={`w-4 h-4 ${reportStyle === 'estandar' ? 'text-black' : 'text-blue-600'}`} />
-            <span>{reportStyle === 'estandar' ? 'Reporte estándar' : 'PDF (8.4)'}</span>
+            <FileText className="w-4 h-4 text-slate-700" />
+            <span>Reporte</span>
           </button>
         </div>
       </div>
@@ -1363,13 +1356,12 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         </div>
       )}
 
-      {/* Modal de vista previa y exportación en formato estándar (B/N) */}
+      {/* Modal de vista previa y exportación unificada */}
       {modalEstandarOpen && (
         <VisorReporteModal
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
           definicion={construirDefinicionRegistroComprasEstandar(empresa, itemsCompras, periodo)}
-          onExportarLegacyPdf={() => exportarRegistroComprasPdf(empresa, legacyCompras, periodo)}
         />
       )}
     </div>

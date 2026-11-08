@@ -71,6 +71,20 @@ export function formatearFechaEstandar(fechaStr: string | undefined | null): str
   return fechaStr;
 }
 
+/**
+ * Formatea fecha y hora de emisión estricta en 24 horas: DD/MM/AAAA HH:mm:ss
+ */
+export function formatearFechaHoraEmision24h(fecha: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dia = pad(fecha.getDate());
+  const mes = pad(fecha.getMonth() + 1);
+  const anio = fecha.getFullYear();
+  const horas = pad(fecha.getHours());
+  const minutos = pad(fecha.getMinutes());
+  const segundos = pad(fecha.getSeconds());
+  return `${dia}/${mes}/${anio} ${horas}:${minutos}:${segundos}`;
+}
+
 const DESCRIPCION_TIPO_COMPROBANTE: Record<string, string> = {
   '01': 'FACTURA',
   '02': 'RECIBO POR HONORARIOS',
@@ -1393,7 +1407,11 @@ export function construirDefinicionVoucherContableEstandar(
 }
 
 
-export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void {
+export function generarReporteEstandarPdfDoc(
+  def: EstandarReportDefinition,
+  estilo: 'estandar' | 'actual' = 'estandar'
+): jsPDF {
+  const tituloLimpio = def.titulo.replace(/\*/g, '').trim().toUpperCase();
   const doc = new jsPDF({
     orientation: def.orientacion,
     unit: 'mm',
@@ -1510,20 +1528,6 @@ export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void 
     return '';
   });
 
-  bodyRows.push(
-    finalTotalRow.map((cellText, idx) => ({
-      content: cellText,
-      styles: {
-        fontStyle: 'bold',
-        textColor: [0, 0, 0],
-        halign: def.columnas[idx].align || 'right',
-        lineWidth: { top: 0.3, bottom: 0.6, left: 0, right: 0 },
-        lineColor: [0, 0, 0],
-        cellPadding: { top: 2, bottom: 2.5, left: 1, right: 1 }
-      }
-    }))
-  );
-
   // Configuración de anchos y alineación por columna
   const columnStyles: Record<number, any> = {};
   def.columnas.forEach((col, idx) => {
@@ -1533,9 +1537,34 @@ export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void 
     };
   });
 
+  const footFillColor: [number, number, number] = estilo === 'actual' ? [241, 245, 249] : [255, 255, 255];
+  const footTextColor: [number, number, number] = estilo === 'actual' ? [17, 24, 39] : [0, 0, 0];
+  const headFillColor: [number, number, number] = estilo === 'actual' ? [30, 58, 95] : [255, 255, 255];
+  const headTextColor: [number, number, number] = estilo === 'actual' ? [255, 255, 255] : [0, 0, 0];
+  const headLineColor: [number, number, number] = estilo === 'actual' ? [30, 58, 95] : [0, 0, 0];
+
+  const footRows = [
+    finalTotalRow.map((cellText, idx) => ({
+      content: cellText,
+      styles: {
+        fontStyle: 'bold' as const,
+        textColor: footTextColor,
+        halign: def.columnas[idx].align || 'right',
+        fillColor: footFillColor,
+        lineWidth: { top: 0.3, bottom: 0.6, left: 0, right: 0 },
+        lineColor: [0, 0, 0] as [number, number, number],
+        cellPadding: { top: 2, bottom: 2.5, left: 1, right: 1 }
+      }
+    }))
+  ];
+
   autoTable(doc, {
     head: headRows,
     body: bodyRows,
+    foot: footRows,
+    showFoot: 'lastPage',
+    showHead: 'everyPage',
+    rowPageBreak: 'avoid',
     startY: marginTop,
     margin: { top: marginTop, bottom: marginBottom, left: marginX, right: marginX },
     theme: 'plain',
@@ -1550,15 +1579,18 @@ export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void 
     },
     headStyles: {
       font: 'helvetica',
-      fontStyle: 'normal',
+      fontStyle: estilo === 'actual' ? 'bold' : 'normal',
       fontSize: 5.5,
-      textColor: [0, 0, 0],
-      fillColor: [255, 255, 255],
+      textColor: headTextColor,
+      fillColor: headFillColor,
       lineWidth: 0.15,
-      lineColor: [0, 0, 0]
+      lineColor: headLineColor
     },
+    alternateRowStyles: estilo === 'actual' ? {
+      fillColor: [248, 250, 252] as [number, number, number]
+    } : undefined,
     columnStyles,
-    didDrawPage: (data) => {
+    didDrawPage: () => {
       // 1. Membrete Superior Izquierdo
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
@@ -1570,31 +1602,50 @@ export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void 
       doc.text(def.empresa.direccion, marginX, 15.5);
       doc.text(`R.U.C.: ${def.empresa.ruc}`, marginX, 19);
 
-      // 2. Título Central entre asteriscos
+      // 2. Título Central sin asteriscos, centrado en mayúsculas
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
-      const tituloAsteriscos = `*** ${def.titulo.toUpperCase()} ***`;
-      doc.text(tituloAsteriscos, pageWidth / 2, 12, { align: 'center' });
+      doc.text(tituloLimpio, pageWidth / 2, 12, { align: 'center' });
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.text(`(${def.moneda.toUpperCase()})`, pageWidth / 2, 16.5, { align: 'center' });
 
-      // 3. Fecha y Hora de Impresión a la derecha (solo si está activada)
+      // 3. Fecha y Hora de Impresión en 24h a la derecha (solo si está activada)
       if (def.mostrarFechaHoraImpresion) {
-        const fechaHora = `Emitido: ${new Date().toLocaleDateString('es-PE')} ${new Date().toLocaleTimeString('es-PE')}`;
+        const fechaHora = `Emitido: ${formatearFechaHoraEmision24h()}`;
         doc.setFontSize(6);
         doc.text(fechaHora, pageWidth - marginX, 8, { align: 'right' });
       }
-
-      // 4. Pie de Página Centrado: "Pag. N"
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.text(`Pag. ${data.pageNumber}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
     }
   });
 
-  const nombreArchivo = `${def.titulo.replace(/\s+/g, '_')}_${def.empresa.ruc}_${def.empresa.periodo.replace(/[^0-9]/g, '')}.pdf`;
+  // Paginación real garantizada en segunda pasada: "Pág. X de Y"
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Pág. ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+  }
+
+  doc.setProperties({
+    title: tituloLimpio,
+    subject: estilo === 'actual' ? 'Formato actual' : 'Formato estandar',
+    author: 'ATLOB ERP'
+  });
+
+  return doc;
+}
+
+export function exportarReporteEstandarPdf(
+  def: EstandarReportDefinition,
+  estilo: 'estandar' | 'actual' = 'estandar'
+): void {
+  const doc = generarReporteEstandarPdfDoc(def, estilo);
+  const tituloArchivo = def.titulo.replace(/\*/g, '').trim().replace(/\s+/g, '_');
+  const nombreArchivo = `${tituloArchivo}_${def.empresa.ruc}_${def.empresa.periodo.replace(/[^0-9]/g, '')}.pdf`;
   doc.save(nombreArchivo);
 }
 
@@ -1607,13 +1658,13 @@ export function exportarReporteEstandarPdf(def: EstandarReportDefinition): void 
 export function exportarReporteEstandarHojaCalculo(def: EstandarReportDefinition): void {
   const lineas: string[] = [];
 
-  // Encabezado Superior
-  lineas.push(`${def.empresa.razonSocial.toUpperCase()}\t\t\t*** ${def.titulo.toUpperCase()} ***`);
+  // Encabezado Superior (sin asteriscos, centrado / limpio)
+  lineas.push(`${def.empresa.razonSocial.toUpperCase()}\t\t\t${def.titulo.replace(/\*/g, '').trim().toUpperCase()}`);
   lineas.push(`PERIODO ${def.empresa.periodo}\t\t\t(${def.moneda.toUpperCase()})`);
   lineas.push(`${def.empresa.direccion}`);
   lineas.push(`R.U.C.: ${def.empresa.ruc}`);
   if (def.mostrarFechaHoraImpresion) {
-    lineas.push(`FECHA EMISIÓN: ${new Date().toLocaleString('es-PE')}`);
+    lineas.push(`FECHA EMISIÓN: ${formatearFechaHoraEmision24h()}`);
   }
   lineas.push(''); // Línea en blanco separadora
 
