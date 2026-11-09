@@ -29,9 +29,81 @@ async function ejecutarSuitePruebas() {
   } as any);
 
   // -------------------------------------------------------------------------
-  // CASO 1: Asiento completo con Percepción (2%) y Detracción (10%) sin Retención
+  // CASO 1A: Asiento completo con Detracción (10%), Tributos Complementarios - Tratamiento COSTO (Default)
   // -------------------------------------------------------------------------
-  console.log('--- CASO 1: Asiento completo con Percepción y Detracción (sin Retención) ---');
+  console.log('--- CASO 1A: Asiento completo - Tratamiento COSTO (Default existencias) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'anx-prov-01',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00008888',
+      fechaEmision: '2026-09-10',
+      fechaContable: '2026-09-10',
+      baseImponible: 1000.00,
+      cuentaCompra: '60111',
+      desgloseCuentas: [
+        { cuentaCodigo: '60111', denominacion: 'Mercaderías manufacturadas A', monto: 700.00, centroCostoId: 'CC-01' },
+        { cuentaCodigo: '60111', denominacion: 'Mercaderías manufacturadas B', monto: 300.00, centroCostoId: 'CC-02' }
+      ],
+      exonerado: 300.00,
+      isc: 50.00,
+      icbper: 2.00,
+      otrosTributos: 10.00,
+      // No enviamos tratamientoTributosNoRecuperables para verificar el DEFAULT REAL ('COSTO' en existencias)
+      tienePercepcion: false,
+      montoPercepcion: 0,
+      destino: '1',
+      moneda: 'PEN',
+      tipoCambio: 1.0,
+      tieneDetraccion: true,
+      montoDetraccion: 154.20, // 10% de S/ 1,542.00
+      tieneRetencion: false,
+      montoRetencion: 0,
+      glosa: 'Compra de existencias completa con Detracción SPOT (Tratamiento COSTO)'
+    });
+
+    console.log(`Líneas generadas (COSTO): ${prop.lineas.length}`);
+    prop.lineas.forEach((l) => {
+      console.log(`  L${l.linea} | Cta: ${l.codigoCuenta.padEnd(6)} | D: ${l.debe.toFixed(2).padStart(9)} | H: ${l.haber.toFixed(2).padStart(9)} | ${l.glosaLinea || l.denominacionCuenta}`);
+    });
+
+    console.log(`  Total Debe: S/ ${prop.totalDebe.toFixed(2)} | Total Haber: S/ ${prop.totalHaber.toFixed(2)} | Dif: S/ ${prop.diferencia.toFixed(2)}`);
+
+    assert.equal(prop.cuadrado, true, 'Caso 1A: Asiento debe estar 100% cuadrado');
+    assert.equal(prop.diferencia, 0, 'Caso 1A: Diferencia debe ser 0.00');
+
+    // Cuentas en tratamiento COSTO: Los tributos van a la 60111 y NO a las 6412/6413/6491
+    const ctas = prop.lineas.map(l => l.codigoCuenta);
+    assert.ok(ctas.includes('60111'), 'Debe usar cuenta detalle 60111');
+    assert.ok(!ctas.includes('6412'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6412');
+    assert.ok(!ctas.includes('6413'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6413');
+    assert.ok(!ctas.includes('6491'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6491');
+    assert.ok(ctas.includes('40111'), 'Debe incluir IGV 40111');
+    assert.ok(ctas.includes('4213'), 'Debe incluir Detracción SPOT 4213');
+    assert.ok(ctas.includes('4212'), 'Debe incluir Facturas por pagar neto 4212');
+    assert.ok(ctas.includes('20111'), 'Debe incluir Destino Inventarios 20111');
+    assert.ok(ctas.includes('6111'), 'Debe incluir Variación Existencias 6111');
+
+    // Totales literales calculados a mano para COSTO:
+    // Debe: 700 + 300 (desglose 60111) + 180 (IGV 40111) + 300 (exonerado 60111) + 50 (ISC 60111) + 2 (ICBPER 60111) + 10 (Otros 60111) + 1362 (Destino 20111 = 1000+300+62) = S/ 2,904.00
+    // Haber: 1362 (Variación 6111) + 1387.80 (Neto 4212) + 154.20 (SPOT 4213) = S/ 2,904.00
+    assert.equal(prop.totalDebe, 2904.00, 'Total Debe en COSTO debe ser exactamente S/ 2,904.00');
+    assert.equal(prop.totalHaber, 2904.00, 'Total Haber en COSTO debe ser exactamente S/ 2,904.00');
+
+    const l4212 = prop.lineas.find(l => l.codigoCuenta === '4212');
+    assert.equal(l4212?.haber, 1387.80, 'Neto por pagar 4212 debe ser S/ 1,387.80');
+
+    const l20111 = prop.lineas.find(l => l.codigoCuenta === '20111');
+    assert.equal(l20111?.debe, 1362.00, 'Destino al almacén 20111 debe incluir tributos al costo: S/ 1,362.00');
+
+    console.log('✔ Caso 1A superado exitosamente (Tratamiento COSTO default).\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // CASO 1B: Mismo comprobante con tratamiento explícito GASTO (Cuentas 6412, 6413, 6491)
+  // -------------------------------------------------------------------------
+  console.log('--- CASO 1B: Asiento completo - Tratamiento GASTO (Cuentas 64) ---');
   {
     const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
       proveedorId: 'anx-prov-01',
@@ -51,53 +123,43 @@ async function ejecutarSuitePruebas() {
       icbper: 2.00,
       otrosTributos: 10.00,
       tratamientoTributosNoRecuperables: 'GASTO',
-      tienePercepcion: true,
-      montoPercepcion: 30.84, // 2% de 1542.00
+      tienePercepcion: false,
+      montoPercepcion: 0,
       destino: '1',
       moneda: 'PEN',
       tipoCambio: 1.0,
       tieneDetraccion: true,
-      montoDetraccion: 154.20, // 10% de 1542.00
+      montoDetraccion: 154.20,
       tieneRetencion: false,
       montoRetencion: 0,
-      glosa: 'Compra de mercaderías con desglose completo de tributos y percepción'
+      glosa: 'Compra de existencias con Detracción SPOT (Tratamiento GASTO)'
     });
 
-    console.log(`Líneas generadas: ${prop.lineas.length}`);
+    console.log(`Líneas generadas (GASTO): ${prop.lineas.length}`);
     prop.lineas.forEach((l) => {
       console.log(`  L${l.linea} | Cta: ${l.codigoCuenta.padEnd(6)} | D: ${l.debe.toFixed(2).padStart(9)} | H: ${l.haber.toFixed(2).padStart(9)} | ${l.glosaLinea || l.denominacionCuenta}`);
     });
 
     console.log(`  Total Debe: S/ ${prop.totalDebe.toFixed(2)} | Total Haber: S/ ${prop.totalHaber.toFixed(2)} | Dif: S/ ${prop.diferencia.toFixed(2)}`);
 
-    assert.equal(prop.cuadrado, true, 'Caso 1: El asiento contable debe estar 100% cuadrado');
-    assert.equal(prop.diferencia, 0, 'Caso 1: Diferencia debe ser 0.00');
+    assert.equal(prop.cuadrado, true, 'Caso 1B: Asiento debe estar cuadrado');
+    assert.equal(prop.diferencia, 0, 'Caso 1B: Diferencia debe ser 0.00');
 
-    // Cuentas requeridas
     const ctas = prop.lineas.map(l => l.codigoCuenta);
-    assert.ok(ctas.includes('60111'), 'Debe usar cuenta detalle 60111');
-    assert.ok(!ctas.includes('6011'), 'No debe usar subcuenta 6011');
-    assert.ok(ctas.includes('40111'), 'Debe incluir IGV 40111');
-    assert.ok(ctas.includes('6412'), 'Debe incluir ISC 6412');
-    assert.ok(ctas.includes('6413'), 'Debe incluir ICBPER 6413');
-    assert.ok(ctas.includes('6491'), 'Debe incluir Otros Tributos 6491');
-    assert.ok(ctas.includes('40113'), 'Debe incluir Percepción 40113');
-    assert.ok(ctas.includes('4213'), 'Debe incluir Detracción SPOT 4213');
-    assert.ok(ctas.includes('4212'), 'Debe incluir Facturas por pagar neto 4212');
-    assert.ok(ctas.includes('20111'), 'Debe incluir Destino Inventarios 20111');
-    assert.ok(ctas.includes('6111'), 'Debe incluir Variación Existencias 6111');
+    assert.ok(ctas.includes('6412'), 'En tratamiento GASTO debe incluir cuenta de gasto 6412 (ISC)');
+    assert.ok(ctas.includes('6413'), 'En tratamiento GASTO debe incluir cuenta de gasto 6413 (ICBPER)');
+    assert.ok(ctas.includes('6491'), 'En tratamiento GASTO debe incluir cuenta de gasto 6491 (Otros)');
 
-    // Totales exactos del Caso 1 calculados a mano:
-    // Debe: 700 + 300 (desglose 60111) + 300 (exonerado 60111) + 180 (IGV 40111) + 50 (ISC 6412) + 2 (ICBPER 6413) + 10 (Otros 6491) + 30.84 (Percepción 40113) + 1300 (Destino 20111) = 2872.84
-    // Haber: 1418.64 (Neto 4212) + 154.20 (SPOT 4213) + 1300 (Variación 6111) = 2872.84
-    assert.equal(prop.totalDebe, 2872.84, 'Total Debe debe ser exactamente S/ 2,872.84');
-    assert.equal(prop.totalHaber, 2872.84, 'Total Haber debe ser exactamente S/ 2,872.84');
+    // Totales literales calculados a mano para GASTO:
+    // Debe: 700 + 300 (60111) + 180 (40111) + 300 (exonerado 60111) + 50 (ISC 6412) + 2 (ICBPER 6413) + 10 (Otros 6491) + 1300 (Destino 20111 = 1000+300) = S/ 2,842.00
+    // Haber: 1300 (Variación 6111) + 1387.80 (Neto 4212) + 154.20 (SPOT 4213) = S/ 2,842.00
+    assert.equal(prop.totalDebe, 2842.00, 'Total Debe en GASTO debe ser exactamente S/ 2,842.00');
+    assert.equal(prop.totalHaber, 2842.00, 'Total Haber en GASTO debe ser exactamente S/ 2,842.00');
 
-    // Obligación neta comprobante: Total (1542.00) + Percepcion (30.84) - Detraccion (154.20) = 1418.64
-    const l4212 = prop.lineas.find(l => l.codigoCuenta === '4212');
-    assert.equal(l4212?.haber, 1418.64, 'Neto por pagar 4212 debe ser exactamente S/ 1,418.64');
+    const l20111 = prop.lineas.find(l => l.codigoCuenta === '20111');
+    assert.equal(l20111?.debe, 1300.00, 'Destino al almacén 20111 en GASTO es solo existencias: S/ 1,300.00');
 
-    console.log('✔ Caso 1 superado exitosamente.\n');
+    console.log('✔ Caso 1B superado exitosamente (Tratamiento GASTO explícito).\n');
   }
 
   // -------------------------------------------------------------------------

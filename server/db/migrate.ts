@@ -25,12 +25,17 @@ export async function runMigrations({ verifyOnly = false } = {}) {
     const applied = new Map(existing.rows.map(row => [row.nombre, row.sha256]));
     const resultados: { file: string; ms: number | null }[] = [];
     for (const file of MIGRATION_FILES) {
-      const sql = fs.readFileSync(new URL(file, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-      const hash = createHash('sha256').update(sql).digest('hex');
+      const raw = fs.readFileSync(new URL(file, import.meta.url), 'utf8');
+      const normalizedLF = raw.replaceAll('\r', '');
+      const normalizedCRLF = normalizedLF.replaceAll('\n', '\r\n');
+      const hashLF = createHash('sha256').update(normalizedLF).digest('hex');
+      const hashCRLF = createHash('sha256').update(normalizedCRLF).digest('hex');
+      const hashRaw = createHash('sha256').update(raw).digest('hex');
+
       const registrado = applied.get(file);
       if (registrado !== undefined) {
-        // Las versiones anteriores firmaban los saltos de línea del checkout local.
-        if (registrado !== hash && registrado !== createHash('sha256').update(sql.replaceAll('\n', '\r\n')).digest('hex')) {
+        // Acepta hash histórico registrado en la base de datos (sea variante LF, CRLF o raw original)
+        if (registrado !== hashLF && registrado !== hashCRLF && registrado !== hashRaw) {
           throw Object.assign(new Error(`MIGRACION_MODIFICADA: ${file}. Agregue una migración nueva.`), { code: 'MIGRATIONS_INVALID' });
         }
         resultados.push({ file, ms: null });
@@ -38,8 +43,8 @@ export async function runMigrations({ verifyOnly = false } = {}) {
       }
       if (verifyOnly) throw Object.assign(new Error('Faltan migraciones de la aplicación.'), { code: 'MIGRATIONS_PENDING' });
       const started = performance.now();
-      await client.query(sql);
-      await client.query('INSERT INTO schema_migrations (nombre, sha256) VALUES ($1, $2)', [file, hash]);
+      await client.query(normalizedLF);
+      await client.query('INSERT INTO schema_migrations (nombre, sha256) VALUES ($1, $2)', [file, hashLF]);
       resultados.push({ file, ms: performance.now() - started });
     }
     if (!verifyOnly) {
