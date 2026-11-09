@@ -3,8 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, type DatabaseService } from '../config/database';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export async function runCatalogosSeeds(client: Pick<DatabaseService, 'query'> = db) {
   if (!db.isPostgresConnected()) return;
@@ -73,7 +72,7 @@ export async function runCatalogosSeeds(client: Pick<DatabaseService, 'query'> =
   }
 
   // 4. Catálogo Base Oficial PCGE 2026 Clasificado
-  const rutaJson = path.join(__dirname, '../data/pcge_base_v2.json');
+  const rutaJson = path.join(currentDir, '../data/pcge_base_v2.json');
   if (fs.existsSync(rutaJson)) {
     const raw = fs.readFileSync(rutaJson, 'utf8');
     const { cuentas } = JSON.parse(raw);

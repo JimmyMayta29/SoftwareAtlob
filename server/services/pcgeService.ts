@@ -4,8 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 export interface CuentaPCGEItem {
   id?: string;
@@ -33,7 +32,7 @@ let catalogoMemoriaCache: Map<string, any> | null = null;
 function obtenerCatalogoMemoria(): Map<string, any> {
   if (catalogoMemoriaCache) return catalogoMemoriaCache;
   const mapa = new Map<string, any>();
-  const rutaJson = path.join(__dirname, '../data/pcge_base_v2.json');
+  const rutaJson = path.join(currentDir, '../data/pcge_base_v2.json');
   if (fs.existsSync(rutaJson)) {
     const raw = fs.readFileSync(rutaJson, 'utf8');
     const { cuentas } = JSON.parse(raw);
