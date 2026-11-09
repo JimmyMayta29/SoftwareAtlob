@@ -300,24 +300,29 @@ async function testRunner() {
   assert.ok(toolbarStart !== -1 && headerEnd !== -1, 'Debe existir el contenedor role="toolbar" en el header');
   const toolbarHtml = topBarContent.slice(toolbarStart, headerEnd);
 
-  // 2. Verificar que los 7 botones requeridos están presentes
-  const botonesEsperados = [
+  // 2. Verificar que los 6 botones de la franja de acciones y el buscador de la Franja 1 están presentes
+  const botonesFranjaAcciones = [
     'Registrar compra',
     'Registrar venta',
     'Asiento nuevo',
     'Consolidar mes',
     'Conciliar SIRE',
-    'Cambiar empresa',
-    'Paleta de comandos'
+    'Cambiar empresa'
   ];
 
-  for (const b of botonesEsperados) {
-    assert.ok(toolbarHtml.includes(b), `El botón "${b}" debe estar presente en la cinta`);
+  for (const b of botonesFranjaAcciones) {
+    assert.ok(toolbarHtml.includes(b), `El botón "${b}" debe estar presente en la cinta de acciones`);
   }
 
-  // 3. Contar los elementos <button dentro de la barra de herramientas: exactamente 7
+  // El 7mo acceso (Paleta de comandos) reside en la Franja 1 como el buscador principal
+  assert.ok(
+    topBarContent.includes('Buscar o ejecutar un comando') && topBarContent.includes('Ctrl+Shift+P'),
+    'El acceso a la Paleta de comandos debe estar presente en la Franja 1 como buscador [Ctrl+Shift+P]'
+  );
+
+  // 3. Contar los elementos <button dentro de la barra de herramientas: exactamente 6 en la franja
   const buttonMatches = toolbarHtml.match(/<button/g);
-  assert.equal(buttonMatches?.length, 7, `La cinta debe tener exactamente 7 botones de acceso, encontrados: ${buttonMatches?.length}`);
+  assert.equal(buttonMatches?.length, 6, `La cinta de acciones debe tener exactamente 6 botones, encontrados: ${buttonMatches?.length}`);
 
   // 4. Verificar que los botones quitados NO están en la cinta
   const botonesQuitados = [

@@ -333,6 +333,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
           setCommandQuery('');
           setIsCommandPaletteOpen(true);
         }}
+        activeModuleId={activeModuleId}
       />
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
