@@ -14,6 +14,7 @@ import {
   Check
 } from 'lucide-react';
 import { MENU_DATA, MenuGroup, MenuItem, tienePermisoMenu } from '../../types/menu';
+import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
 
 export interface TopBarProps {
   onAction: (ruta: string, itemId?: string) => void;
@@ -306,11 +307,15 @@ export const TopBar: React.FC<TopBarProps> = ({
       <div className="h-[56px] px-6 flex items-center justify-between border-b border-[#E3E8EF] bg-white gap-5">
         {/* Izquierda: Logo + Contexto de Empresa */}
         <div className="flex items-center gap-5 min-w-0">
-          {/* Logo Atlob ERP */}
+          {/* Logo Atlob ERP con Isotipo Oficial */}
           <div className="flex items-center gap-2.5 shrink-0">
-            <div className="w-7 h-7 rounded-[7px] bg-[#2457D6] flex items-center justify-center text-white font-bold text-[16px] shadow-sm">
-              A
-            </div>
+            <img
+              src={atlobIsotipo}
+              alt="Atlob ERP"
+              className="w-7 h-7 object-contain drop-shadow-sm shrink-0"
+              width={28}
+              height={28}
+            />
             <div className="flex items-baseline gap-1">
               <span className="text-[15px] font-semibold text-[#1B2430] tracking-tight">Atlob</span>
               <span className="text-[15px] font-normal text-[#5B6675]">ERP</span>
@@ -469,7 +474,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       <nav
         role="menubar"
         aria-label="Menú principal de Atlob Consultores ERP"
-        className="h-[40px] px-4 flex items-center border-b border-[#E3E8EF] bg-white overflow-x-auto no-scrollbar whitespace-nowrap gap-[2px]"
+        className="h-[40px] px-4 flex items-center border-b border-[#E3E8EF] bg-white gap-[2px] relative z-30 overflow-visible"
       >
         {MENU_DATA.map((group: MenuGroup) => {
           const isOpen = activeMenuId === group.id;
@@ -488,7 +493,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 aria-expanded={isOpen}
                 onClick={() => handleMenuClick(group.id)}
                 onMouseEnter={() => handleMenuMouseEnter(group.id)}
-                className={`h-[40px] px-3 text-[13.5px] transition-colors relative flex items-center justify-center select-none focus:outline-none ${
+                className={`h-[40px] px-3 text-[13.5px] transition-colors relative flex items-center justify-center select-none focus:outline-none cursor-pointer ${
                   isOpen
                     ? 'bg-[#F5F7FB] text-[#1B2430] font-semibold'
                     : isActiveGroup
@@ -512,7 +517,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <div
                   role="menu"
                   aria-label={group.label}
-                  className="absolute top-full left-0 min-w-[260px] bg-white border border-[#E3E8EF] rounded-[10px] py-1 shadow-lg z-50 animate-in fade-in-50 duration-100"
+                  className={`absolute top-full ${
+                    group.id === 'ayuda' || group.id === 'herramientas' ? 'right-0' : 'left-0'
+                  } min-w-[260px] bg-white border border-[#E3E8EF] rounded-[10px] py-1 shadow-xl z-50 animate-in fade-in-50 duration-100`}
                 >
                   {group.items.map((item: MenuItem) => {
                     if (item.separator) {
@@ -592,7 +599,11 @@ export const TopBar: React.FC<TopBarProps> = ({
                           <div
                             role="menu"
                             aria-label={item.label}
-                            className="absolute top-0 left-full min-w-[250px] bg-white border border-[#E3E8EF] rounded-[10px] py-1 shadow-lg z-50 ml-0.5 animate-in fade-in-50 duration-100"
+                            className={`absolute top-0 ${
+                              group.id === 'ayuda' || group.id === 'herramientas'
+                                ? 'right-full mr-0.5'
+                                : 'left-full ml-0.5'
+                            } min-w-[250px] bg-white border border-[#E3E8EF] rounded-[10px] py-1 shadow-xl z-50 animate-in fade-in-50 duration-100`}
                           >
                             {item.children!.map((subItem: MenuItem) => {
                               if (subItem.separator) {
