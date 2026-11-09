@@ -148,3 +148,4 @@ export const ModalTipoCambioManual: React.FC<ModalTipoCambioManualProps> = ({
     </div>
   );
 };
+

@@ -25,6 +25,7 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
   const [busqueda, setBusqueda] = useState('');
   const [elementoFiltro, setElementoFiltro] = useState<string>('TODOS');
   const [incluirInactivas, setIncluirInactivas] = useState(true);
+  const [soloPendientes, setSoloPendientes] = useState(false);
   const [modalNuevaOpen, setModalNuevaOpen] = useState(false);
   const [isCompletando, setIsCompletando] = useState(false);
 
@@ -51,7 +52,10 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
     enabled: true
   });
 
-  const cuentas: CuentaPCGEApi[] = (planQuery.data?.cuentas || PLAN_CONTABLE_PCGE as any) || [];
+  const cuentasBase: CuentaPCGEApi[] = (planQuery.data?.cuentas || PLAN_CONTABLE_PCGE as any) || [];
+  const cuentas = soloPendientes
+    ? cuentasBase.filter(c => (c as any).estadoClasificacion === 'PENDIENTE_CONTADOR')
+    : cuentasBase;
 
   const handleCompletarPlan = async () => {
     if (!puedeEditar) {
@@ -200,6 +204,16 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
             <span>Mostrar cuentas inactivas</span>
           </label>
 
+          <label className="flex items-center gap-1.5 cursor-pointer text-amber-800 select-none font-semibold">
+            <input
+              type="checkbox"
+              checked={soloPendientes}
+              onChange={(e) => setSoloPendientes(e.target.checked)}
+              className="rounded text-amber-600"
+            />
+            <span>Pendientes del plan</span>
+          </label>
+
           <div className="flex items-center gap-1">
             <span className="text-[#475569]">Elemento:</span>
             {['TODOS', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((el) => (
@@ -246,6 +260,11 @@ export const PlanCuentasView: React.FC<PlanCuentasViewProps> = ({
                 {c.esCorrectora && (
                   <span className="px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] rounded font-bold" title="Cuenta correctora del Activo con signo negativo">
                     Correctora (-)
+                  </span>
+                )}
+                {(c as any).estadoClasificacion === 'PENDIENTE_CONTADOR' && (
+                  <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 text-[10px] rounded font-bold" title="Clasificación pendiente de validación por el contador">
+                    Pendiente Validación
                   </span>
                 )}
               </div>

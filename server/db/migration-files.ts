@@ -18,4 +18,6 @@ export const MIGRATION_FILES = [
   'schema_fase13_pcge_completo.sql',
   'schema_fase14_subdiarios_personalizables.sql',
   'schema_fase15_analisis_cuentas.sql',
+  'schema_fase16_plan_cuentas_columnas.sql',
+  'schema_fase17_plan_cuentas_cierre_tipo.sql',
 ] as const;

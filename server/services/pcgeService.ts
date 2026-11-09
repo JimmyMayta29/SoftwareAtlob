@@ -24,6 +24,7 @@ export interface CuentaPCGEItem {
   esCorrectora: boolean;
   esInactiva: boolean;
   columnaHojaTrabajo?: string;
+  estadoClasificacion?: string;
 }
 
 // Catálogo cargado en memoria desde pcge_base_v2.json para fallback inmediato
@@ -192,7 +193,9 @@ export const pcgeService = {
                pc.es_registro as "esRegistro", pc.clasificacion_eeff as "clasificacionEeff",
                pc.naturaleza_saldo as "naturalezaSaldo", pc.signo_eeff as "signoEeff",
                pc.cuenta_cierre_relacionada as "cuentaCierreRelacionada",
-               pc.es_correctora as "esCorrectora", pc.es_inactiva as "esInactiva"
+               pc.es_correctora as "esCorrectora", pc.es_inactiva as "esInactiva",
+               pc.estado_clasificacion as "estadoClasificacion",
+               pc.columna_hoja_trabajo as "columnaHojaTrabajo"
         FROM plan_cuentas pc
         WHERE pc.empresa_id = $1
       `, [empresaId]);
@@ -214,7 +217,9 @@ export const pcgeService = {
           signoEeff: r.signoEeff,
           cuentaCierreRelacionada: r.cuentaCierreRelacionada,
           esCorrectora: r.esCorrectora,
-          esInactiva: r.esInactiva
+          esInactiva: r.esInactiva,
+          estadoClasificacion: r.estadoClasificacion,
+          columnaHojaTrabajo: r.columnaHojaTrabajo
         });
       }
     }
@@ -265,14 +270,27 @@ export const pcgeService = {
             empresa_id, codigo, nombre, nivel, tipo_cuenta,
             permite_movimiento, es_registro, clasificacion_eeff,
             naturaleza_saldo, signo_eeff, cuenta_cierre_relacionada,
-            es_correctora, es_inactiva
+            es_correctora, es_inactiva, estado_financiero, grupo_estado,
+            columna_hoja_trabajo, funcion_resultado, exige_anexo,
+            exige_documento, exige_centro_costo, exige_fecha_vencimiento,
+            cuenta_destino_debe, cuenta_destino_haber, estado_clasificacion, origen
           )
           SELECT $1, pb.codigo, pb.denominacion, pb.nivel, pb.tipo_cuenta,
                  pb.es_registro, pb.es_registro, pb.clasificacion_eeff,
                  pb.naturaleza_saldo, pb.signo_eeff, pb.cuenta_cierre_relacionada,
-                 pb.es_correctora, FALSE
+                 pb.es_correctora, pb.es_registro = FALSE, pb.estado_financiero, pb.grupo_estado,
+                 pb.columna_hoja_trabajo, pb.funcion_resultado, pb.exige_anexo,
+                 pb.exige_documento, pb.exige_centro_costo, pb.exige_fecha_vencimiento,
+                 pb.cuenta_destino_debe, pb.cuenta_destino_haber, pb.estado_clasificacion, pb.origen
           FROM pcge_base pb
-          ON CONFLICT (empresa_id, codigo) DO NOTHING;
+          ON CONFLICT (empresa_id, codigo) DO UPDATE SET
+            estado_financiero = EXCLUDED.estado_financiero,
+            columna_hoja_trabajo = EXCLUDED.columna_hoja_trabajo,
+            estado_clasificacion = EXCLUDED.estado_clasificacion,
+            es_correctora = EXCLUDED.es_correctora,
+            signo_eeff = EXCLUDED.signo_eeff,
+            naturaleza_saldo = EXCLUDED.naturaleza_saldo,
+            clasificacion_eeff = EXCLUDED.clasificacion_eeff;
         `, [empresaId]);
 
         const { rows: [despues] } = await client.query('SELECT count(*)::int as total FROM plan_cuentas WHERE empresa_id = $1', [empresaId]);
@@ -513,7 +531,7 @@ export const pcgeService = {
     // Modo Memoria
     let lista = PLAN_CUENTAS_EMPRESA_MEMORIA.get(empresaId) || [];
     // Simulación de comprobación de movimientos
-    if (codigo === '1011' || codigo === '70111' || codigo === '6011' || codigo === '40111') {
+    if (codigo === '101' || codigo === '1011' || codigo === '70111' || codigo === '6011' || codigo === '40111') {
       throw new Error(`CUENTA_CON_MOVIMIENTOS: No se permite eliminar la cuenta ${codigo} porque registra movimientos históricos. Debe mantenerla como inactiva.`);
     }
     const filtered = lista.filter(c => c.codigo !== codigo);

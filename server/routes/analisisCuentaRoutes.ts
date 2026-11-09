@@ -58,6 +58,27 @@ analisisCuentaRoutes.get('/antiguedad', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/empresas/:empresaId/analisis-cuentas/comparativo-anual
+ * Obtiene la evolución comparativa de 12 meses con variación porcentual.
+ */
+analisisCuentaRoutes.get('/comparativo-anual', async (req: Request, res: Response) => {
+  try {
+    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const anio = parseInt(req.query.anio as string, 10) || 2026;
+    const cuenta = (req.query.cuenta as string) || '12';
+
+    if (!empresaId) {
+      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+    }
+
+    const resultado = await analisisCuentaService.obtenerComparativoAnual(empresaId, anio, cuenta);
+    res.json({ success: true, data: resultado });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: sanitizarMensaje(err) });
+  }
+});
+
+/**
  * GET /api/empresas/:empresaId/analisis-cuentas/cuentas-control
  * Conciliación de cuentas de control contables vs módulos auxiliares.
  */
@@ -155,3 +176,4 @@ analisisCuentaRoutes.post(
     }
   }
 );
+

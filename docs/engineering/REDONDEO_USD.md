@@ -27,3 +27,4 @@ Cuando una operación contable (asiento de voucher, factura con detalle de ítem
 - Servidor: `server/services/redondeoUsdService.ts`
 - Cliente: `src/utils/redondeoUsd.ts`
 - Suite de pruebas automatizadas: `server/tests/test_bloque_f_hallazgos.ts`
+

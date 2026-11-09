@@ -74,6 +74,7 @@ if (arg === '--dev') {
 } else {
   await limpiarGenerado(appDir);
   await mkdir(join(appDir, 'desktop', 'build'), { recursive: true });
+  await mkdir(join(appDir, 'desktop', 'assets'), { recursive: true });
   const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   await writeFile(join(appDir, 'package.json'), JSON.stringify({
     name: pkg.name,

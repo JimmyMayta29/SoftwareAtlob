@@ -121,3 +121,4 @@ testBloqueF().catch((err) => {
   console.error('❌ Error en test Bloque F:', err);
   process.exit(1);
 });
+

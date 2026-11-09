@@ -88,6 +88,24 @@ export interface FilaCuentaControl {
   observacion: string;
 }
 
+export interface MesComparativoAnual {
+  mes: number;
+  nombreMes: string;
+  debePen: number;
+  haberPen: number;
+  saldoNetoPen: number;
+  variacionPct: number;
+}
+
+export interface ResultadoComparativoAnual {
+  anio: number;
+  cuentaPrefix: string;
+  meses: MesComparativoAnual[];
+  totalDebePen: number;
+  totalHaberPen: number;
+  saldoFinalPen: number;
+}
+
 export interface AlertaAuditoria {
   id: string;
   tipo: 'SALDO_CONTRARIO' | 'BANCO_SOBREGIRADO' | 'FALTA_SUSTENTO' | 'DUPLICADOS' | 'POST_CIERRE';
@@ -881,6 +899,107 @@ export class AnalisisCuentaService {
       [empresaId, asientoId]
     );
     return res.rows;
+  }
+
+  /**
+   * Obtiene la evolución comparativa de 12 meses para una cuenta o grupo
+   */
+  async obtenerComparativoAnual(
+    empresaId: string,
+    anio: number,
+    cuentaPrefix: string = '12'
+  ): Promise<ResultadoComparativoAnual> {
+    const nombresMeses = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Setiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    if (db.isPostgresConnected()) {
+      const res = await db.query<{
+        mes: number;
+        total_debe: string;
+        total_haber: string;
+      }>(`
+        SELECT 
+          EXTRACT(MONTH FROM a.fecha)::int AS mes,
+          COALESCE(SUM(ad.debe), 0) AS total_debe,
+          COALESCE(SUM(ad.haber), 0) AS total_haber
+        FROM asientos a
+        JOIN asiento_detalle ad ON ad.asiento_id = a.id
+        JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
+        WHERE a.empresa_id = $1
+          AND EXTRACT(YEAR FROM a.fecha) = $2
+          AND pc.codigo LIKE $3
+          AND a.estado = 'CONTABILIZADO'
+        GROUP BY EXTRACT(MONTH FROM a.fecha)
+        ORDER BY mes ASC;
+      `, [empresaId, anio, `${cuentaPrefix}%`]);
+
+      const mapaMeses = new Map<number, { debe: number; haber: number }>();
+      for (const r of res.rows) {
+        mapaMeses.set(r.mes, {
+          debe: redondear(parseFloat(r.total_debe || '0')),
+          haber: redondear(parseFloat(r.total_haber || '0'))
+        });
+      }
+
+      let saldoAcumulado = 0;
+      let mesAnteriorSaldo = 0;
+      const meses: MesComparativoAnual[] = [];
+      let totalDebePen = 0;
+      let totalHaberPen = 0;
+
+      for (let m = 1; m <= 12; m++) {
+        const datos = mapaMeses.get(m) || { debe: 0, haber: 0 };
+        const netoMes = redondear(datos.debe - datos.haber);
+        saldoAcumulado = redondear(saldoAcumulado + netoMes);
+        totalDebePen = redondear(totalDebePen + datos.debe);
+        totalHaberPen = redondear(totalHaberPen + datos.haber);
+
+        let variacionPct = 0;
+        if (m > 1 && mesAnteriorSaldo !== 0) {
+          variacionPct = redondear(((netoMes - mesAnteriorSaldo) / Math.abs(mesAnteriorSaldo)) * 100);
+        }
+        mesAnteriorSaldo = netoMes;
+
+        meses.push({
+          mes: m,
+          nombreMes: nombresMeses[m - 1],
+          debePen: datos.debe,
+          haberPen: datos.haber,
+          saldoNetoPen: netoMes,
+          variacionPct
+        });
+      }
+
+      return {
+        anio,
+        cuentaPrefix,
+        meses,
+        totalDebePen,
+        totalHaberPen,
+        saldoFinalPen: saldoAcumulado
+      };
+    }
+
+    // Fallback en memoria
+    const meses: MesComparativoAnual[] = nombresMeses.map((nombre, i) => ({
+      mes: i + 1,
+      nombreMes: nombre,
+      debePen: 0,
+      haberPen: 0,
+      saldoNetoPen: 0,
+      variacionPct: 0
+    }));
+
+    return {
+      anio,
+      cuentaPrefix,
+      meses,
+      totalDebePen: 0,
+      totalHaberPen: 0,
+      saldoFinalPen: 0
+    };
   }
 }
 

@@ -2668,7 +2668,7 @@
       "codigo_padre": "195",
       "tipo_cuenta": "ACTIVO",
       "es_registro": true,
-      "clasificacion_eeff": "ACTIVO_CORRIENTE",
+      "clasificacion_eeff": "ACTIVO_NO_CORRIENTE",
       "naturaleza_saldo": "ACREEDORA",
       "signo_eeff": -1,
       "es_correctora": true,
@@ -2691,6 +2691,60 @@
       "columna_hoja_trabajo": "INVENTARIO_ACTIVO",
       "cuenta_cierre_relacionada": null,
       "version_normativa": "PCGE_2019_MOD_2020"
+    },
+    {
+      "codigo": "196",
+      "denominacion": "Activos del contrato",
+      "elemento": "1",
+      "nivel": 3,
+      "codigo_padre": "19",
+      "tipo_cuenta": "ACTIVO",
+      "es_registro": false,
+      "clasificacion_eeff": "ACTIVO_CORRIENTE",
+      "naturaleza_saldo": "ACREEDORA",
+      "signo_eeff": -1,
+      "es_correctora": true,
+      "columna_hoja_trabajo": "INVENTARIO_ACTIVO",
+      "cuenta_cierre_relacionada": null,
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": false,
+      "estado_clasificacion": "DEFINIDO"
+    },
+    {
+      "codigo": "1961",
+      "denominacion": "Activos del contrato – Terceros",
+      "elemento": "1",
+      "nivel": 4,
+      "codigo_padre": "196",
+      "tipo_cuenta": "ACTIVO",
+      "es_registro": true,
+      "clasificacion_eeff": "ACTIVO_CORRIENTE",
+      "naturaleza_saldo": "ACREEDORA",
+      "signo_eeff": -1,
+      "es_correctora": true,
+      "columna_hoja_trabajo": "INVENTARIO_ACTIVO",
+      "cuenta_cierre_relacionada": null,
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": false,
+      "estado_clasificacion": "DEFINIDO"
+    },
+    {
+      "codigo": "1962",
+      "denominacion": "Activos del contrato – Relacionadas",
+      "elemento": "1",
+      "nivel": 4,
+      "codigo_padre": "196",
+      "tipo_cuenta": "ACTIVO",
+      "es_registro": true,
+      "clasificacion_eeff": "ACTIVO_CORRIENTE",
+      "naturaleza_saldo": "ACREEDORA",
+      "signo_eeff": -1,
+      "es_correctora": true,
+      "columna_hoja_trabajo": "INVENTARIO_ACTIVO",
+      "cuenta_cierre_relacionada": null,
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": false,
+      "estado_clasificacion": "DEFINIDO"
     },
     {
       "codigo": "20",
@@ -18475,14 +18529,16 @@
       "nivel": 6,
       "codigo_padre": "65511",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655112",
@@ -18491,14 +18547,16 @@
       "nivel": 6,
       "codigo_padre": "65511",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "65512",
@@ -18523,14 +18581,16 @@
       "nivel": 6,
       "codigo_padre": "65512",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655122",
@@ -18539,14 +18599,16 @@
       "nivel": 6,
       "codigo_padre": "65512",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "65513",
@@ -18571,14 +18633,16 @@
       "nivel": 6,
       "codigo_padre": "65513",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655132",
@@ -18587,14 +18651,16 @@
       "nivel": 6,
       "codigo_padre": "65513",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "65514",
@@ -18619,14 +18685,16 @@
       "nivel": 6,
       "codigo_padre": "65514",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655142",
@@ -18635,14 +18703,16 @@
       "nivel": 6,
       "codigo_padre": "65514",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "65515",
@@ -18667,14 +18737,16 @@
       "nivel": 6,
       "codigo_padre": "65515",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655152",
@@ -18683,14 +18755,16 @@
       "nivel": 6,
       "codigo_padre": "65515",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "65516",
@@ -18715,14 +18789,16 @@
       "nivel": 6,
       "codigo_padre": "65516",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "655162",
@@ -18731,14 +18807,16 @@
       "nivel": 6,
       "codigo_padre": "65516",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "GASTO",
       "naturaleza_saldo": "DEUDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": "84",
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "6552",
@@ -23515,14 +23593,16 @@
       "nivel": 5,
       "codigo_padre": "7099",
       "tipo_cuenta": "GESTION",
-      "es_registro": true,
+      "es_registro": false,
       "clasificacion_eeff": "INGRESO",
       "naturaleza_saldo": "ACREEDORA",
       "signo_eeff": 1,
       "es_correctora": false,
       "columna_hoja_trabajo": "RESULTADO_NATURALEZA",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "70993",
@@ -25826,7 +25906,9 @@
       "es_correctora": false,
       "columna_hoja_trabajo": "CIERRE_BALANCE",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "86",
@@ -25842,7 +25924,9 @@
       "es_correctora": false,
       "columna_hoja_trabajo": "CIERRE_BALANCE",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "88",
@@ -26002,7 +26086,9 @@
       "es_correctora": false,
       "columna_hoja_trabajo": "NO_APLICA",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "92",
@@ -26018,7 +26104,9 @@
       "es_correctora": false,
       "columna_hoja_trabajo": "NO_APLICA",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     },
     {
       "codigo": "93",
@@ -26034,7 +26122,9 @@
       "es_correctora": false,
       "columna_hoja_trabajo": "NO_APLICA",
       "cuenta_cierre_relacionada": null,
-      "version_normativa": "PCGE_2019_MOD_2020"
+      "version_normativa": "PCGE_2019_MOD_2020",
+      "es_inactiva": true,
+      "estado_clasificacion": "PENDIENTE_CONTADOR"
     }
   ],
   "huella_sha256": "4652125f6a103315679dc99b752dd8a9a4e8019fe6cabf560625d59e9ae2c2b5"

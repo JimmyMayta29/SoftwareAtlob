@@ -76,6 +76,24 @@ export interface ResultadoAntiguedadSaldos {
   partidas: FilaAntiguedadSaldo[];
 }
 
+export interface MesComparativoAnual {
+  mes: number;
+  nombreMes: string;
+  debePen: number;
+  haberPen: number;
+  saldoNetoPen: number;
+  variacionPct: number;
+}
+
+export interface ResultadoComparativoAnual {
+  anio: number;
+  cuentaPrefix: string;
+  meses: MesComparativoAnual[];
+  totalDebePen: number;
+  totalHaberPen: number;
+  saldoFinalPen: number;
+}
+
 export interface FilaCuentaControl {
   codigoCuenta: string;
   nombreCuenta: string;
@@ -124,6 +142,20 @@ export const analisisCuentasApi = {
       `/empresas/${empresaId}/analisis-cuentas/antiguedad`,
       {
         params: { periodo, cuenta },
+      }
+    );
+    return res.data.data;
+  },
+
+  obtenerComparativoAnual: async (
+    empresaId: string,
+    anio: number,
+    cuenta?: string
+  ): Promise<ResultadoComparativoAnual> => {
+    const res = await apiClient.get<{ success: boolean; data: ResultadoComparativoAnual }>(
+      `/empresas/${empresaId}/analisis-cuentas/comparativo-anual`,
+      {
+        params: { anio, cuenta },
       }
     );
     return res.data.data;

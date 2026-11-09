@@ -9,3 +9,5 @@ coverage/
 /ATLOB_ERP_PCGE_2026_CLASIFICADO_v2.xlsx
 /desktop/generated/
 /release/
+*.dump
+*.bak

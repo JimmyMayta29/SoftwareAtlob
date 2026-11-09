@@ -36,3 +36,4 @@ export const tipoCambioApi = {
     return res.data?.data || [];
   }
 };
+

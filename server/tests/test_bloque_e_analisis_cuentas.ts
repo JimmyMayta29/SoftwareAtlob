@@ -221,3 +221,4 @@ runTestsBloqueE().catch((err) => {
   console.error('❌ Error en test Bloque E:', err);
   process.exit(1);
 });
+
