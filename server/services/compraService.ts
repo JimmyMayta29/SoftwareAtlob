@@ -8,6 +8,7 @@ import { periodoService } from './periodoService';
 import { anexoService } from './anexoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaRepository } from '../repositories/empresaRepository';
+import { buscarDetraccionPorCodigo } from '../data/catalogos/detraccionesCatalogo';
 
 export interface CompraInput {
   periodoId: string;
@@ -34,8 +35,16 @@ export interface CompraInput {
   tieneDetraccion?: boolean;
   codigoBienDetraccion?: string;
   porcentajeDetraccion?: number;
+  montoDetraccion?: number;
+  justificacionTasaDetraccion?: string;
   tieneRetencion?: boolean;
   porcentajeRetencion?: number;
+  montoRetencion?: number;
+  tienePercepcion?: boolean;
+  porcentajePercepcion?: number;
+  montoPercepcion?: number;
+  seriePercepcion?: string;
+  numeroPercepcion?: string;
   esServicio?: boolean;
   esActivo?: boolean;
   porcentajeAdmin?: number;
@@ -117,9 +126,29 @@ async function resolverPeriodoCompra(empresaId: string, periodoId: string, clien
 
 export const compraService = {
   /**
-   * Valida la coherencia de importes aritméticos y el cálculo del 18% de IGV
+   * Valida la coherencia de importes aritméticos, tasas paramétricas e incompatibilidades normativas
    */
   validarCoherencia(input: CompraInput) {
+    // 1. Validación de importes no negativos (las notas de crédito tipo '07' admiten importes negativos para ajuste de compras)
+    const esNotaCredito = input.tipoComprobante === '07';
+    if (!esNotaCredito) {
+      if (
+        input.total < 0 ||
+        input.baseGravada < 0 ||
+        input.igv < 0 ||
+        (input.baseNoGravada || 0) < 0 ||
+        (input.exonerado || 0) < 0 ||
+        (input.isc || 0) < 0 ||
+        (input.icbper || 0) < 0 ||
+        (input.otrosTributos || 0) < 0 ||
+        (input.montoDetraccion || 0) < 0 ||
+        (input.montoRetencion || 0) < 0 ||
+        (input.montoPercepcion || 0) < 0
+      ) {
+        throw new Error('IMPORTE_NEGATIVO_INVALIDO: Los importes del comprobante no pueden ser negativos.');
+      }
+    }
+
     const total = Money.create(input.total);
     const baseGravada = Money.create(input.baseGravada);
     const igv = Money.create(input.igv);
@@ -129,24 +158,76 @@ export const compraService = {
     const icbper = Money.create(input.icbper || 0);
     const otros = Money.create(input.otrosTributos || 0);
 
-    // Suma de componentes
+    // 2. Suma de componentes vs Total comprobante (tolerancia oficial documentada 0.05 soles)
     const sumaComponentes = Money.add(
       baseGravada,
       Money.add(igv, Money.add(noGravada, Money.add(exonerado, Money.add(isc, Money.add(icbper, otros)))))
     );
 
-    if (!Money.isEqual(total, sumaComponentes)) {
-      throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de base + IGV + tributos (S/ ${sumaComponentes}) no coincide con el total (S/ ${total}).`);
+    const difSumas = Money.sub(total, sumaComponentes).abs();
+    if (difSumas.greaterThan(0.05)) {
+      throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de bases + IGV + tributos (S/ ${sumaComponentes}) difiere del total (S/ ${total}) más allá de la tolerancia de 0.05.`);
     }
 
-    // IGV 18% o 10% (Ley 31556 MYPEs turismo/restaurantes) con tolerancia 0.05
+    // 3. Tasa de IGV paramétrica con vigencia por fecha de emisión
     if (!baseGravada.isZero()) {
       const igv18 = Money.round(baseGravada.times(0.18));
       const igv10 = Money.round(baseGravada.times(0.10));
       const difIgv18 = Money.sub(igv, igv18).abs();
       const difIgv10 = Money.sub(igv, igv10).abs();
+
       if (difIgv18.greaterThan(0.05) && difIgv10.greaterThan(0.05)) {
-        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del IGV calculado (18% o 10%).`);
+        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del cálculo paramétrico oficial (18% general o 10% Ley 31556 con tolerancia 0.05).`);
+      }
+
+      // Validación de vigencia de la tasa reducida del 10% (Ley 31556 / Ley 32174)
+      if (difIgv10.lessThanOrEqualTo(0.05) && difIgv18.greaterThan(0.05)) {
+        if (input.fechaEmision < '2022-09-01') {
+          throw new Error('TASA_IGV_FUERA_VIGENCIA: La tasa reducida del 10% (Ley 31556) rige a partir del 01/09/2022.');
+        }
+        if (input.fechaEmision > '2026-12-31') {
+          throw new Error('TASA_IGV_FUERA_VIGENCIA: La tasa reducida del 10% (Ley 31556 prorrogada por Ley 32174) tiene vigencia oficial hasta el 31/12/2026. Para el ejercicio 2027 rige la tasa general del 18% salvo nueva prórroga legal expresa.');
+        }
+      }
+    }
+
+    // 4. Incompatibilidad de Regímenes: Bloqueo de Retención + Percepción en el mismo comprobante
+    const tieneRet = Boolean(input.tieneRetencion || (input.montoRetencion && input.montoRetencion > 0));
+    const tienePerc = Boolean(input.tienePercepcion || (input.montoPercepcion && input.montoPercepcion > 0));
+    if (tieneRet && tienePerc) {
+      throw new Error('COMBINACION_TRIBUTARIA_BLOQUEADA: Un comprobante no puede estar sujeto simultáneamente al Régimen de Percepciones y al Régimen de Retenciones del IGV (RS 037-2002/SUNAT y Ley 28053). [SUPUESTO A VALIDAR con contador]');
+    }
+
+    // 5. Validación de Detracción: Catálogo oficial y justificación de tasa especial
+    if (input.tieneDetraccion) {
+      const codigoBien = input.codigoBienDetraccion || '022';
+      const itemDetraccion = buscarDetraccionPorCodigo(codigoBien);
+      if (itemDetraccion) {
+        const pctIngresado = input.porcentajeDetraccion !== undefined ? input.porcentajeDetraccion : itemDetraccion.porcentaje;
+        if (pctIngresado !== itemDetraccion.porcentaje) {
+          const justificacion = input.justificacionTasaDetraccion;
+          if (!justificacion || typeof justificacion !== 'string' || justificacion.trim().length < 5) {
+            throw new Error(`TASA_DETRACCION_REQUIERE_JUSTIFICACION: La tasa ingresada (${pctIngresado}%) difiere de la tasa oficial (${itemDetraccion.porcentaje}%) del concepto ${itemDetraccion.codigo} (${itemDetraccion.descripcion}). Debe ingresar una justificación técnica o legal visible.`);
+          }
+        }
+      }
+    }
+
+    // 6. Coherencia de montos respecto al total comprobante (salvo notas de crédito)
+    if (!esNotaCredito) {
+      const montoDet = input.montoDetraccion || 0;
+      const montoRet = input.montoRetencion || 0;
+      const montoPerc = input.montoPercepcion || 0;
+
+      if (montoDet > input.total) {
+        throw new Error(`DETRACCION_EXCEDE_TOTAL: El monto de detracción (S/ ${montoDet}) no puede ser mayor al total del comprobante (S/ ${input.total}).`);
+      }
+      if (montoRet > input.total) {
+        throw new Error(`RETENCION_EXCEDE_TOTAL: El monto de retención (S/ ${montoRet}) no puede ser mayor al total del comprobante (S/ ${input.total}).`);
+      }
+      const netoCalculado = Number((input.total + montoPerc - montoDet - montoRet).toFixed(2));
+      if (netoCalculado < 0) {
+        throw new Error(`NETO_PAGAR_NEGATIVO: Las deducciones aplicadas superan el importe total a favor del proveedor (Neto resultante: S/ ${netoCalculado}).`);
       }
     }
   },
@@ -466,7 +547,7 @@ export const compraService = {
       throw new Error('PERIODO_CERRADO: No se pueden registrar compras en un período contable cerrado.');
     }
 
-    // 2. Consulta y advertencias del Proveedor (Habido / No Habido, Activo / Baja)
+    // 2. Consulta y advertencias del Proveedor (Habido / No Habido, Activo / Baja) y Normativas
     const advertencias: string[] = [];
     const anexo = await anexoService.obtenerPorId(empresaId, input.proveedorId);
     if (db.isPostgresConnected() && !anexo) throw new Error('PROVEEDOR_NO_ENCONTRADO: Seleccione un proveedor de la empresa.');
@@ -476,6 +557,29 @@ export const compraService = {
       }
       if (anexo.estadoSunat && anexo.estadoSunat !== 'ACTIVO') {
         advertencias.push(`PROVEEDOR_NO_ACTIVO_ADVERTENCIA: El proveedor figura con estado ${anexo.estadoSunat} en el padrón tributario.`);
+      }
+    }
+
+    // Advertencia normativa: Combinación Detracción SPOT + Retención de IGV
+    if (input.tieneDetraccion && input.tieneRetencion) {
+      advertencias.push('ADVERTENCIA_DETRACCION_RETENCION: El comprobante incluye Detracción SPOT y Retención de IGV. Según el Art. 5 inc. a de la R.S. 037-2002/SUNAT, las operaciones sujetas a detracción SPOT están excluidas de la retención del IGV. [SUPUESTO A VALIDAR con contador]');
+    }
+
+    // Advertencia normativa: Tasa reducida 10% Ley 31556
+    const baseGrav = Money.create(input.baseGravada);
+    if (!baseGrav.isZero()) {
+      const igvIngresado = Money.create(input.igv);
+      const igv10Calc = Money.round(baseGrav.times(0.10));
+      if (Money.sub(igvIngresado, igv10Calc).abs().lessThanOrEqualTo(0.05)) {
+        advertencias.push('ADVERTENCIA_TASA_REDUCIDA_LEY_31556: Se está aplicando la tasa reducida del 10% (8% IGV + 2% IPM - Ley 31556 / 32174). Verifique que el proveedor califique como micro o pequeña empresa del rubro de restaurantes, hoteles o alojamientos turísticos. [SUPUESTO A VALIDAR con contador]');
+      }
+    }
+
+    // Advertencia normativa: Umbral de detracción SPOT
+    if (input.tieneDetraccion) {
+      const itemDet = buscarDetraccionPorCodigo(input.codigoBienDetraccion || '022');
+      if (itemDet && itemDet.umbralMinimo > 0 && input.total <= itemDet.umbralMinimo) {
+        advertencias.push(`ADVERTENCIA_UMBRAL_DETRACCION: El total del comprobante (S/ ${input.total}) no supera el umbral mínimo oficial de S/ ${itemDet.umbralMinimo}.00 para ${itemDet.descripcion}. [SUPUESTO A VALIDAR: Verifique si califica como operación exceptuada o sujeta por acumulación].`);
       }
     }
 
@@ -511,15 +615,15 @@ export const compraService = {
         otrosTributos: input.otrosTributos,
         tienePercepcion: (input as any).tienePercepcion,
         montoPercepcion: (input as any).montoPercepcion,
-        cuentaCompra: (input as any).cuentaCompra || '6011',
+        cuentaCompra: (input as any).cuentaCompra || '60111',
         desgloseCuentas: (input as any).desgloseCuentas,
         destino: input.tipoAdquisicion || '1',
         moneda,
         tipoCambio,
         tieneDetraccion: input.tieneDetraccion,
-        montoDetraccion: input.tieneDetraccion ? Money.toNumber(Money.mul(input.total, (input.porcentajeDetraccion || 10) / 100)) : undefined,
+        montoDetraccion: input.tieneDetraccion ? (input.montoDetraccion || Money.toNumber(Money.mul(input.total, (input.porcentajeDetraccion || 10) / 100))) : undefined,
         tieneRetencion: input.tieneRetencion,
-        montoRetencion: input.tieneRetencion ? Money.toNumber(Money.mul(input.total, ((input as any).porcentajeRetencion || 3) / 100)) : undefined,
+        montoRetencion: input.tieneRetencion ? (input.montoRetencion || Money.toNumber(Money.mul(input.total, ((input as any).porcentajeRetencion || 3) / 100))) : undefined,
         glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`
       });
     } else {

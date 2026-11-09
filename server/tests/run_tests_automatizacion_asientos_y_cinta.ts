@@ -95,12 +95,12 @@ async function testRunner() {
   assert.equal(compraPeriodica.cuadrado, true, 'El asiento debe estar cuadrado');
   assert.equal(compraPeriodica.totalDebe, 1180.00, 'Debe total: Base 1000 + IGV 180 = 1180');
   assert.equal(compraPeriodica.totalHaber, 1180.00, 'Haber total: Proveedor 4212 = 1180');
-  assert.equal(compraPeriodica.lineas.some(l => l.codigoCuenta === '6011' && l.debe === 1000), true, 'Línea de compra 6011 al Debe');
+  assert.equal(compraPeriodica.lineas.some(l => (l.codigoCuenta === '6011' || l.codigoCuenta === '60111') && l.debe === 1000), true, 'Línea de compra 60111 al Debe');
   assert.equal(compraPeriodica.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 180), true, 'Línea IGV 40111 al Debe');
   assert.equal(compraPeriodica.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 1180), true, 'Línea 4212 al Haber');
   assert.equal(compraPeriodica.lineas.some(l => l.codigoCuenta === '20111'), false, 'No debe existir línea 20111 en compra periódica');
   assert.equal(compraPeriodica.lineas.some(l => l.codigoCuenta === '6111'), false, 'No debe existir línea 6111 en compra periódica');
-  console.log('✔ PASÓ Test 1: Compra periódica genera 6011 + 40111 vs 4212 sin 20111/6111.');
+  console.log('✔ PASÓ Test 1: Compra periódica genera 60111 + 40111 vs 4212 sin 20111/6111.');
   pruebasPasadas++;
 
   // --------------------------------------------------------------------------
@@ -144,8 +144,8 @@ async function testRunner() {
   });
 
   assert.equal(compraDestino3.cuadrado, true, 'El asiento de destino 3 debe estar cuadrado');
-  // Costo total = 1000 + 180 = 1180 cargado en 6011
-  assert.equal(compraDestino3.lineas.some(l => l.codigoCuenta === '6011' && l.debe === 1180.00), true, 'Línea 6011 debe tener Base + IGV = 1180');
+  // Costo total = 1000 + 180 = 1180 cargado en cuenta de detalle 60111
+  assert.equal(compraDestino3.lineas.some(l => (l.codigoCuenta === '6011' || l.codigoCuenta === '60111') && l.debe === 1180.00), true, 'Línea 60111 debe tener Base + IGV = 1180');
   assert.equal(compraDestino3.lineas.some(l => l.codigoCuenta === '40111'), false, 'En destino 3 NO debe haber cuenta 40111 de crédito fiscal');
   assert.equal(compraDestino3.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 1180.00), true, 'Obligación 4212 por 1180');
   console.log('✔ PASÓ Test 3: Compra destino 3 suma el IGV al costo (6011) sin crédito fiscal 40111.');

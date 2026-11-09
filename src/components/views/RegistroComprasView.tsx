@@ -5,6 +5,7 @@ import {
   Filter, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertCircle,
   Download,
   Calendar,
   Sparkles,
@@ -43,6 +44,7 @@ import { generarSireRceTxt, exportarComprobantesCsv } from '../../services/sireT
 import { VisorDocumentoSunatModal } from '../modals/VisorDocumentoSunatModal';
 import { useReportStyle } from '../../context/ReportStyleContext';
 import { construirDefinicionRegistroComprasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { CATALOGO_OFICIAL_DETRACCIONES_SUNAT, buscarDetraccionPorCodigo } from '../../data/detraccionesCatalogo';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
 import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
@@ -129,7 +131,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const [formTotal, setFormTotal] = useState<number>(0);
 
   const [formTipoAdquisicion, setFormTipoAdquisicion] = useState<'1' | '2' | '3' | '4'>('1');
-  const [formCuentaCompra, setFormCuentaCompra] = useState<string>('6011');
+  const [formCuentaCompra, setFormCuentaCompra] = useState<string>('60111');
   const [formMoneda, setFormMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [formTipoCambio, setFormTipoCambio] = useState<number>(1.0);
   const [formFormaPago, setFormFormaPago] = useState<'CONTADO' | 'CREDITO'>('CONTADO');
@@ -141,6 +143,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const [formCodigoBienDetraccion, setFormCodigoBienDetraccion] = useState<string>('022');
   const [formPctDetraccion, setFormPctDetraccion] = useState<number>(12);
   const [formMontoDetraccion, setFormMontoDetraccion] = useState<number>(0);
+  const [formJustificacionTasaDetraccion, setFormJustificacionTasaDetraccion] = useState('');
   const [formNroConstanciaDetraccion, setFormNroConstanciaDetraccion] = useState('');
   const [formFechaDetraccion, setFormFechaDetraccion] = useState('');
 
@@ -168,7 +171,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
     centroCostoId: string;
     glosa: string;
   }>>([
-    { id: '1', cuentaCodigo: '6011', denominacion: 'Mercaderías manufacturadas', monto: 0, centroCostoId: 'CC-ADM', glosa: 'Compra mercaderías' }
+    { id: '1', cuentaCodigo: '60111', denominacion: 'Mercaderías manufacturadas - Costo', monto: 0, centroCostoId: 'CC-ADM', glosa: 'Compra mercaderías' }
   ]);
 
   // Previsualización de Asiento
@@ -247,7 +250,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
             for (const ld of lineasDesglose) {
               if (ld.monto > 0) {
                 lineas.push({
-                  codigoCuenta: ld.cuentaCodigo || '6011',
+                  codigoCuenta: ld.cuentaCodigo === '6011' ? '60111' : (ld.cuentaCodigo || '60111'),
                   denominacion: ld.denominacion || 'Compra / Gasto desglosado',
                   glosaLinea: ld.glosa || `Gasto ${ld.cuentaCodigo} ${formSerie}-${formNumero || '00000001'}`,
                   debe: Number(ld.monto),
@@ -274,7 +277,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
           if (costoNoGravado > 0 && formTipoAdquisicion !== '4') {
             lineas.push({
               codigoCuenta: formCuentaCompra,
-              denominacion: 'Adquisiciones no gravadas / exoneradas',
+              denominacion: 'Mercaderías manufacturadas - Adquisiciones no gravadas',
               glosaLinea: `Operaciones no gravadas ${formSerie}-${formNumero || '00000001'}`,
               debe: Number(costoNoGravado.toFixed(2)),
               haber: 0
@@ -282,7 +285,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
           } else if (formTipoAdquisicion === '4') {
             lineas.push({
               codigoCuenta: formCuentaCompra,
-              denominacion: 'Compra no gravada (Destino 4)',
+              denominacion: 'Mercaderías manufacturadas - No gravadas (Destino 4)',
               glosaLinea: `Compra no gravada ${formSerie}-${formNumero || '00000001'}`,
               debe: Number(formTotal.toFixed(2)),
               haber: 0
@@ -513,6 +516,20 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
       return;
     }
 
+    if (formTieneRetencion && formTienePercepcion) {
+      setBannerError('Incompatibilidad tributaria: Un comprobante no puede estar sujeto simultáneamente a Retención y Percepción de IGV.');
+      return;
+    }
+
+    if (formTieneDetraccion) {
+      const itemOficial = buscarDetraccionPorCodigo(formCodigoBienDetraccion);
+      const difiereTasa = itemOficial && Math.abs(formPctDetraccion - itemOficial.porcentaje) > 0.01;
+      if (difiereTasa && (!formJustificacionTasaDetraccion || formJustificacionTasaDetraccion.trim().length < 5)) {
+        setBannerError(`La tasa de detracción ingresada (${formPctDetraccion}%) difiere de la oficial (${itemOficial?.porcentaje}%). Ingrese la justificación de la tasa especial.`);
+        return;
+      }
+    }
+
     try {
       await crearCompraMutation.mutateAsync({
         periodoId: periodo,
@@ -533,6 +550,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         isc: formIsc,
         icbper: formIcbper,
         otrosTributos: formOtrosTributos,
+        tasaIgv: formTasaIgv,
         igv: formIgv,
         total: formTotal,
         tipoAdquisicion: formTipoAdquisicion,
@@ -549,6 +567,8 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         tieneDetraccion: formTieneDetraccion,
         codigoBienDetraccion: formCodigoBienDetraccion,
         porcentajeDetraccion: formPctDetraccion,
+        montoDetraccion: formMontoDetraccion,
+        justificacionTasaDetraccion: formJustificacionTasaDetraccion,
         tieneRetencion: formTieneRetencion,
         porcentajeRetencion: formPctRetencion,
         montoRetencion: formMontoRetencion,
@@ -1057,7 +1077,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   <option value="">-- Seleccionar proveedor del catálogo --</option>
                   {anexosList.map((a: any) => (
                     <option key={a.id} value={a.id}>
-                      {a.numeroDocumento} - {a.razonSocial} {a.condicionSunat === 'NO_HABIDO' ? '⚠️ (NO HABIDO)' : ''} ({a.estadoSunat})
+                      {a.numeroDocumento} - {a.razonSocial} {a.condicionSunat === 'NO_HABIDO' ? '[NO HABIDO]' : ''} ({a.estadoSunat})
                     </option>
                   ))}
                 </select>
@@ -1093,7 +1113,14 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                           : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
                       }`}>
-                        {(proveedorSeleccionado?.condicionSunat || resultadoConsultaRuc?.condicion) === 'HABIDO' ? 'HABIDO' : '⚠️ NO HABIDO'}
+                        {(proveedorSeleccionado?.condicionSunat || resultadoConsultaRuc?.condicion) === 'HABIDO' ? (
+                          'HABIDO'
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                            <span>NO HABIDO</span>
+                          </>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1129,6 +1156,19 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   </select>
                 </div>
               </div>
+
+              {formTasaIgv === 0.10 && (
+                <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Advertencia de Tasa Especial (Ley 31556 / Ley 32174): </span>
+                    Tasa reducida del 10% (8% IGV + 2% IPM) aplicable únicamente a micro y pequeñas empresas de restaurantes, hoteles y alojamientos turísticos que cumplan los requisitos de ley.
+                    <span className="block mt-0.5 text-[11px] text-amber-700">
+                      <strong>Vigencia legal:</strong> Del 01/09/2022 hasta el 31/12/2026. A partir del 01/01/2027 rige la tasa general del 18% salvo prórroga legislativa expresa.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Fila 1: Las 4 Bases Imponibles Oficiales SUNAT */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
@@ -1293,10 +1333,32 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
 
             {/* 4. Regímenes de Recaudación SUNAT (SPOT, Percepción, Retención) */}
             <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
-              <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-xs font-bold text-slate-800">
-                <Receipt className="w-4 h-4 text-[#2457D6]" />
-                <span>4. Regímenes de Recaudación (Detracción SPOT / Percepción / Retención)</span>
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs font-bold text-slate-800">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-[#2457D6]" />
+                  <span>4. Regímenes de Recaudación (Detracción SPOT / Percepción / Retención)</span>
+                </div>
               </div>
+
+              {/* Alerta de Incompatibilidad Normativa: Percepción + Retención */}
+              {formTienePercepcion && formTieneRetencion && (
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2.5 text-xs text-rose-800">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold">COMBINACIÓN BLOQUEADA:</strong> Un comprobante no puede estar sujeto simultáneamente al Régimen de Percepciones y al Régimen de Retenciones del IGV (RS 037-2002/SUNAT y Ley 28053). Desactive uno de los dos regímenes para poder registrar. <span className="font-semibold text-rose-900">[SUPUESTO A VALIDAR con contador]</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Advertencia Normativa: Detracción SPOT + Retención */}
+              {formTieneDetraccion && formTieneRetencion && (
+                <div role="alert" className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2.5 text-xs text-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold">ADVERTENCIA NORMATIVA (R.S. 037-2002/SUNAT):</strong> Según el Art. 5 inc. a de la norma, las operaciones sujetas al Sistema de Detracciones (SPOT) están excluidas de la Retención del IGV. Verifique si corresponde aplicar ambas en esta operación. <span className="font-semibold text-amber-900">[SUPUESTO A VALIDAR con contador]</span>
+                  </div>
+                </div>
+              )}
 
               {/* Detracción SPOT */}
               <div className={`p-3 rounded-xl border transition ${formTieneDetraccion ? 'bg-amber-50/60 border-amber-300' : 'bg-[#F7F9FC] border-slate-200'}`}>
@@ -1309,9 +1371,13 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                         const checked = e.target.checked;
                         setFormTieneDetraccion(checked);
                         if (checked) {
-                          setFormMontoDetraccion(Number((formTotal * (formPctDetraccion / 100)).toFixed(2)));
+                          const item = buscarDetraccionPorCodigo(formCodigoBienDetraccion);
+                          const pct = item ? item.porcentaje : formPctDetraccion;
+                          setFormPctDetraccion(pct);
+                          setFormMontoDetraccion(Number((formTotal * (pct / 100)).toFixed(2)));
                         } else {
                           setFormMontoDetraccion(0);
+                          setFormJustificacionTasaDetraccion('');
                         }
                       }}
                       className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
@@ -1325,68 +1391,85 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   )}
                 </div>
 
-                {formTieneDetraccion && (
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-2.5 mt-2 border-t border-amber-200 text-xs">
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Tipo de Bien / Servicio</label>
-                      <select
-                        value={formCodigoBienDetraccion}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setFormCodigoBienDetraccion(val);
-                          let pct = 12;
-                          if (val === '019') pct = 4; // Transporte de carga
-                          else if (val === '037') pct = 4; // Contratos de construcción
-                          else if (val === '022') pct = 12; // Otros servicios
-                          setFormPctDetraccion(pct);
-                          setFormMontoDetraccion(Number((formTotal * (pct / 100)).toFixed(2)));
-                        }}
-                        className="w-full text-xs font-semibold p-1.5 border border-amber-300 rounded-lg bg-white"
-                      >
-                        <option value="022">022 - Otros servicios empresariales (12%)</option>
-                        <option value="019">019 - Transporte de carga terrestre (4%)</option>
-                        <option value="037">037 - Contratos de construcción (4%)</option>
-                        <option value="020">020 - Mantenimiento y reparación (12%)</option>
-                        <option value="025">025 - Fabricación de bienes por encargo (10%)</option>
-                      </select>
-                    </div>
+                {formTieneDetraccion && (() => {
+                  const itemOficial = buscarDetraccionPorCodigo(formCodigoBienDetraccion);
+                  const difiereTasa = itemOficial && formPctDetraccion !== itemOficial.porcentaje;
+                  const bajoUmbral = itemOficial && itemOficial.umbralMinimo > 0 && formTotal > 0 && formTotal <= itemOficial.umbralMinimo;
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Tasa %</label>
-                      <input
-                        type="number"
-                        value={formPctDetraccion}
-                        onChange={(e) => {
-                          const p = parseFloat(e.target.value) || 0;
-                          setFormPctDetraccion(p);
-                          setFormMontoDetraccion(Number((formTotal * (p / 100)).toFixed(2)));
-                        }}
-                        className="w-full text-xs font-mono font-bold p-1.5 border border-amber-300 rounded-lg bg-white text-right"
-                      />
-                    </div>
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-2.5 mt-2 border-t border-amber-200 text-xs">
+                      <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-amber-900 mb-1">Catálogo Oficial Bien / Servicio</label>
+                        <select
+                          value={formCodigoBienDetraccion}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFormCodigoBienDetraccion(val);
+                            const item = buscarDetraccionPorCodigo(val);
+                            if (item) {
+                              setFormPctDetraccion(item.porcentaje);
+                              setFormMontoDetraccion(Number((formTotal * (item.porcentaje / 100)).toFixed(2)));
+                              setFormJustificacionTasaDetraccion('');
+                            }
+                          }}
+                          className="w-full text-xs font-semibold p-1.5 border border-amber-300 rounded-lg bg-white"
+                        >
+                          {CATALOGO_OFICIAL_DETRACCIONES_SUNAT.map((item) => (
+                            <option key={item.codigo} value={item.codigo}>
+                              {item.codigo} - {item.descripcion} ({item.porcentaje}% {item.umbralMinimo > 0 ? `- Umbral > S/ ${item.umbralMinimo}` : '- Sin umbral'})
+                            </option>
+                          ))}
+                        </select>
+                        {bajoUmbral && (
+                          <span className="text-[10px] text-amber-800 font-semibold block mt-1">
+                            Aviso: Importe (S/ {formTotal.toFixed(2)}) no supera el umbral oficial (S/ {itemOficial.umbralMinimo.toFixed(2)}). [SUPUESTO A VALIDAR: Verifique si aplica por acumulación].
+                          </span>
+                        )}
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Nº Constancia Depósito</label>
-                      <input
-                        type="text"
-                        value={formNroConstanciaDetraccion}
-                        onChange={(e) => setFormNroConstanciaDetraccion(e.target.value)}
-                        placeholder="Ej: 99012345"
-                        className="w-full text-xs font-mono p-1.5 border border-amber-300 rounded-lg bg-white"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-amber-900 mb-1">Tasa %</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={formPctDetraccion}
+                          onChange={(e) => {
+                            const p = parseFloat(e.target.value) || 0;
+                            setFormPctDetraccion(p);
+                            setFormMontoDetraccion(Number((formTotal * (p / 100)).toFixed(2)));
+                          }}
+                          className="w-full text-xs font-mono font-bold p-1.5 border border-amber-300 rounded-lg bg-white text-right"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Fecha Depósito</label>
-                      <input
-                        type="date"
-                        value={formFechaDetraccion}
-                        onChange={(e) => setFormFechaDetraccion(e.target.value)}
-                        className="w-full text-xs p-1.5 border border-amber-300 rounded-lg bg-white"
-                      />
+                      <div>
+                        <label className="block text-[10px] font-bold text-amber-900 mb-1">Nº Constancia Depósito</label>
+                        <input
+                          type="text"
+                          value={formNroConstanciaDetraccion}
+                          onChange={(e) => setFormNroConstanciaDetraccion(e.target.value)}
+                          placeholder="Ej: 99012345"
+                          className="w-full text-xs font-mono p-1.5 border border-amber-300 rounded-lg bg-white"
+                        />
+                      </div>
+
+                      {difiereTasa && (
+                        <div className="md:col-span-4 bg-amber-100/70 p-2.5 rounded-lg border border-amber-300">
+                          <label className="block text-[10px] font-bold text-amber-900 mb-1">
+                            Justificación visible de tasa especial (Tasa oficial: {itemOficial.porcentaje}% vs ingresada: {formPctDetraccion}%) *
+                          </label>
+                          <input
+                            type="text"
+                            value={formJustificacionTasaDetraccion}
+                            onChange={(e) => setFormJustificacionTasaDetraccion(e.target.value)}
+                            placeholder="Indique convenio, resolución SUNAT o base legal que justifica tasa distinta"
+                            className="w-full text-xs p-1.5 border border-amber-400 rounded-lg bg-white"
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Percepción de IGV */}
@@ -1400,6 +1483,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                         const checked = e.target.checked;
                         setFormTienePercepcion(checked);
                         if (checked) {
+                          // Incompatibilidad: apagar Retención automáticamente
+                          setFormTieneRetencion(false);
+                          setFormMontoRetencion(0);
                           setFormMontoPercepcion(Number((formTotal * (formPctPercepcion / 100)).toFixed(2)));
                         } else {
                           setFormMontoPercepcion(0);
@@ -1483,6 +1569,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                         const checked = e.target.checked;
                         setFormTieneRetencion(checked);
                         if (checked) {
+                          // Incompatibilidad: apagar Percepción automáticamente
+                          setFormTienePercepcion(false);
+                          setFormMontoPercepcion(0);
                           setFormMontoRetencion(Number((formTotal * (formPctRetencion / 100)).toFixed(2)));
                         } else {
                           setFormMontoRetencion(0);

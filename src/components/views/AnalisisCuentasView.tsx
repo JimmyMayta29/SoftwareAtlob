@@ -23,6 +23,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   ExternalLink,
+  Lightbulb,
 } from 'lucide-react';
 import {
   analisisCuentasApi,
@@ -495,8 +496,11 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
 
             {/* Aviso informativo de doble clic */}
             <div className="text-[11px] text-slate-500 bg-slate-100/70 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center justify-between">
-              <span>
-                💡 <strong>Doble clic</strong> en cualquier fila para inspeccionar el <strong>Voucher Contable Completo</strong> con partida doble y documento origen.
+              <span className="flex items-center gap-1.5">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span>
+                  <strong>Doble clic</strong> en cualquier fila para inspeccionar el <strong>Voucher Contable Completo</strong> con partida doble y documento origen.
+                </span>
               </span>
               <span className="font-mono text-slate-400">{movimientosFiltrados.length} registros</span>
             </div>
@@ -1092,35 +1096,38 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setEstadoMarca('REVISADO')}
-                    className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-1.5 text-xs font-bold rounded-lg border flex items-center justify-center gap-1.5 transition-all ${
                       estadoMarca === 'REVISADO'
                         ? 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    ✓ Revisado
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Revisado</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setEstadoMarca('OBSERVADO')}
-                    className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-1.5 text-xs font-bold rounded-lg border flex items-center justify-center gap-1.5 transition-all ${
                       estadoMarca === 'OBSERVADO'
                         ? 'bg-rose-600 text-white border-rose-600'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    ⚠ Observado
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Observado</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setEstadoMarca('PENDIENTE')}
-                    className={`py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    className={`py-1.5 text-xs font-bold rounded-lg border flex items-center justify-center gap-1.5 transition-all ${
                       estadoMarca === 'PENDIENTE'
                         ? 'bg-amber-600 text-white border-amber-600'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    ⏳ Pendiente
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Pendiente</span>
                   </button>
                 </div>
               </div>

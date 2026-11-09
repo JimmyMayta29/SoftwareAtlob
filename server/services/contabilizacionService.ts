@@ -102,6 +102,8 @@ export interface CompraAutomatizadaInput {
   fechaEmision: string;
   fechaContable?: string;
   baseImponible: number;
+  igv?: number;
+  tasaIgv?: number;
   baseGravadaDestino2?: number;
   baseGravadaDestino3?: number;
   baseNoGravada?: number;
@@ -176,11 +178,11 @@ export const contabilizacionService = {
 
     switch (tipoOperacion) {
       case 'COMPRA_MERCADERIA': {
-        // 1. Gasto Mercadería
+        // 1. Gasto Mercadería (cuenta de detalle divisionaria 60111)
         lineas.push({
           linea: lineaNum++,
-          codigoCuenta: '6011',
-          denominacionCuenta: 'Mercaderías manufacturadas',
+          codigoCuenta: '60111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo',
           debe: Money.toNumber(base),
           haber: 0.00,
           glosaLinea: `Por la compra según ${datos.docSerie}-${datos.docNumero}`,
@@ -788,7 +790,8 @@ export const contabilizacionService = {
     const base = Money.create(input.baseImponible);
     const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
     const esDolares = input.moneda === 'USD';
-    const ctaCompra = input.cuentaCompra || '6011';
+    let ctaCompra = input.cuentaCompra || '60111';
+    if (ctaCompra === '6011') ctaCompra = '60111';
 
     // Validación preventiva de cuenta de mayor (2 dígitos)
     if (ctaCompra.length === 2 || ['10', '12', '14', '16', '20', '33', '40', '42', '50', '60', '70'].includes(ctaCompra)) {
@@ -810,9 +813,22 @@ export const contabilizacionService = {
     const montoPercepcion = input.tienePercepcion && input.montoPercepcion ? Money.create(input.montoPercepcion) : Money.create(0);
     const montoRetencion = input.tieneRetencion && input.montoRetencion ? Money.create(input.montoRetencion) : Money.create(0);
 
+    // Incompatibilidad normativa: Bloqueo de Percepción + Retención en el mismo comprobante
+    const tieneRet = Boolean(input.tieneRetencion || montoRetencion.greaterThan(0));
+    const tienePerc = Boolean(input.tienePercepcion || montoPercepcion.greaterThan(0));
+    if (tieneRet && tienePerc) {
+      throw new Error('COMBINACION_TRIBUTARIA_BLOQUEADA: Un comprobante no puede estar sujeto simultáneamente al Régimen de Percepciones y al Régimen de Retenciones del IGV (RS 037-2002/SUNAT y Ley 28053). [SUPUESTO A VALIDAR con contador]');
+    }
+
     if (input.destino === '1' || input.destino === '2') {
       // Destinos 1 y 2: Derecho a crédito fiscal
-      igv = Money.round(base.times(0.18));
+      if (input.igv !== undefined) {
+        igv = Money.create(input.igv);
+      } else if (input.tasaIgv === 10) {
+        igv = Money.round(base.times(0.10));
+      } else {
+        igv = Money.round(base.times(0.18));
+      }
       costoCompra = base;
       totalComprobante = Money.add(base, igv);
 
@@ -822,7 +838,7 @@ export const contabilizacionService = {
           if (item.monto > 0) {
             lineas.push({
               linea: lineaNum++,
-              codigoCuenta: item.cuentaCodigo,
+              codigoCuenta: item.cuentaCodigo === '6011' ? '60111' : item.cuentaCodigo,
               denominacionCuenta: item.denominacion || 'Compra / Gasto desglosado',
               debe: Number(item.monto),
               haber: 0.00,
@@ -856,7 +872,7 @@ export const contabilizacionService = {
         denominacionCuenta: 'IGV - Cuenta propia',
         debe: Money.toNumber(igv),
         haber: 0.00,
-        glosaLinea: `Crédito fiscal IGV 18% compra ${input.docSerie}-${input.docNumero}`
+        glosaLinea: `Crédito fiscal IGV ${input.tasaIgv === 10 ? '10%' : '18%'} compra ${input.docSerie}-${input.docNumero}`
       });
 
       // 3. Destino al Almacén (SOLO en método PERMANENTE para cuentas clase 60)
@@ -925,7 +941,7 @@ export const contabilizacionService = {
       lineas.push({
         linea: lineaNum++,
         codigoCuenta: ctaCompra,
-        denominacionCuenta: 'Mercaderías no gravadas / exoneradas',
+        denominacionCuenta: 'Mercaderías manufacturadas - No gravadas (Destino 4)',
         debe: Money.toNumber(costoCompra),
         haber: 0.00,
         glosaLinea: `Compra no gravada (Destino 4) ${input.docSerie}-${input.docNumero}`,
@@ -960,7 +976,7 @@ export const contabilizacionService = {
       lineas.push({
         linea: lineaNum++,
         codigoCuenta: ctaCompra,
-        denominacionCuenta: 'Adquisiciones no gravadas / exoneradas',
+        denominacionCuenta: 'Mercaderías manufacturadas - Adquisiciones no gravadas',
         debe: Money.toNumber(montoNoGravado),
         haber: 0.00,
         glosaLinea: `Operaciones no gravadas / exoneradas ${input.docSerie}-${input.docNumero}`,

@@ -40,7 +40,8 @@ const suites = [
   { name: 'Bloque B: Plan Contable General Empresarial Completo, Correctoras y Jerarquía', path: 'server/tests/test_bloque_b_plan_contable.ts' },
   { name: 'Bloque A: Subdiarios Personalizables y Registro por Subdiario', path: 'server/tests/test_bloque_a_subdiarios.ts' },
   { name: 'Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia', path: 'server/tests/test_bloque_f_hallazgos.ts' },
-  { name: 'Bloque E: Análisis de Cuentas, Auditoría, Cuentas de Control y Antigüedad de Saldos', path: 'server/tests/test_bloque_e_analisis_cuentas.ts' }
+  { name: 'Bloque E: Análisis de Cuentas, Auditoría, Cuentas de Control y Antigüedad de Saldos', path: 'server/tests/test_bloque_e_analisis_cuentas.ts' },
+  { name: 'Asiento Completo, Reglas Tributarias y Subdiarios Dinámicos', path: 'server/tests/test_asiento_completo_subdiarios.ts' }
 ];
 
 console.log('========================================================================');
@@ -95,7 +96,7 @@ for (const [idx, suite] of suites.entries()) {
 
 const totalTime = ((Date.now() - startTotal) / 1000).toFixed(2);
 console.log('========================================================================');
-console.log('📋 INVENTARIO DE LAS 27 SUITES EJECUTADAS (NOMBRE | ARCHIVO | ASERCIONES)');
+console.log(`📋 INVENTARIO DE TODAS LAS ${totalSuites} SUITES EJECUTADAS (NOMBRE | ARCHIVO | ASERCIONES)`);
 console.log('========================================================================');
 for (const item of resumenSuites) {
   console.log(
