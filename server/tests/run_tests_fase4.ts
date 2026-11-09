@@ -37,9 +37,9 @@ async function ejecutarSuiteFase4() {
   await periodoService.abrirPeriodo(EMPRESA_B, '2026-09', USER_ID);
 
   // --------------------------------------------------------------------------
-  // TEST 1: Cobro múltiple, pago parcial y anticipos (ESC-COB-3.01 / ESC-COB-3.02)
+  // TEST 1: Cobro múltiple, pago parcial y anticipos
   // --------------------------------------------------------------------------
-  console.log('🔹 Test 1: Cobro Múltiple de Facturas, Pago Parcial y Anticipo [ESC-COB-3.01 / ESC-COB-3.02]');
+  console.log('🔹 Test 1: Cobro Múltiple de Facturas, Pago Parcial y Anticipo');
   {
     // Crear 2 facturas en cartera de cobros (CxC)
     const doc1 = {
@@ -96,7 +96,9 @@ async function ejecutarSuiteFase4() {
       ]
     }, USER_ID);
 
+    // [ESC-COB-3.01] Cobranza múltiple que cancela facturas
     assert(doc1.estado === 'CANCELADO' && doc1.saldo === 0.00, 'Factura 1 cancelada con saldo 0.00');
+    // [ESC-COB-3.02] Cobranza parcial y aplicación de saldo
     assert(doc2.estado === 'PARCIAL' && doc2.saldo === 500.00, 'Factura 2 amortizada parcialmente (saldo S/ 500.00)');
     assert(ingreso.saldoSinAplicar === 1000.00, 'Saldo remanente registrado como anticipo sin aplicar (S/ 1,000.00)');
     assert(cuentaBcp.saldoActual === saldoInicialCta + 3000.00, 'Saldo de la cuenta financiera actualizado exactamente (+ S/ 3,000.00)');
@@ -125,12 +127,15 @@ async function ejecutarSuiteFase4() {
       glosa: 'Venta de dólares a cuenta en Soles'
     }, USER_ID);
 
+    // [ESC-COB-3.03] Ganancia por diferencia de cambio en tesorería
     assert(transf.tipoDiferencia === 'GANANCIA', 'Detecta correctamente ganancia por diferencia de cambio');
     assert(transf.diferenciaCambio === 10.00, 'Monto de diferencia de cambio exacto S/ 10.00');
 
     // Verificar asiento contable generado
     const asiento = ASIENTOS_MEMORIA.find(a => a.id === transf.asientoId)!;
+    // [ESC-PAG-4.04] Asiento de transferencia multimoneda con cuenta 776
     assert(asiento !== undefined, 'Asiento contable de transferencia generado');
+    // [ESC-PAG-4.06] Transferencia entre cuentas propias estrictamente cuadrada
     assert(asiento.totalDebe === asiento.totalHaber, 'Partida doble estrictamente balanceada (Debe = Haber)');
     assert(asiento.detalles.some((l: any) => l.cuentaId?.includes('776') || l.codigoCuenta?.includes('776')), 'Línea de ganancia por diferencia de cambio en cuenta 776');
   }
@@ -175,6 +180,7 @@ async function ejecutarSuiteFase4() {
       aplicaciones: [{ documentoId: docPagar.id, importeAplicado: 800.00 }]
     }, USER_ID);
 
+    // [ESC-PAG-4.01] Pago y cancelación de factura en cuenta 4212
     assert(docPagar.estado === 'CANCELADO' && docPagar.saldo === 0.00, 'Documento queda CANCELADO tras el pago');
 
     // Anular el pago
@@ -258,6 +264,7 @@ async function ejecutarSuiteFase4() {
       glosa: 'Asesoría legal básica'
     }, USER_ID);
 
+    // [ESC-HON-6.02] Recibo por honorarios menor a S/ 1,500 sin retención
     assert(rhMenor.retencion === 0.00, 'Honorario menor a S/ 1,500 no sufre retención (S/ 0.00)');
     assert(rhMenor.netoPagar === 1200.00, 'Neto a pagar coincide con el total bruto (S/ 1,200.00)');
 
@@ -272,6 +279,7 @@ async function ejecutarSuiteFase4() {
       glosa: 'Auditoría tributaria externa'
     }, USER_ID);
 
+    // [ESC-HON-6.01] Recibo por honorarios mayor a S/ 1,500 con retención 8%
     assert(rhMayor.retencion === 200.00, 'Honorario mayor a S/ 1,500 retiene el 8% exacto (S/ 200.00)');
     assert(rhMayor.netoPagar === 2300.00, 'Neto a pagar calculado correctamente (S/ 2,300.00)');
 
@@ -290,11 +298,13 @@ async function ejecutarSuiteFase4() {
       glosa: 'Consultoría en infraestructura'
     }, USER_ID);
 
+    // [ESC-HON-6.02] Recibo con suspensión autorizada Form. 1609 sin retención
     assert(rhSuspendido.retencion === 0.00, 'Con suspensión acreditada vigente no aplica retención (S/ 0.00)');
     assert(rhSuspendido.netoPagar === 3000.00, 'Neto a pagar íntegro al proveedor suspendido (S/ 3,000.00)');
 
     // Verificar asiento contable de Honorario
     const asientoRh = ASIENTOS_MEMORIA.find(a => a.id === rhMayor.asientoId)!;
+    // [ESC-HON-6.03] Asiento contable de honorarios con 40172 cuadrado
     assert(asientoRh.totalDebe === asientoRh.totalHaber, 'Asiento de honorario estrictamente cuadrado');
     assert(asientoRh.detalles.some((l: any) => l.cuentaId?.includes('40172') || l.codigoCuenta?.includes('40172')), 'Cuenta 40172 Renta de 4ta registrada en pasivo');
   }
@@ -329,6 +339,7 @@ async function ejecutarSuiteFase4() {
     assert(contRes.success === true, 'Planilla contabilizada exitosamente');
 
     const asientoPlanilla = ASIENTOS_MEMORIA.find(a => a.id === contRes.asientoId)!;
+    // [ESC-PLA-7.01] Asiento de planilla de sueldos y aportes cuadrado
     assert(asientoPlanilla.totalDebe === asientoPlanilla.totalHaber, 'Asiento de planilla balanceado sin descuadre (Debe = Haber)');
 
     // Bloqueo de recalcular mientras esté contabilizada

@@ -202,6 +202,7 @@ async function runFase11Tests() {
   // Generar Asiento de Costo de Ventas (Cuenta 69 vs Cuenta 20)
   const asientoCv = await kardexService.generarAsientoCostoVentas(empresaAId, periodo);
 
+  // [ESC-VAR-8.03] Costo de ventas y descargo de inventarios (69111 vs 20111)
   assert.ok(asientoCv.asientoId);
   assert.strictEqual(asientoCv.costoVentasTotal, 2400.00);
 

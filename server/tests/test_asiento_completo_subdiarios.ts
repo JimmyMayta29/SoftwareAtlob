@@ -103,13 +103,16 @@ async function ejecutarSuitePruebas() {
 
     // Cuentas en tratamiento COSTO: Los tributos van a la 60111 y NO a las 6412/6413/6491
     const ctas = prop.lineas.map(l => l.codigoCuenta);
+    // [ESC-C-1.22 / ESC-C-1.26] Desglose y compras exoneradas en cuenta 60111
     assert.ok(ctas.includes('60111'), 'Debe usar cuenta detalle 60111');
     assert.ok(!ctas.includes('6412'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6412');
     assert.ok(!ctas.includes('6413'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6413');
     assert.ok(!ctas.includes('6491'), 'En tratamiento COSTO NO debe incluir cuenta de gasto 6491');
     assert.ok(ctas.includes('40111'), 'Debe incluir IGV 40111');
+    // [ESC-C-1.23 / ESC-SPOT-5.01] Pasivo SPOT en cuenta 4213
     assert.ok(ctas.includes('4213'), 'Debe incluir Detracción SPOT 4213');
     assert.ok(ctas.includes('4212'), 'Debe incluir Facturas por pagar neto 4212');
+    // [ESC-C-1.19] Destino automático a existencias 20111 / 6111
     assert.ok(ctas.includes('20111'), 'Debe incluir Destino Inventarios 20111');
     assert.ok(ctas.includes('6111'), 'Debe incluir Variación Existencias 6111');
 
@@ -174,8 +177,11 @@ async function ejecutarSuitePruebas() {
     assert.equal(prop.diferencia, 0, 'Caso 1B: Diferencia debe ser 0.00');
 
     const ctas = prop.lineas.map(l => l.codigoCuenta);
+    // [ESC-C-1.14] Asiento con cuenta de gasto 6412 (ISC)
     assert.ok(ctas.includes('6412'), 'En tratamiento GASTO debe incluir cuenta de gasto 6412 (ISC)');
+    // [ESC-C-1.15] Asiento con cuenta de gasto 6413 (ICBPER)
     assert.ok(ctas.includes('6413'), 'En tratamiento GASTO debe incluir cuenta de gasto 6413 (ICBPER)');
+    // [ESC-C-1.16] Asiento con cuenta de gasto 6491 (Otros tributos)
     assert.ok(ctas.includes('6491'), 'En tratamiento GASTO debe incluir cuenta de gasto 6491 (Otros)');
 
     // Totales literales calculados a mano para GASTO:

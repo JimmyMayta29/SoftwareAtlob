@@ -296,6 +296,7 @@ async function ejecutarPruebas() {
     const tcCierre = 3.80; // Subió el dólar
     const difCambio = aperturaCierreService.calcularDiferenciaCambio(1000, tcOrigen, tcCierre, true);
 
+    // [ESC-VAR-8.02] Ajuste mensual por diferencia de cambio y partida doble
     assert(difCambio.esGanancia === true, 'Subida de TC en cuenta de Activo genera Ganancia (776)');
     assert(difCambio.ajusteSoles === 50.00, 'Monto exacto de ajuste S/ 50.00 (1000 * 0.05)');
   } catch (err: any) {

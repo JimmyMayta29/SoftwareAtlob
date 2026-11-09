@@ -22,9 +22,9 @@ async function runFase10Tests() {
   ASIENTOS_MEMORIA.length = 0;
 
   // =========================================================================
-  // TEST 1: Diagnóstico de Auditoría Preventiva SUNAT (ESC-HON-6.04)
+  // TEST 1: Diagnóstico de Auditoría Preventiva SUNAT
   // =========================================================================
-  console.log('🔹 Test 1: Algoritmo de Detección de Inconsistencias Fiscales SUNAT [ESC-HON-6.04]');
+  console.log('🔹 Test 1: Algoritmo de Detección de Inconsistencias Fiscales SUNAT');
 
   // Insertar compras con casos de prueba para el algoritmo
   // 1. Compra > S/ 2,000 sin bancarización
@@ -234,6 +234,7 @@ async function runFase10Tests() {
 
   const diagnostico = await auditoriaTributariaService.ejecutarDiagnostico(empresaAId, anio);
 
+  // [ESC-HON-6.04] Diagnóstico de Auditoría Preventiva SUNAT
   assert.ok(diagnostico, 'El diagnóstico tributario debe retornar un resultado');
   assert.strictEqual(diagnostico.anio, 2026, 'El año auditado debe ser 2026');
   assert.ok(diagnostico.scoreSaludFiscal < 100, 'El score debe reflejar penalizaciones por inconsistencias');
