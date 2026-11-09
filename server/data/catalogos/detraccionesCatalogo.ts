@@ -202,3 +202,4 @@ export const CATALOGO_OFICIAL_DETRACCIONES_SUNAT: CatalogoDetraccionItem[] = [
 export function buscarDetraccionPorCodigo(codigo: string): CatalogoDetraccionItem | undefined {
   return CATALOGO_OFICIAL_DETRACCIONES_SUNAT.find(item => item.codigo === codigo);
 }
+

@@ -111,6 +111,7 @@ export interface CompraAutomatizadaInput {
   isc?: number;
   icbper?: number;
   otrosTributos?: number;
+  tratamientoTributosNoRecuperables?: 'COSTO' | 'GASTO';
   tienePercepcion?: boolean;
   montoPercepcion?: number;
   cuentaCompra?: string;
@@ -806,6 +807,10 @@ export const contabilizacionService = {
     let totalComprobante = base;
 
     const tieneDesglose = Array.isArray(input.desgloseCuentas) && input.desgloseCuentas.length > 0;
+    const esCompraExistencias = ctaCompra.startsWith('60') || (tieneDesglose && input.desgloseCuentas!.some(i => i.cuentaCodigo.startsWith('60')));
+    // Decisión B.1: selector 'COSTO' | 'GASTO'; por defecto COSTO si la compra es de existencias y GASTO si no.
+    const tratamientoTributos = input.tratamientoTributosNoRecuperables || (esCompraExistencias ? 'COSTO' : 'GASTO');
+
     const montoNoGravado = Money.create((input.baseNoGravada || 0) + (input.exonerado || 0));
     const montoIsc = Money.create(input.isc || 0);
     const montoIcbper = Money.create(input.icbper || 0);
@@ -824,8 +829,10 @@ export const contabilizacionService = {
       // Destinos 1 y 2: Derecho a crédito fiscal
       if (input.igv !== undefined) {
         igv = Money.create(input.igv);
-      } else if (input.tasaIgv === 10) {
+      } else if (input.tasaIgv === 10 || input.tasaIgv === 0.10) {
         igv = Money.round(base.times(0.10));
+      } else if (input.tasaIgv === 14 || input.tasaIgv === 0.14) {
+        igv = Money.round(base.times(0.14));
       } else {
         igv = Money.round(base.times(0.18));
       }
@@ -872,35 +879,15 @@ export const contabilizacionService = {
         denominacionCuenta: 'IGV - Cuenta propia',
         debe: Money.toNumber(igv),
         haber: 0.00,
-        glosaLinea: `Crédito fiscal IGV ${input.tasaIgv === 10 ? '10%' : '18%'} compra ${input.docSerie}-${input.docNumero}`
+        glosaLinea: `Crédito fiscal IGV ${input.tasaIgv === 10 || input.tasaIgv === 0.10 ? '10%' : (input.tasaIgv === 14 || input.tasaIgv === 0.14 ? '14%' : '18%')} compra ${input.docSerie}-${input.docNumero}`
       });
-
-      // 3. Destino al Almacén (SOLO en método PERMANENTE para cuentas clase 60)
-      if (metodoInventario === 'PERMANENTE' && ctaCompra.startsWith('60')) {
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '20111',
-          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
-          debe: Money.toNumber(costoCompra),
-          haber: 0.00,
-          glosaLinea: 'Destino de mercaderías ingresadas al almacén'
-        });
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '6111',
-          denominacionCuenta: 'Mercaderías',
-          debe: 0.00,
-          haber: Money.toNumber(costoCompra),
-          glosaLinea: 'Variación de existencias - Mercaderías'
-        });
-      }
     } else if (input.destino === '3') {
-      // Destino 3: Sin derecho a crédito fiscal -> IGV sumado al costo en cuentaCompra (6011)
+      // Destino 3: Sin derecho a crédito fiscal -> IGV sumado al costo en cuentaCompra (60111)
       igv = Money.round(base.times(0.18));
       costoCompra = Money.add(base, igv); // IGV sumado al costo
       totalComprobante = costoCompra;
 
-      // 1. Costo con IGV incluido en 6011
+      // 1. Costo con IGV incluido en 60111
       lineas.push({
         linea: lineaNum++,
         codigoCuenta: ctaCompra,
@@ -913,26 +900,6 @@ export const contabilizacionService = {
         docNumero: input.docNumero,
         anexoId: input.proveedorId
       });
-
-      // Destino al Almacén por el valor total de costo (SOLO en método PERMANENTE)
-      if (metodoInventario === 'PERMANENTE') {
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '20111',
-          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
-          debe: Money.toNumber(costoCompra),
-          haber: 0.00,
-          glosaLinea: 'Destino al almacén por costo total (Base + IGV sin crédito fiscal)'
-        });
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '6111',
-          denominacionCuenta: 'Mercaderías',
-          debe: 0.00,
-          haber: Money.toNumber(costoCompra),
-          glosaLinea: 'Variación de existencias - Mercaderías'
-        });
-      }
     } else {
       // Destino 4: No gravado (exonerado / inafecto)
       costoCompra = base;
@@ -950,28 +917,9 @@ export const contabilizacionService = {
         docNumero: input.docNumero,
         anexoId: input.proveedorId
       });
-
-      if (metodoInventario === 'PERMANENTE') {
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '20111',
-          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
-          debe: Money.toNumber(costoCompra),
-          haber: 0.00,
-          glosaLinea: 'Destino al almacén mercaderías'
-        });
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '6111',
-          denominacionCuenta: 'Mercaderías',
-          debe: 0.00,
-          haber: Money.toNumber(costoCompra),
-          glosaLinea: 'Variación de existencias - Mercaderías'
-        });
-      }
     }
 
-    // Conceptos tributarios complementarios (Exoneradas adicionales, ISC, ICBPER, Otros Tributos, Percepción)
+    // Conceptos tributarios complementarios (Exoneradas adicionales, ISC, ICBPER, Otros Tributos)
     if (montoNoGravado.greaterThan(0) && input.destino !== '4') {
       lineas.push({
         linea: lineaNum++,
@@ -988,14 +936,16 @@ export const contabilizacionService = {
       totalComprobante = Money.add(totalComprobante, montoNoGravado);
     }
 
+    // Decisión B.1: Si tratamientoTributos === 'COSTO', se cargan a la cuenta de costo (60111).
+    // Si es 'GASTO', se cargan a las cuentas por naturaleza 6412 (ISC), 6413 (ICBPER) y 6491 (Otros tributos).
     if (montoIsc.greaterThan(0)) {
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '6412',
-        denominacionCuenta: 'Impuesto selectivo al consumo',
+        codigoCuenta: tratamientoTributos === 'COSTO' ? ctaCompra : '6412',
+        denominacionCuenta: tratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (ISC)' : 'Impuesto selectivo al consumo',
         debe: Money.toNumber(montoIsc),
         haber: 0.00,
-        glosaLinea: `ISC compra ${input.docSerie}-${input.docNumero}`
+        glosaLinea: tratamientoTributos === 'COSTO' ? `ISC atribuible al costo de existencias ${input.docSerie}-${input.docNumero}` : `ISC compra ${input.docSerie}-${input.docNumero}`
       });
       totalComprobante = Money.add(totalComprobante, montoIsc);
     }
@@ -1003,11 +953,11 @@ export const contabilizacionService = {
     if (montoIcbper.greaterThan(0)) {
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '6413',
-        denominacionCuenta: 'Impuesto al consumo de las bolsas de plástico',
+        codigoCuenta: tratamientoTributos === 'COSTO' ? ctaCompra : '6413',
+        denominacionCuenta: tratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (ICBPER)' : 'Impuesto al consumo de las bolsas de plástico',
         debe: Money.toNumber(montoIcbper),
         haber: 0.00,
-        glosaLinea: `ICBPER bolsas ${input.docSerie}-${input.docNumero}`
+        glosaLinea: tratamientoTributos === 'COSTO' ? `ICBPER atribuible al costo de existencias ${input.docSerie}-${input.docNumero}` : `ICBPER bolsas ${input.docSerie}-${input.docNumero}`
       });
       totalComprobante = Money.add(totalComprobante, montoIcbper);
     }
@@ -1015,13 +965,49 @@ export const contabilizacionService = {
     if (montoOtrosTrib.greaterThan(0)) {
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '6491',
-        denominacionCuenta: 'Otros tributos y recargos no gravados',
+        codigoCuenta: tratamientoTributos === 'COSTO' ? ctaCompra : '6491',
+        denominacionCuenta: tratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (Otros tributos)' : 'Otros tributos y recargos no gravados',
         debe: Money.toNumber(montoOtrosTrib),
         haber: 0.00,
-        glosaLinea: `Otros tributos compra ${input.docSerie}-${input.docNumero}`
+        glosaLinea: tratamientoTributos === 'COSTO' ? `Otros tributos no recuperables al costo ${input.docSerie}-${input.docNumero}` : `Otros tributos compra ${input.docSerie}-${input.docNumero}`
       });
       totalComprobante = Money.add(totalComprobante, montoOtrosTrib);
+    }
+
+    // Destino al Almacén (SOLO en método PERMANENTE para compras de existencias clase 60)
+    // Conforme a NIC 2 (párrafos 10 y 11) y Decisión B.3 del usuario:
+    // El costo de existencias al almacén (20111 / 6111) incluye la base gravada, las adquisiciones no gravadas
+    // y los tributos no recuperables cuando el tratamiento seleccionado es COSTO.
+    if (metodoInventario === 'PERMANENTE' && esCompraExistencias) {
+      let baseAlmacen = (input.destino === '3' ? Money.add(base, igv) : base);
+      if (montoNoGravado.greaterThan(0) && input.destino !== '4') {
+        baseAlmacen = Money.add(baseAlmacen, montoNoGravado);
+      }
+      if (input.destino === '4') {
+        baseAlmacen = base;
+      }
+      if (tratamientoTributos === 'COSTO') {
+        baseAlmacen = Money.add(baseAlmacen, Money.add(montoIsc, Money.add(montoIcbper, montoOtrosTrib)));
+      }
+
+      if (baseAlmacen.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: Money.toNumber(baseAlmacen),
+          haber: 0.00,
+          glosaLinea: 'Destino de existencias ingresadas al almacén'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '6111',
+          denominacionCuenta: 'Variación de existencias - Mercaderías',
+          debe: 0.00,
+          haber: Money.toNumber(baseAlmacen),
+          glosaLinea: 'Variación de existencias - Mercaderías'
+        });
+      }
     }
 
     if (montoPercepcion.greaterThan(0)) {

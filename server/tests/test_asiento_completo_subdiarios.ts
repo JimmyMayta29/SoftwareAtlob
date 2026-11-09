@@ -50,6 +50,7 @@ async function ejecutarSuitePruebas() {
       isc: 50.00,
       icbper: 2.00,
       otrosTributos: 10.00,
+      tratamientoTributosNoRecuperables: 'GASTO',
       tienePercepcion: true,
       montoPercepcion: 30.84, // 2% de 1542.00
       destino: '1',
@@ -86,6 +87,12 @@ async function ejecutarSuitePruebas() {
     assert.ok(ctas.includes('20111'), 'Debe incluir Destino Inventarios 20111');
     assert.ok(ctas.includes('6111'), 'Debe incluir Variación Existencias 6111');
 
+    // Totales exactos del Caso 1 calculados a mano:
+    // Debe: 700 + 300 (desglose 60111) + 300 (exonerado 60111) + 180 (IGV 40111) + 50 (ISC 6412) + 2 (ICBPER 6413) + 10 (Otros 6491) + 30.84 (Percepción 40113) + 1300 (Destino 20111) = 2872.84
+    // Haber: 1418.64 (Neto 4212) + 154.20 (SPOT 4213) + 1300 (Variación 6111) = 2872.84
+    assert.equal(prop.totalDebe, 2872.84, 'Total Debe debe ser exactamente S/ 2,872.84');
+    assert.equal(prop.totalHaber, 2872.84, 'Total Haber debe ser exactamente S/ 2,872.84');
+
     // Obligación neta comprobante: Total (1542.00) + Percepcion (30.84) - Detraccion (154.20) = 1418.64
     const l4212 = prop.lineas.find(l => l.codigoCuenta === '4212');
     assert.equal(l4212?.haber, 1418.64, 'Neto por pagar 4212 debe ser exactamente S/ 1,418.64');
@@ -94,10 +101,11 @@ async function ejecutarSuitePruebas() {
   }
 
   // -------------------------------------------------------------------------
-  // CASO 2: Asiento con Retención (3%) y Detracción (12%), sin Percepción
+  // CASO 2A: Compra pura con Retención del IGV (3%) - Sin Detracción
   // -------------------------------------------------------------------------
-  console.log('--- CASO 2: Asiento con Retención (3%) y Detracción (12%) ---');
+  console.log('--- CASO 2A: Compra pura con Retención de IGV (3%) ---');
   {
+    // Factura F002-1234: Base S/ 2,000.00, IGV S/ 360.00, Total S/ 2,360.00. Retención 3% = S/ 70.80.
     const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
       proveedorId: 'anx-prov-02',
       docTipo: '01',
@@ -112,11 +120,11 @@ async function ejecutarSuitePruebas() {
       destino: '1',
       moneda: 'PEN',
       tipoCambio: 1.0,
-      tieneDetraccion: true,
-      montoDetraccion: 283.20, // 12% de 2360.00
+      tieneDetraccion: false,
+      montoDetraccion: 0,
       tieneRetencion: true,
       montoRetencion: 70.80,   // 3% de 2360.00
-      glosa: 'Servicio / compra con detracción y retención de IGV'
+      glosa: 'Compra de existencias con retención de IGV 3%'
     });
 
     console.log(`Líneas generadas: ${prop.lineas.length}`);
@@ -126,20 +134,72 @@ async function ejecutarSuitePruebas() {
 
     console.log(`  Total Debe: S/ ${prop.totalDebe.toFixed(2)} | Total Haber: S/ ${prop.totalHaber.toFixed(2)} | Dif: S/ ${prop.diferencia.toFixed(2)}`);
 
-    assert.equal(prop.cuadrado, true, 'Caso 2: El asiento debe estar cuadrado');
-    assert.equal(prop.diferencia, 0, 'Caso 2: Diferencia debe ser 0.00');
+    assert.equal(prop.cuadrado, true, 'Caso 2A: El asiento debe estar cuadrado');
+    assert.equal(prop.diferencia, 0, 'Caso 2A: Diferencia debe ser 0.00');
 
-    // Neto a pagar 4212: Total 2360.00 - 283.20 (SPOT) - 70.80 (Retención) = 2006.00
+    // Debe: 60111 (2,000.00) + 40111 (360.00) + 20111 (2,000.00) = 4,360.00
+    // Haber: 4212 (2,289.20) + 40114 (70.80) + 6111 (2,000.00) = 4,360.00
+    assert.equal(prop.totalDebe, 4360.00, 'Total Debe debe ser exactamente S/ 4,360.00');
+    assert.equal(prop.totalHaber, 4360.00, 'Total Haber debe ser exactamente S/ 4,360.00');
+
     const l4212 = prop.lineas.find(l => l.codigoCuenta === '4212');
-    assert.equal(l4212?.haber, 2006.00, 'Neto por pagar 4212 debe ser S/ 2,006.00');
+    assert.equal(l4212?.haber, 2289.20, 'Neto por pagar 4212 debe ser S/ 2,289.20');
 
     const lRet = prop.lineas.find(l => l.codigoCuenta === '40114');
     assert.equal(lRet?.haber, 70.80, 'Retención 40114 debe ser S/ 70.80');
 
+    console.log('✔ Caso 2A superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // CASO 2B: Compra pura con Detracción SPOT (12%) - Sin Retención
+  // -------------------------------------------------------------------------
+  console.log('--- CASO 2B: Compra pura con Detracción SPOT (12%) ---');
+  {
+    // Factura F002-5678: Base S/ 2,000.00, IGV S/ 360.00, Total S/ 2,360.00. Detracción 12% = S/ 283.20.
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'anx-prov-02b',
+      docTipo: '01',
+      docSerie: 'F002',
+      docNumero: '00005678',
+      fechaEmision: '2026-09-12',
+      fechaContable: '2026-09-12',
+      baseImponible: 2000.00,
+      cuentaCompra: '60111',
+      tienePercepcion: false,
+      montoPercepcion: 0,
+      destino: '1',
+      moneda: 'PEN',
+      tipoCambio: 1.0,
+      tieneDetraccion: true,
+      montoDetraccion: 283.20, // 12% de 2360.00
+      tieneRetencion: false,
+      montoRetencion: 0,
+      glosa: 'Compra de existencias sujeta a detracción SPOT 12%'
+    });
+
+    console.log(`Líneas generadas: ${prop.lineas.length}`);
+    prop.lineas.forEach((l) => {
+      console.log(`  L${l.linea} | Cta: ${l.codigoCuenta.padEnd(6)} | D: ${l.debe.toFixed(2).padStart(9)} | H: ${l.haber.toFixed(2).padStart(9)} | ${l.glosaLinea || l.denominacionCuenta}`);
+    });
+
+    console.log(`  Total Debe: S/ ${prop.totalDebe.toFixed(2)} | Total Haber: S/ ${prop.totalHaber.toFixed(2)} | Dif: S/ ${prop.diferencia.toFixed(2)}`);
+
+    assert.equal(prop.cuadrado, true, 'Caso 2B: El asiento debe estar cuadrado');
+    assert.equal(prop.diferencia, 0, 'Caso 2B: Diferencia debe ser 0.00');
+
+    // Debe: 60111 (2,000.00) + 40111 (360.00) + 20111 (2,000.00) = 4,360.00
+    // Haber: 4212 (2,076.80) + 4213 (283.20) + 6111 (2,000.00) = 4,360.00
+    assert.equal(prop.totalDebe, 4360.00, 'Total Debe debe ser exactamente S/ 4,360.00');
+    assert.equal(prop.totalHaber, 4360.00, 'Total Haber debe ser exactamente S/ 4,360.00');
+
+    const l4212 = prop.lineas.find(l => l.codigoCuenta === '4212');
+    assert.equal(l4212?.haber, 2076.80, 'Neto por pagar 4212 debe ser S/ 2,076.80');
+
     const lDet = prop.lineas.find(l => l.codigoCuenta === '4213');
     assert.equal(lDet?.haber, 283.20, 'Detracción SPOT 4213 debe ser S/ 283.20');
 
-    console.log('✔ Caso 2 superado exitosamente.\n');
+    console.log('✔ Caso 2B superado exitosamente.\n');
   }
 
   // -------------------------------------------------------------------------
@@ -253,36 +313,77 @@ async function ejecutarSuitePruebas() {
   }
 
   // -------------------------------------------------------------------------
-  // CASO 5: Tasa reducida de IGV al 10% fuera de vigencia legal (ejercicio 2027)
+  // CASO 5: Tasa especial de IGV al 14% para el ejercicio 2027 (Ley 32219)
   // -------------------------------------------------------------------------
-  console.log('--- CASO 5: Tasa reducida al 10% rechazada fuera de vigencia (2027) ---');
+  console.log('--- CASO 5: Tasa especial al 14% (12% IGV + 2% IPM) en 2027 (Ley 32219) ---');
   {
-    assert.throws(
-      () => {
-        compraService.validarCoherencia({
-          periodoId: '2027-01',
-          fechaEmision: '2027-01-15',
-          fechaContable: '2027-01-15',
-          tipoComprobante: '01',
-          serie: 'F005',
-          numero: '00000001',
-          proveedorId: 'prv-1',
-          moneda: 'PEN',
-          tipoCambio: 1.0,
-          baseGravada: 1000.00,
-          igv: 100.00, // 10% en 2027
-          total: 1100.00,
-          tipoAdquisicion: '1',
-          formaPago: 'CONTADO'
-        });
-      },
-      (err: any) => {
-        assert.ok(err.message.includes('TASA_IGV_FUERA_VIGENCIA'), 'Debe rechazar con TASA_IGV_FUERA_VIGENCIA');
-        return true;
-      }
-    );
+    compraService.validarCoherencia({
+      periodoId: '2027-03',
+      fechaEmision: '2027-03-15',
+      fechaContable: '2027-03-15',
+      tipoComprobante: '01',
+      serie: 'F005',
+      numero: '00000001',
+      proveedorId: 'prv-1',
+      moneda: 'PEN',
+      tipoCambio: 1.0,
+      baseGravada: 1000.00,
+      igv: 140.00, // 14% en 2027
+      total: 1140.00,
+      tipoAdquisicion: '1',
+      formaPago: 'CONTADO'
+    });
 
-    console.log('✔ Caso 5 superado exitosamente (rechazo automático en ejercicio 2027).\n');
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'anx-prov-05',
+      docTipo: '01',
+      docSerie: 'F005',
+      docNumero: '00000001',
+      fechaEmision: '2027-03-15',
+      fechaContable: '2027-03-15',
+      baseImponible: 1000.00,
+      tasaIgv: 0.14,
+      igv: 140.00,
+      cuentaCompra: '60111',
+      destino: '1',
+      moneda: 'PEN',
+      tipoCambio: 1.0,
+      glosa: 'Compra restaurante MYPE tasa especial 14% Ley 32219'
+    });
+
+    const lIgv = prop.lineas.find(l => l.codigoCuenta === '40111');
+    assert.equal(lIgv?.debe, 140.00, 'IGV 14% debe ser S/ 140.00');
+    assert.equal(prop.cuadrado, true, 'Asiento debe cuadrar');
+
+    console.log('✔ Caso 5 superado exitosamente (tasa 14% para 2027 contabilizada correctamente).\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // CASO 5B: Tasa del 10% en 2027 genera advertencia visible y NO error duro
+  // -------------------------------------------------------------------------
+  console.log('--- CASO 5B: Tasa 10% en 2027 genera advertencia visible y NO bloqueo duro ---');
+  {
+    // No debe lanzar error; la validación permite el registro pero emite advertencia
+    assert.doesNotThrow(() => {
+      compraService.validarCoherencia({
+        periodoId: '2027-01',
+        fechaEmision: '2027-01-15',
+        fechaContable: '2027-01-15',
+        tipoComprobante: '01',
+        serie: 'F005',
+        numero: '00000002',
+        proveedorId: 'prv-1',
+        moneda: 'PEN',
+        tipoCambio: 1.0,
+        baseGravada: 1000.00,
+        igv: 100.00, // 10%
+        total: 1100.00,
+        tipoAdquisicion: '1',
+        formaPago: 'CONTADO'
+      });
+    });
+
+    console.log('✔ Caso 5B superado exitosamente (registro permitido con advertencia visible).\n');
   }
 
   // -------------------------------------------------------------------------

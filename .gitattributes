@@ -1,1 +1,3 @@
 server/tests/real/postgres_test_init.sh text eol=lf
+*.sql text eol=lf
+

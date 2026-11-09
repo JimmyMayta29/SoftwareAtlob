@@ -28,6 +28,8 @@ export interface CompraInput {
   isc?: number;
   icbper?: number;
   otrosTributos?: number;
+  tasaIgv?: number;
+  tratamientoTributosNoRecuperables?: 'COSTO' | 'GASTO';
   total: number;
   tipoAdquisicion?: '1' | '2' | '3' | '4'; // 1: 100% crédito, 2: prorrata, 3: sin crédito, 4: no gravado
   formaPago?: 'CONTADO' | 'CREDITO';
@@ -169,26 +171,23 @@ export const compraService = {
       throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de bases + IGV + tributos (S/ ${sumaComponentes}) difiere del total (S/ ${total}) más allá de la tolerancia de 0.05.`);
     }
 
-    // 3. Tasa de IGV paramétrica con vigencia por fecha de emisión
+    // 3. Tasa de IGV paramétrica con vigencia por fecha de emisión (tabla de tasas)
+    // - 18% General (16% IGV + 2% IPM) - vigencia permanente
+    // - 10% Especial MYPE Turismo/Restaurantes (8% IGV + 2% IPM) Ley 31556 / Ley 32219 (vigente hasta 31/12/2026)
+    // - 14% Especial MYPE Turismo/Restaurantes (12% IGV + 2% IPM) Ley 32219 (vigente para el año fiscal 2027)
     if (!baseGravada.isZero()) {
       const igv18 = Money.round(baseGravada.times(0.18));
       const igv10 = Money.round(baseGravada.times(0.10));
+      const igv14 = Money.round(baseGravada.times(0.14));
       const difIgv18 = Money.sub(igv, igv18).abs();
       const difIgv10 = Money.sub(igv, igv10).abs();
+      const difIgv14 = Money.sub(igv, igv14).abs();
 
-      if (difIgv18.greaterThan(0.05) && difIgv10.greaterThan(0.05)) {
-        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del cálculo paramétrico oficial (18% general o 10% Ley 31556 con tolerancia 0.05).`);
+      if (difIgv18.greaterThan(0.05) && difIgv10.greaterThan(0.05) && difIgv14.greaterThan(0.05)) {
+        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del cálculo paramétrico oficial (18% general, 10% Ley 31556/32219 o 14% Ley 32219 con tolerancia 0.05).`);
       }
-
-      // Validación de vigencia de la tasa reducida del 10% (Ley 31556 / Ley 32174)
-      if (difIgv10.lessThanOrEqualTo(0.05) && difIgv18.greaterThan(0.05)) {
-        if (input.fechaEmision < '2022-09-01') {
-          throw new Error('TASA_IGV_FUERA_VIGENCIA: La tasa reducida del 10% (Ley 31556) rige a partir del 01/09/2022.');
-        }
-        if (input.fechaEmision > '2026-12-31') {
-          throw new Error('TASA_IGV_FUERA_VIGENCIA: La tasa reducida del 10% (Ley 31556 prorrogada por Ley 32174) tiene vigencia oficial hasta el 31/12/2026. Para el ejercicio 2027 rige la tasa general del 18% salvo nueva prórroga legal expresa.');
-        }
-      }
+      // REGLA: NO rechazar con error duro una tasa por vigencia; mostrar advertencia visible y dejar registrar,
+      // porque la tasa aplicada depende de la condición y facturación del proveedor.
     }
 
     // 4. Incompatibilidad de Regímenes: Bloqueo de Retención + Percepción en el mismo comprobante
@@ -565,13 +564,26 @@ export const compraService = {
       advertencias.push('ADVERTENCIA_DETRACCION_RETENCION: El comprobante incluye Detracción SPOT y Retención de IGV. Según el Art. 5 inc. a de la R.S. 037-2002/SUNAT, las operaciones sujetas a detracción SPOT están excluidas de la retención del IGV. [SUPUESTO A VALIDAR con contador]');
     }
 
-    // Advertencia normativa: Tasa reducida 10% Ley 31556
+    // Advertencia normativa: Tasas reducidas especiales de IGV (Ley 31556 y Ley 32219)
     const baseGrav = Money.create(input.baseGravada);
     if (!baseGrav.isZero()) {
       const igvIngresado = Money.create(input.igv);
       const igv10Calc = Money.round(baseGrav.times(0.10));
-      if (Money.sub(igvIngresado, igv10Calc).abs().lessThanOrEqualTo(0.05)) {
-        advertencias.push('ADVERTENCIA_TASA_REDUCIDA_LEY_31556: Se está aplicando la tasa reducida del 10% (8% IGV + 2% IPM - Ley 31556 / 32174). Verifique que el proveedor califique como micro o pequeña empresa del rubro de restaurantes, hoteles o alojamientos turísticos. [SUPUESTO A VALIDAR con contador]');
+      const igv14Calc = Money.round(baseGrav.times(0.14));
+      const igv18Calc = Money.round(baseGrav.times(0.18));
+
+      if (Money.sub(igvIngresado, igv10Calc).abs().lessThanOrEqualTo(0.05) && Money.sub(igvIngresado, igv18Calc).abs().greaterThan(0.05)) {
+        if (input.fechaEmision > '2026-12-31') {
+          advertencias.push('ADVERTENCIA_TASA_REDUCIDA_IGV: Se está aplicando la tasa reducida del 10% (8% IGV + 2% IPM). Conforme a la Ley 32219, esta tasa rige hasta el 31/12/2026 y para el ejercicio 2027 rige la tasa especial del 14% (12% IGV + 2% IPM). Verifique la calificación del proveedor.');
+        } else {
+          advertencias.push('ADVERTENCIA_TASA_REDUCIDA_LEY_31556: Se está aplicando la tasa reducida del 10% (8% IGV + 2% IPM - Ley 31556 ampliada por Ley 32219). Verifique que el proveedor califique como micro o pequeña empresa de restaurantes, hoteles o alojamientos turísticos. [SUPUESTO A VALIDAR con contador]');
+        }
+      } else if (Money.sub(igvIngresado, igv14Calc).abs().lessThanOrEqualTo(0.05) && Money.sub(igvIngresado, igv18Calc).abs().greaterThan(0.05)) {
+        if (input.fechaEmision < '2027-01-01' || input.fechaEmision > '2027-12-31') {
+          advertencias.push('ADVERTENCIA_TASA_REDUCIDA_LEY_32219: Se está aplicando la tasa reducida del 14% (12% IGV + 2% IPM). Conforme a la Ley 32219, esta tasa rige específicamente durante el año fiscal 2027.');
+        } else {
+          advertencias.push('ADVERTENCIA_TASA_REDUCIDA_LEY_32219: Comprobante registrado con tasa especial del 14% (12% IGV + 2% IPM - Ley 32219 para el ejercicio 2027).');
+        }
       }
     }
 
@@ -615,6 +627,8 @@ export const compraService = {
         otrosTributos: input.otrosTributos,
         tienePercepcion: (input as any).tienePercepcion,
         montoPercepcion: (input as any).montoPercepcion,
+        tasaIgv: input.tasaIgv,
+        tratamientoTributosNoRecuperables: (input as any).tratamientoTributosNoRecuperables,
         cuentaCompra: (input as any).cuentaCompra || '60111',
         desgloseCuentas: (input as any).desgloseCuentas,
         destino: input.tipoAdquisicion || '1',

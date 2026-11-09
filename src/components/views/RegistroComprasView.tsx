@@ -126,6 +126,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const [formIsc, setFormIsc] = useState<number>(0);
   const [formIcbper, setFormIcbper] = useState<number>(0);
   const [formOtrosTributos, setFormOtrosTributos] = useState<number>(0);
+  const [formTratamientoTributos, setFormTratamientoTributos] = useState<'COSTO' | 'GASTO'>('COSTO');
   const [formTasaIgv, setFormTasaIgv] = useState<number>(0.18);
   const [formIgv, setFormIgv] = useState<number>(0);
   const [formTotal, setFormTotal] = useState<number>(0);
@@ -306,9 +307,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
           // 3. Tributos Complementarios (ISC, ICBPER, Otros Tributos)
           if (formIsc > 0) {
             lineas.push({
-              codigoCuenta: '6412',
-              denominacion: 'Impuesto selectivo al consumo',
-              glosaLinea: `ISC compra ${formSerie}-${formNumero || '00000001'}`,
+              codigoCuenta: formTratamientoTributos === 'COSTO' ? formCuentaCompra : '6412',
+              denominacion: formTratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (ISC)' : 'Impuesto selectivo al consumo',
+              glosaLinea: formTratamientoTributos === 'COSTO' ? `ISC atribuible al costo de existencias ${formSerie}-${formNumero || '00000001'}` : `ISC compra ${formSerie}-${formNumero || '00000001'}`,
               debe: Number(formIsc.toFixed(2)),
               haber: 0
             });
@@ -316,9 +317,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
 
           if (formIcbper > 0) {
             lineas.push({
-              codigoCuenta: '6413',
-              denominacion: 'Impuesto bolsas de plástico (ICBPER)',
-              glosaLinea: `ICBPER ${formSerie}-${formNumero || '00000001'}`,
+              codigoCuenta: formTratamientoTributos === 'COSTO' ? formCuentaCompra : '6413',
+              denominacion: formTratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (ICBPER)' : 'Impuesto bolsas de plástico (ICBPER)',
+              glosaLinea: formTratamientoTributos === 'COSTO' ? `ICBPER atribuible al costo de existencias ${formSerie}-${formNumero || '00000001'}` : `ICBPER ${formSerie}-${formNumero || '00000001'}`,
               debe: Number(formIcbper.toFixed(2)),
               haber: 0
             });
@@ -326,9 +327,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
 
           if (formOtrosTributos > 0) {
             lineas.push({
-              codigoCuenta: '6491',
-              denominacion: 'Otros tributos y recargos no gravados',
-              glosaLinea: `Otros tributos ${formSerie}-${formNumero || '00000001'}`,
+              codigoCuenta: formTratamientoTributos === 'COSTO' ? formCuentaCompra : '6491',
+              denominacion: formTratamientoTributos === 'COSTO' ? 'Mercaderías manufacturadas - Costo (Otros tributos)' : 'Otros tributos y recargos no gravados',
+              glosaLinea: formTratamientoTributos === 'COSTO' ? `Otros tributos atribuibles al costo ${formSerie}-${formNumero || '00000001'}` : `Otros tributos ${formSerie}-${formNumero || '00000001'}`,
               debe: Number(formOtrosTributos.toFixed(2)),
               haber: 0
             });
@@ -382,7 +383,8 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
 
           // 6. Destino al Almacén (SOLO en método PERMANENTE si cuenta empieza con '60')
           if (metodo === 'PERMANENTE' && (formCuentaCompra.startsWith('60') || (modoDesglose && lineasDesglose.some(l => l.cuentaCodigo.startsWith('60'))))) {
-            const baseCostoAlmacen = formBase + formBaseDestino2 + (formTipoAdquisicion === '3' ? formIgv : 0) + costoNoGravado;
+            const tributosAlCosto = formTratamientoTributos === 'COSTO' ? (formIsc + formIcbper + formOtrosTributos) : 0;
+            const baseCostoAlmacen = formBase + formBaseDestino2 + (formTipoAdquisicion === '3' ? formIgv : 0) + costoNoGravado + tributosAlCosto;
             if (baseCostoAlmacen > 0) {
               lineas.push({
                 codigoCuenta: '20111',
@@ -434,6 +436,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
     formIsc,
     formIcbper,
     formOtrosTributos,
+    formTratamientoTributos,
     formTasaIgv,
     formIgv,
     formTipo,
@@ -550,6 +553,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         isc: formIsc,
         icbper: formIcbper,
         otrosTributos: formOtrosTributos,
+        tratamientoTributosNoRecuperables: formTratamientoTributos,
         tasaIgv: formTasaIgv,
         igv: formIgv,
         total: formTotal,
@@ -1151,8 +1155,9 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                     }}
                     className="text-xs font-bold px-2 py-1 border border-slate-300 rounded-lg bg-[#F7F9FC]"
                   >
-                    <option value={0.18}>18% (General)</option>
-                    <option value={0.10}>10% (Ley 31556 MYPEs Turismo/Rest.)</option>
+                    <option value={0.18}>18% (General: 16% IGV + 2% IPM)</option>
+                    <option value={0.10}>10% (Ley 31556 / 32219: 8% IGV + 2% IPM - Hasta 2026)</option>
+                    <option value={0.14}>14% (Ley 32219: 12% IGV + 2% IPM - Ejercicio 2027)</option>
                   </select>
                 </div>
               </div>
@@ -1161,10 +1166,23 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                 <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">Advertencia de Tasa Especial (Ley 31556 / Ley 32174): </span>
-                    Tasa reducida del 10% (8% IGV + 2% IPM) aplicable únicamente a micro y pequeñas empresas de restaurantes, hoteles y alojamientos turísticos que cumplan los requisitos de ley.
+                    <span className="font-bold">Advertencia de Tasa Especial (Ley 31556 ampliada por Ley 32219): </span>
+                    Tasa reducida del 10% (8% IGV + 2% IPM) aplicable a micro y pequeñas empresas del rubro restaurantes, hoteles y alojamientos turísticos que califiquen según ley.
                     <span className="block mt-0.5 text-[11px] text-amber-700">
-                      <strong>Vigencia legal:</strong> Del 01/09/2022 hasta el 31/12/2026. A partir del 01/01/2027 rige la tasa general del 18% salvo prórroga legislativa expresa.
+                      <strong>Vigencia oficial:</strong> Rige hasta el 31/12/2026. Conforme a la Ley 32219, para el ejercicio fiscal 2027 la tasa especial será del 14% (12% IGV + 2% IPM) y en 2028 retornará al 18% general.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {formTasaIgv === 0.14 && (
+                <div className="flex items-start gap-2 p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Tasa Especial 14% (Ley 32219 - Escalonamiento 2027): </span>
+                    Tasa especial del 14% (12% IGV + 2% IPM) dispuesta por la Ley 32219 para el año fiscal 2027 para empresas del rubro turístico y gastronómico beneficiarias de la Ley 31556.
+                    <span className="block mt-0.5 text-[11px] text-blue-700">
+                      <strong>Vigencia:</strong> 01/01/2027 al 31/12/2027. A partir del 01/01/2028 rige la tasa general del 18%.
                     </span>
                   </div>
                 </div>
@@ -1329,6 +1347,38 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Selector de Tratamiento de Tributos No Recuperables (NIC 2 Costo vs Gasto) */}
+              {(formIsc > 0 || formIcbper > 0 || formOtrosTributos > 0) && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800">Tratamiento Tributos No Recuperables:</span>
+                    <span className="text-[11px] text-slate-500">(ISC, ICBPER y Otros recargos)</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium">
+                      <input
+                        type="radio"
+                        name="tratamientoTributos"
+                        checked={formTratamientoTributos === 'COSTO'}
+                        onChange={() => setFormTratamientoTributos('COSTO')}
+                        className="text-[#2457D6]"
+                      />
+                      <span>Mayor costo existencias (NIC 2 / Cta 60111)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer font-medium">
+                      <input
+                        type="radio"
+                        name="tratamientoTributos"
+                        checked={formTratamientoTributos === 'GASTO'}
+                        onChange={() => setFormTratamientoTributos('GASTO')}
+                        className="text-[#2457D6]"
+                      />
+                      <span>Gasto por tributos (Cuentas 6412 / 6413 / 6491)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 4. Regímenes de Recaudación SUNAT (SPOT, Percepción, Retención) */}
