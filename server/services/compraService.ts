@@ -139,12 +139,14 @@ export const compraService = {
       throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de base + IGV + tributos (S/ ${sumaComponentes}) no coincide con el total (S/ ${total}).`);
     }
 
-    // IGV 18% con tolerancia 0.05
+    // IGV 18% o 10% (Ley 31556 MYPEs turismo/restaurantes) con tolerancia 0.05
     if (!baseGravada.isZero()) {
-      const igvCalculado = Money.round(baseGravada.times(0.18));
-      const difIgv = Money.sub(igv, igvCalculado).abs();
-      if (difIgv.greaterThan(0.05)) {
-        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del 18% calculado (S/ ${igvCalculado}).`);
+      const igv18 = Money.round(baseGravada.times(0.18));
+      const igv10 = Money.round(baseGravada.times(0.10));
+      const difIgv18 = Money.sub(igv, igv18).abs();
+      const difIgv10 = Money.sub(igv, igv10).abs();
+      if (difIgv18.greaterThan(0.05) && difIgv10.greaterThan(0.05)) {
+        throw new Error(`IGV_INCOHERENTE: El IGV ingresado (S/ ${igv}) difiere del IGV calculado (18% o 10%).`);
       }
     }
   },
@@ -502,13 +504,22 @@ export const compraService = {
         fechaEmision: input.fechaEmision,
         fechaContable: input.fechaContable,
         baseImponible: input.baseGravada,
-        cuentaCompra: '6011',
+        baseNoGravada: input.baseNoGravada,
+        exonerado: input.exonerado,
+        isc: input.isc,
+        icbper: input.icbper,
+        otrosTributos: input.otrosTributos,
+        tienePercepcion: (input as any).tienePercepcion,
+        montoPercepcion: (input as any).montoPercepcion,
+        cuentaCompra: (input as any).cuentaCompra || '6011',
+        desgloseCuentas: (input as any).desgloseCuentas,
         destino: input.tipoAdquisicion || '1',
         moneda,
         tipoCambio,
         tieneDetraccion: input.tieneDetraccion,
         montoDetraccion: input.tieneDetraccion ? Money.toNumber(Money.mul(input.total, (input.porcentajeDetraccion || 10) / 100)) : undefined,
         tieneRetencion: input.tieneRetencion,
+        montoRetencion: input.tieneRetencion ? Money.toNumber(Money.mul(input.total, ((input as any).porcentajeRetencion || 3) / 100)) : undefined,
         glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`
       });
     } else {

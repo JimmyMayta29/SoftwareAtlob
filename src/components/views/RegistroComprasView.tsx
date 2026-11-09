@@ -22,7 +22,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Info,
-  Loader2
+  Loader2,
+  Receipt,
+  Split,
+  Layers
 } from 'lucide-react';
 import { Comprobante, EmpresaCliente } from '../../types';
 import { 
@@ -101,26 +104,72 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const [errorConsultaRuc, setErrorConsultaRuc] = useState<string | null>(null);
   const [consultandoModalRuc, setConsultandoModalRuc] = useState(false);
 
-  // Formulario Digitación Rápida (Teclado Primero)
-  const [formTipo, setFormTipo] = useState<'01' | '03' | '07' | '08'>('01');
+  // Formulario Digitación y Asistente Completo (Teclado Primero)
+  const [formTipo, setFormTipo] = useState<'01' | '03' | '07' | '08' | '14'>('01');
   const [formSerie, setFormSerie] = useState('F001');
   const [formNumero, setFormNumero] = useState('');
   const [formFechaEmision, setFormFechaEmision] = useState(() => new Date().toISOString().substring(0, 10));
+  const [formFechaVencimiento, setFormFechaVencimiento] = useState(() => new Date().toISOString().substring(0, 10));
   const [formFechaContable, setFormFechaContable] = useState(() => new Date().toISOString().substring(0, 10));
   const [formProveedorId, setFormProveedorId] = useState('');
   const [busquedaProveedor, setBusquedaProveedor] = useState('');
-  const [formBase, setFormBase] = useState<number>(0);
+  const [formGlosa, setFormGlosa] = useState('');
+
+  // Bases imponibles y tributos
+  const [formBase, setFormBase] = useState<number>(0); // Destino 1 (Gravada 100% crédito fiscal)
+  const [formBaseDestino2, setFormBaseDestino2] = useState<number>(0); // Destino 2 (Prorrata)
+  const [formBaseDestino3, setFormBaseDestino3] = useState<number>(0); // Destino 3 (Sin crédito / Costo)
+  const [formBaseNoGravada, setFormBaseNoGravada] = useState<number>(0); // No gravada / Exonerada
+  const [formExonerado, setFormExonerado] = useState<number>(0);
+  const [formIsc, setFormIsc] = useState<number>(0);
+  const [formIcbper, setFormIcbper] = useState<number>(0);
+  const [formOtrosTributos, setFormOtrosTributos] = useState<number>(0);
+  const [formTasaIgv, setFormTasaIgv] = useState<number>(0.18);
   const [formIgv, setFormIgv] = useState<number>(0);
   const [formTotal, setFormTotal] = useState<number>(0);
+
   const [formTipoAdquisicion, setFormTipoAdquisicion] = useState<'1' | '2' | '3' | '4'>('1');
   const [formCuentaCompra, setFormCuentaCompra] = useState<string>('6011');
   const [formMoneda, setFormMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [formTipoCambio, setFormTipoCambio] = useState<number>(1.0);
   const [formFormaPago, setFormFormaPago] = useState<'CONTADO' | 'CREDITO'>('CONTADO');
   const [formDiasCredito, setFormDiasCredito] = useState<number>(30);
-  const [formTieneDetraccion, setFormTieneDetraccion] = useState(false);
-  const [formPctDetraccion, setFormPctDetraccion] = useState<number>(12);
   const [formEsServicio, setFormEsServicio] = useState(false);
+
+  // Regímenes de Recaudación: Detracción SPOT
+  const [formTieneDetraccion, setFormTieneDetraccion] = useState(false);
+  const [formCodigoBienDetraccion, setFormCodigoBienDetraccion] = useState<string>('022');
+  const [formPctDetraccion, setFormPctDetraccion] = useState<number>(12);
+  const [formMontoDetraccion, setFormMontoDetraccion] = useState<number>(0);
+  const [formNroConstanciaDetraccion, setFormNroConstanciaDetraccion] = useState('');
+  const [formFechaDetraccion, setFormFechaDetraccion] = useState('');
+
+  // Regímenes de Recaudación: Percepción de IGV
+  const [formTienePercepcion, setFormTienePercepcion] = useState(false);
+  const [formPctPercepcion, setFormPctPercepcion] = useState<number>(2.0);
+  const [formMontoPercepcion, setFormMontoPercepcion] = useState<number>(0);
+  const [formSeriePercepcion, setFormSeriePercepcion] = useState('');
+  const [formNumeroPercepcion, setFormNumeroPercepcion] = useState('');
+
+  // Regímenes de Recaudación: Retención de IGV
+  const [formTieneRetencion, setFormTieneRetencion] = useState(false);
+  const [formPctRetencion, setFormPctRetencion] = useState<number>(3.0);
+  const [formMontoRetencion, setFormMontoRetencion] = useState<number>(0);
+  const [formSerieRetencion, setFormSerieRetencion] = useState('');
+  const [formNumeroRetencion, setFormNumeroRetencion] = useState('');
+
+  // Desglose Contable Multilínea (Cuentas y Centros de Costo)
+  const [modoDesglose, setModoDesglose] = useState(false);
+  const [lineasDesglose, setLineasDesglose] = useState<Array<{
+    id: string;
+    cuentaCodigo: string;
+    denominacion: string;
+    monto: number;
+    centroCostoId: string;
+    glosa: string;
+  }>>([
+    { id: '1', cuentaCodigo: '6011', denominacion: 'Mercaderías manufacturadas', monto: 0, centroCostoId: 'CC-ADM', glosa: 'Compra mercaderías' }
+  ]);
 
   // Previsualización de Asiento
   const [previewAsiento, setPreviewAsiento] = useState<any | null>(null);
@@ -130,23 +179,61 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   // Proveedor seleccionado y advertencias
   const proveedorSeleccionado = anexosList.find((a: any) => a.id === formProveedorId);
 
-  // Cálculo automático de Base / IGV / Total
+  // Cálculo automático de Base / IGV / Total con sincronización
+  const recalcularTotales = (
+    base1: number,
+    base2: number,
+    base3: number,
+    noGrav: number,
+    exon: number,
+    isc: number,
+    icb: number,
+    otros: number,
+    tasa: number
+  ) => {
+    const calcIgv = Number(((base1 + base2) * tasa).toFixed(2));
+    const calcTotal = Number((base1 + base2 + base3 + noGrav + exon + isc + icb + otros + calcIgv).toFixed(2));
+    setFormIgv(calcIgv);
+    setFormTotal(calcTotal);
+
+    if (formTieneDetraccion) {
+      setFormMontoDetraccion(Number((calcTotal * (formPctDetraccion / 100)).toFixed(2)));
+    }
+    if (formTienePercepcion) {
+      setFormMontoPercepcion(Number((calcTotal * (formPctPercepcion / 100)).toFixed(2)));
+    }
+    if (formTieneRetencion) {
+      setFormMontoRetencion(Number((calcTotal * (formPctRetencion / 100)).toFixed(2)));
+    }
+  };
+
   const handleBaseChange = (valor: number) => {
     setFormBase(valor);
-    const calcIgv = Number((valor * 0.18).toFixed(2));
-    setFormIgv(calcIgv);
-    setFormTotal(Number((valor + calcIgv).toFixed(2)));
+    recalcularTotales(valor, formBaseDestino2, formBaseDestino3, formBaseNoGravada, formExonerado, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
   };
 
   const handleTotalChange = (valor: number) => {
     setFormTotal(valor);
-    const calcBase = Number((valor / 1.18).toFixed(2));
-    const calcIgv = Number((valor - calcBase).toFixed(2));
+    // En ingreso directo por total, asumimos destino 1 simple salvo que haya conceptos adicionales
+    const otrosComponentes = formBaseDestino2 + formBaseDestino3 + formBaseNoGravada + formExonerado + formIsc + formIcbper + formOtrosTributos;
+    const montoParaGravada = Math.max(0, valor - otrosComponentes);
+    const calcBase = Number((montoParaGravada / (1 + formTasaIgv)).toFixed(2));
+    const calcIgv = Number((montoParaGravada - calcBase).toFixed(2));
     setFormBase(calcBase);
     setFormIgv(calcIgv);
+
+    if (formTieneDetraccion) {
+      setFormMontoDetraccion(Number((valor * (formPctDetraccion / 100)).toFixed(2)));
+    }
+    if (formTienePercepcion) {
+      setFormMontoPercepcion(Number((valor * (formPctPercepcion / 100)).toFixed(2)));
+    }
+    if (formTieneRetencion) {
+      setFormMontoRetencion(Number((valor * (formPctRetencion / 100)).toFixed(2)));
+    }
   };
 
-  // Previsualizar asiento en tiempo real con reglas de método de inventario y destino 1, 2, 3 o 4
+  // Previsualizar asiento en tiempo real con reglas completas (bases, tributos, detracciones, percepciones, retenciones y desglose)
   useEffect(() => {
     if (formTotal > 0) {
       setLoadingPreview(true);
@@ -155,109 +242,173 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
           const metodo = (empresa as any)?.metodoInventario || 'PERMANENTE';
           const lineas: any[] = [];
 
-          if (formTipoAdquisicion === '3') {
-            // Destino 3: IGV sumado al costo en cuentaCompra (sin 40111)
-            const costoTotal = Number((formBase + formIgv).toFixed(2));
-            lineas.push({
-              codigoCuenta: formCuentaCompra,
-              glosaLinea: `Compra IGV al costo ${formSerie}-${formNumero || '00000001'}`,
-              debe: costoTotal,
-              haber: 0
-            });
-            lineas.push({
-              codigoCuenta: '4212',
-              glosaLinea: `Obligación comercial ${formSerie}-${formNumero || '00000001'}`,
-              debe: 0,
-              haber: costoTotal
-            });
-            if (metodo === 'PERMANENTE') {
-              lineas.push({
-                codigoCuenta: '20111',
-                glosaLinea: 'Destino al almacén (Base + IGV al costo)',
-                debe: costoTotal,
-                haber: 0
-              });
-              lineas.push({
-                codigoCuenta: '6111',
-                glosaLinea: 'Variación de existencias - Mercaderías',
-                debe: 0,
-                haber: costoTotal
-              });
-            }
-          } else if (formTipoAdquisicion === '4') {
-            // Destino 4: No gravado
-            lineas.push({
-              codigoCuenta: formCuentaCompra,
-              glosaLinea: `Compra no gravada ${formSerie}-${formNumero || '00000001'}`,
-              debe: formBase,
-              haber: 0
-            });
-            lineas.push({
-              codigoCuenta: '4212',
-              glosaLinea: `Obligación comercial ${formSerie}-${formNumero || '00000001'}`,
-              debe: 0,
-              haber: formBase
-            });
-            if (metodo === 'PERMANENTE') {
-              lineas.push({
-                codigoCuenta: '20111',
-                glosaLinea: 'Destino de existencias al almacén',
-                debe: formBase,
-                haber: 0
-              });
-              lineas.push({
-                codigoCuenta: '6111',
-                glosaLinea: 'Variación de existencias',
-                debe: 0,
-                haber: formBase
-              });
+          // 1. Cuentas de Gasto / Costo
+          if (modoDesglose && lineasDesglose.length > 0) {
+            for (const ld of lineasDesglose) {
+              if (ld.monto > 0) {
+                lineas.push({
+                  codigoCuenta: ld.cuentaCodigo || '6011',
+                  denominacion: ld.denominacion || 'Compra / Gasto desglosado',
+                  glosaLinea: ld.glosa || `Gasto ${ld.cuentaCodigo} ${formSerie}-${formNumero || '00000001'}`,
+                  debe: Number(ld.monto),
+                  haber: 0,
+                  centroCosto: ld.centroCostoId
+                });
+              }
             }
           } else {
-            // Destinos 1 y 2: Crédito fiscal
-            lineas.push({
-              codigoCuenta: formCuentaCompra,
-              glosaLinea: `Compra ${formSerie}-${formNumero || '00000001'}`,
-              debe: formBase,
-              haber: 0
-            });
-            lineas.push({
-              codigoCuenta: '40111',
-              glosaLinea: `IGV 18% crédito fiscal ${formSerie}-${formNumero || '00000001'}`,
-              debe: formIgv,
-              haber: 0
-            });
-            lineas.push({
-              codigoCuenta: '4212',
-              glosaLinea: `Obligación por compra ${formSerie}-${formNumero || '00000001'}`,
-              debe: 0,
-              haber: formTotal
-            });
-            if (metodo === 'PERMANENTE') {
+            const costoGravado = formBase + formBaseDestino2 + (formTipoAdquisicion === '3' ? formIgv : 0);
+            if (costoGravado > 0) {
               lineas.push({
-                codigoCuenta: '20111',
-                glosaLinea: 'Destino de mercaderías ingresadas al almacén',
-                debe: formBase,
+                codigoCuenta: formCuentaCompra,
+                denominacion: 'Mercaderías manufacturadas - Costo',
+                glosaLinea: `Compra ${formSerie}-${formNumero || '00000001'} (Destino ${formTipoAdquisicion})`,
+                debe: Number(costoGravado.toFixed(2)),
                 haber: 0
-              });
-              lineas.push({
-                codigoCuenta: '6111',
-                glosaLinea: 'Variación de existencias - Mercaderías',
-                debe: 0,
-                haber: formBase
               });
             }
           }
 
-          const sumDebe = lineas.reduce((acc, l) => acc + l.debe, 0);
-          const sumHaber = lineas.reduce((acc, l) => acc + l.haber, 0);
+          // Adquisición No Gravada / Exonerada adicional
+          const costoNoGravado = formBaseNoGravada + formExonerado;
+          if (costoNoGravado > 0 && formTipoAdquisicion !== '4') {
+            lineas.push({
+              codigoCuenta: formCuentaCompra,
+              denominacion: 'Adquisiciones no gravadas / exoneradas',
+              glosaLinea: `Operaciones no gravadas ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(costoNoGravado.toFixed(2)),
+              haber: 0
+            });
+          } else if (formTipoAdquisicion === '4') {
+            lineas.push({
+              codigoCuenta: formCuentaCompra,
+              denominacion: 'Compra no gravada (Destino 4)',
+              glosaLinea: `Compra no gravada ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(formTotal.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          // 2. Crédito Fiscal IGV (Cuentas 40111)
+          if (formTipoAdquisicion !== '3' && formTipoAdquisicion !== '4' && formIgv > 0) {
+            lineas.push({
+              codigoCuenta: '40111',
+              denominacion: `IGV ${(formTasaIgv * 100).toFixed(0)}% crédito fiscal`,
+              glosaLinea: `Crédito fiscal IGV compra ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(formIgv.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          // 3. Tributos Complementarios (ISC, ICBPER, Otros Tributos)
+          if (formIsc > 0) {
+            lineas.push({
+              codigoCuenta: '6412',
+              denominacion: 'Impuesto selectivo al consumo',
+              glosaLinea: `ISC compra ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(formIsc.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          if (formIcbper > 0) {
+            lineas.push({
+              codigoCuenta: '6413',
+              denominacion: 'Impuesto bolsas de plástico (ICBPER)',
+              glosaLinea: `ICBPER ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(formIcbper.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          if (formOtrosTributos > 0) {
+            lineas.push({
+              codigoCuenta: '6491',
+              denominacion: 'Otros tributos y recargos no gravados',
+              glosaLinea: `Otros tributos ${formSerie}-${formNumero || '00000001'}`,
+              debe: Number(formOtrosTributos.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          // 4. Percepción de IGV (Cuenta 40113 al Debe)
+          const montoPercep = formTienePercepcion && formMontoPercepcion > 0 ? formMontoPercepcion : 0;
+          if (montoPercep > 0) {
+            lineas.push({
+              codigoCuenta: '40113',
+              denominacion: 'IGV - Régimen de percepciones',
+              glosaLinea: `Percepción IGV ${formSeriePercepcion}-${formNumeroPercepcion}`,
+              debe: Number(montoPercep.toFixed(2)),
+              haber: 0
+            });
+          }
+
+          // 5. Proveedor y Pasivos Comerciales (4212, 4213, 40114)
+          const totalFinanciero = formTotal + montoPercep;
+          const montoDet = formTieneDetraccion && formMontoDetraccion > 0 ? formMontoDetraccion : 0;
+          const montoRet = formTieneRetencion && formMontoRetencion > 0 ? formMontoRetencion : 0;
+          const netoPagar = Math.max(0, Number((totalFinanciero - montoDet - montoRet).toFixed(2)));
+
+          lineas.push({
+            codigoCuenta: '4212',
+            denominacion: 'Facturas por pagar - Emitidas',
+            glosaLinea: `Obligación neta por compra ${formSerie}-${formNumero || '00000001'}`,
+            debe: 0,
+            haber: netoPagar
+          });
+
+          if (montoDet > 0) {
+            lineas.push({
+              codigoCuenta: '4213',
+              denominacion: 'Detracciones por pagar (SPOT Banco de la Nación)',
+              glosaLinea: `Detracción SPOT ${formCodigoBienDetraccion} (${formPctDetraccion}%)`,
+              debe: 0,
+              haber: Number(montoDet.toFixed(2))
+            });
+          }
+
+          if (montoRet > 0) {
+            lineas.push({
+              codigoCuenta: '40114',
+              denominacion: 'IGV - Régimen de retenciones',
+              glosaLinea: `Retención IGV 3% ${formSerieRetencion}-${formNumeroRetencion}`,
+              debe: 0,
+              haber: Number(montoRet.toFixed(2))
+            });
+          }
+
+          // 6. Destino al Almacén (SOLO en método PERMANENTE si cuenta empieza con '60')
+          if (metodo === 'PERMANENTE' && (formCuentaCompra.startsWith('60') || (modoDesglose && lineasDesglose.some(l => l.cuentaCodigo.startsWith('60'))))) {
+            const baseCostoAlmacen = formBase + formBaseDestino2 + (formTipoAdquisicion === '3' ? formIgv : 0) + costoNoGravado;
+            if (baseCostoAlmacen > 0) {
+              lineas.push({
+                codigoCuenta: '20111',
+                denominacion: 'Mercaderías manufacturadas - Costo almacén',
+                glosaLinea: 'Destino de existencias al almacén',
+                debe: Number(baseCostoAlmacen.toFixed(2)),
+                haber: 0
+              });
+              lineas.push({
+                codigoCuenta: '6111',
+                denominacion: 'Variación de existencias - Mercaderías',
+                glosaLinea: 'Variación de existencias',
+                debe: 0,
+                haber: Number(baseCostoAlmacen.toFixed(2))
+              });
+            }
+          }
+
+          const sumDebe = Number(lineas.reduce((acc, l) => acc + l.debe, 0).toFixed(2));
+          const sumHaber = Number(lineas.reduce((acc, l) => acc + l.haber, 0).toFixed(2));
+          const dif = Math.abs(Number((sumDebe - sumHaber).toFixed(2)));
 
           setPreviewAsiento({
-            glosaGeneral: `Compra ${formTipo} ${formSerie}-${formNumero || '00000001'}`,
+            glosaGeneral: formGlosa || `Compra ${formTipo} ${formSerie}-${formNumero || '00000001'}`,
             lineas,
             totalDebe: sumDebe,
             totalHaber: sumHaber,
-            diferenciaCuadre: Math.abs(sumDebe - sumHaber),
-            cuadrado: sumDebe === sumHaber,
+            diferenciaCuadre: dif,
+            cuadrado: dif === 0,
             metodoInventario: metodo
           });
         } catch {
@@ -265,12 +416,42 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         } finally {
           setLoadingPreview(false);
         }
-      }, 300);
+      }, 250);
       return () => clearTimeout(timer);
     } else {
       setPreviewAsiento(null);
     }
-  }, [formTotal, formBase, formIgv, formTipo, formSerie, formNumero, formCuentaCompra, formTipoAdquisicion, formEsServicio, formProveedorId, (empresa as any)?.metodoInventario]);
+  }, [
+    formTotal,
+    formBase,
+    formBaseDestino2,
+    formBaseDestino3,
+    formBaseNoGravada,
+    formExonerado,
+    formIsc,
+    formIcbper,
+    formOtrosTributos,
+    formTasaIgv,
+    formIgv,
+    formTipo,
+    formSerie,
+    formNumero,
+    formGlosa,
+    formCuentaCompra,
+    formTipoAdquisicion,
+    formEsServicio,
+    formProveedorId,
+    formTieneDetraccion,
+    formPctDetraccion,
+    formMontoDetraccion,
+    formTienePercepcion,
+    formMontoPercepcion,
+    formTieneRetencion,
+    formMontoRetencion,
+    modoDesglose,
+    lineasDesglose,
+    (empresa as any)?.metodoInventario
+  ]);
 
   // Atajos de teclado: Ctrl+Enter (Registrar), Ctrl+N (Nuevo), Ctrl+D (Duplicar)
   useEffect(() => {
@@ -291,8 +472,29 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const limpiarFormulario = () => {
     setFormNumero('');
     setFormBase(0);
+    setFormBaseDestino2(0);
+    setFormBaseDestino3(0);
+    setFormBaseNoGravada(0);
+    setFormExonerado(0);
+    setFormIsc(0);
+    setFormIcbper(0);
+    setFormOtrosTributos(0);
     setFormIgv(0);
     setFormTotal(0);
+    setFormGlosa('');
+    setFormTieneDetraccion(false);
+    setFormMontoDetraccion(0);
+    setFormNroConstanciaDetraccion('');
+    setFormFechaDetraccion('');
+    setFormTienePercepcion(false);
+    setFormMontoPercepcion(0);
+    setFormSeriePercepcion('');
+    setFormNumeroPercepcion('');
+    setFormTieneRetencion(false);
+    setFormMontoRetencion(0);
+    setFormSerieRetencion('');
+    setFormNumeroRetencion('');
+    setModoDesglose(false);
     setBannerError(null);
   };
 
@@ -315,7 +517,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
       await crearCompraMutation.mutateAsync({
         periodoId: periodo,
         fechaEmision: formFechaEmision,
-        fechaVencimiento: formFormaPago === 'CREDITO' ? new Date(Date.now() + formDiasCredito * 86400000).toISOString().substring(0, 10) : formFechaEmision,
+        fechaVencimiento: formFechaVencimiento || (formFormaPago === 'CREDITO' ? new Date(Date.now() + formDiasCredito * 86400000).toISOString().substring(0, 10) : formFechaEmision),
         fechaContable: formFechaContable,
         tipoComprobante: formTipo,
         serie: formSerie.toUpperCase(),
@@ -324,14 +526,39 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
         moneda: formMoneda,
         tipoCambio: formTipoCambio,
         baseGravada: formBase,
+        baseGravadaDestino2: formBaseDestino2,
+        baseGravadaDestino3: formBaseDestino3,
+        baseNoGravada: formBaseNoGravada,
+        exonerado: formExonerado,
+        isc: formIsc,
+        icbper: formIcbper,
+        otrosTributos: formOtrosTributos,
         igv: formIgv,
         total: formTotal,
         tipoAdquisicion: formTipoAdquisicion,
+        cuentaCompra: formCuentaCompra,
+        desgloseCuentas: modoDesglose ? lineasDesglose.filter(l => l.monto > 0).map(l => ({
+          cuentaCodigo: l.cuentaCodigo,
+          denominacion: l.denominacion,
+          monto: l.monto,
+          centroCostoId: l.centroCostoId,
+          glosa: l.glosa
+        })) : undefined,
         formaPago: formFormaPago,
         diasCredito: formDiasCredito,
         tieneDetraccion: formTieneDetraccion,
+        codigoBienDetraccion: formCodigoBienDetraccion,
         porcentajeDetraccion: formPctDetraccion,
+        tieneRetencion: formTieneRetencion,
+        porcentajeRetencion: formPctRetencion,
+        montoRetencion: formMontoRetencion,
+        tienePercepcion: formTienePercepcion,
+        porcentajePercepcion: formPctPercepcion,
+        montoPercepcion: formMontoPercepcion,
+        seriePercepcion: formSeriePercepcion,
+        numeroPercepcion: formNumeroPercepcion,
         esServicio: formEsServicio,
+        glosa: formGlosa || `Compra ${formTipo} ${formSerie}-${formNumero}`,
         estado: comoBorrador ? 'BORRADOR' : 'REGISTRADO'
       });
 
@@ -339,6 +566,10 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
       refetchCompras();
       refetchLibro();
       setActiveTab('LIBRO');
+      success(
+        comoBorrador ? 'Comprobante guardado como borrador.' : 'Comprobante contabilizado y registrado en subdiario.',
+        'Registro Exitoso'
+      );
     } catch (err: any) {
       setBannerError(err?.response?.data?.message || err.message);
     }
@@ -581,120 +812,172 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* VISTA 1: DIGITACIÓN RÁPIDA (TECLADO PRIMERO)                              */}
+      {/* VISTA 1: ASISTENTE DE REGISTRO COMPLETO (COMPROBANTES Y ASIENTO PCGE)       */}
       {/* ========================================================================= */}
       {activeTab === 'DIGITACION' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Keyboard-First Form (8 cols) */}
-          <div className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Keyboard className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-sm">Digitación Rápida de Comprobante</h3>
+          {/* Columna Izquierda: Formulario Estructurado y Completo (8 cols) */}
+          <div className="lg:col-span-8 space-y-4">
+            {/* Cabecera del Asistente */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-[#E6EDFE] text-[#2457D6]">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Asistente de Registro Completo de Compras
+                  </h3>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Registro detallado con bases gravadas (destinos 1, 2, 3), exoneradas, ISC, ICBPER, SPOT, percepciones, retenciones y centros de costo.
+                </p>
               </div>
+
               <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-                <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-700">Ctrl+Enter: Registrar</span>
-                <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-700">Ctrl+N: Nuevo</span>
+                <span className="px-2.5 py-1 rounded-md bg-[#F1F4F9] border border-[#E3E8EF] font-bold text-slate-700">
+                  Ctrl+Enter: Registrar
+                </span>
+                <span className="px-2.5 py-1 rounded-md bg-[#F1F4F9] border border-[#E3E8EF] font-bold text-slate-700">
+                  Ctrl+N: Nuevo
+                </span>
               </div>
             </div>
 
             {bannerError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{bannerError}</span>
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Tipo Comprobante</label>
-                <select
-                  value={formTipo}
-                  onChange={(e) => setFormTipo(e.target.value as any)}
-                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="01">01 - Factura</option>
-                  <option value="03">03 - Boleta de Venta</option>
-                  <option value="07">07 - Nota de Crédito</option>
-                  <option value="08">08 - Nota de Débito</option>
-                </select>
+            {/* 1. Comprobante, Fechas y Moneda */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-xs font-bold text-slate-800">
+                <FileText className="w-4 h-4 text-[#2457D6]" />
+                <span>1. Datos del Comprobante y Fechas</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Tipo Comprobante</label>
+                  <select
+                    value={formTipo}
+                    onChange={(e) => setFormTipo(e.target.value as any)}
+                    className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  >
+                    <option value="01">01 - Factura Electrónica</option>
+                    <option value="03">03 - Boleta de Venta</option>
+                    <option value="07">07 - Nota de Crédito</option>
+                    <option value="08">08 - Nota de Débito</option>
+                    <option value="14">14 - Recibo Serv. Públicos</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Serie</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    value={formSerie}
+                    onChange={(e) => setFormSerie(e.target.value.toUpperCase())}
+                    placeholder="F001"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl uppercase bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Número Correlativo</label>
+                  <input
+                    type="text"
+                    value={formNumero}
+                    onChange={(e) => setFormNumero(e.target.value)}
+                    placeholder="00012345"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Moneda y T/C</label>
+                  <div className="flex gap-1.5">
+                    <select
+                      value={formMoneda}
+                      onChange={(e) => setFormMoneda(e.target.value as any)}
+                      className="w-20 text-xs font-bold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC]"
+                    >
+                      <option value="PEN">PEN (S/)</option>
+                      <option value="USD">USD ($)</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={formTipoCambio}
+                      onChange={(e) => setFormTipoCambio(parseFloat(e.target.value) || 1.0)}
+                      placeholder="1.000"
+                      className="flex-1 text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] text-right"
+                      title="Tipo de cambio aplicable"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Emisión</label>
+                  <input
+                    type="date"
+                    value={formFechaEmision}
+                    onChange={(e) => setFormFechaEmision(e.target.value)}
+                    className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Vencimiento</label>
+                  <input
+                    type="date"
+                    value={formFechaVencimiento}
+                    onChange={(e) => setFormFechaVencimiento(e.target.value)}
+                    className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Contable</label>
+                  <input
+                    type="date"
+                    value={formFechaContable}
+                    onChange={(e) => setFormFechaContable(e.target.value)}
+                    className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Serie</label>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Glosa de la Operación</label>
                 <input
                   type="text"
-                  maxLength={4}
-                  value={formSerie}
-                  onChange={(e) => setFormSerie(e.target.value.toUpperCase())}
-                  placeholder="F001"
-                  className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl uppercase bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Número Correlativo</label>
-                <input
-                  type="text"
-                  value={formNumero}
-                  onChange={(e) => setFormNumero(e.target.value)}
-                  placeholder="00012345"
-                  className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formGlosa}
+                  onChange={(e) => setFormGlosa(e.target.value)}
+                  placeholder={`Ej: Compra de mercaderías según factura ${formSerie}-${formNumero || '00000001'}`}
+                  className="w-full text-xs p-2 border border-slate-300 rounded-xl bg-[#F7F9FC] focus:bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Emisión</label>
-                <input
-                  type="date"
-                  value={formFechaEmision}
-                  onChange={(e) => setFormFechaEmision(e.target.value)}
-                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Contable</label>
-                <input
-                  type="date"
-                  value={formFechaContable}
-                  onChange={(e) => setFormFechaContable(e.target.value)}
-                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Tipo Adquisición</label>
-                <select
-                  value={formTipoAdquisicion}
-                  onChange={(e) => setFormTipoAdquisicion(e.target.value as any)}
-                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="1">1: Gravada (100% Crédito Fiscal)</option>
-                  <option value="2">2: Prorrata (Operaciones Mixtas)</option>
-                  <option value="3">3: Gravada sin derecho a crédito</option>
-                  <option value="4">4: Adquisición No Gravada</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Proveedor selector with Validación SUNAT en Tiempo Real */}
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-blue-600" />
-                  <label className="text-xs font-bold text-slate-800">
-                    Proveedor y Validación SUNAT en Tiempo Real
-                  </label>
+            {/* 2. Proveedor y Validación SUNAT en Tiempo Real */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Building2 className="w-4 h-4 text-[#2457D6]" />
+                  <span>2. Proveedor y Situación Tributaria SUNAT</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setModalAltaProveedor(true)}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-bold text-[#2457D6] hover:text-blue-800 flex items-center gap-1 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" /> + Alta Rápida
+                  <Plus className="w-3.5 h-3.5" /> + Alta Rápida de Proveedor
                 </button>
               </div>
 
@@ -716,7 +999,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                       }
                     }}
                     placeholder="Consultar RUC (11 dígitos, ej. 20100070970)..."
-                    className="w-full text-xs font-mono font-bold pl-3 pr-20 py-2.5 border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full text-xs font-mono font-bold pl-3 pr-20 py-2 border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-semibold text-slate-400">
                     {rucBusquedaDirecta.length}/11
@@ -727,12 +1010,11 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   type="button"
                   onClick={() => handleConsultarRucEnRegistro(false)}
                   disabled={consultarRucMutation.isPending || rucBusquedaDirecta.length !== 11}
-                  className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer ${
                     consultarRucMutation.isPending || rucBusquedaDirecta.length !== 11
                       ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95'
+                      : 'bg-[#2457D6] hover:bg-blue-700 text-white'
                   }`}
-                  title="Verificar estado del contribuyente en SUNAT y caché local"
                 >
                   {consultarRucMutation.isPending ? (
                     <>
@@ -742,7 +1024,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   ) : (
                     <>
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Consultar SUNAT (Simulado)</span>
+                      <span>Consultar SUNAT</span>
                     </>
                   )}
                 </button>
@@ -755,7 +1037,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                 </div>
               )}
 
-              {/* Selector de lista de proveedores guardados */}
+              {/* Selector de lista de proveedores registrados */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   O seleccionar de catálogo registrado:
@@ -770,7 +1052,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                       setResultadoConsultaRuc(null);
                     }
                   }}
-                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-[#2457D6] outline-none"
                 >
                   <option value="">-- Seleccionar proveedor del catálogo --</option>
                   {anexosList.map((a: any) => (
@@ -781,10 +1063,10 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                 </select>
               </div>
 
-              {/* Ficha de Estado Tributario del Proveedor Seleccionado */}
+              {/* Ficha Tributaria del Proveedor */}
               {(proveedorSeleccionado || resultadoConsultaRuc) && (
-                <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2 text-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                <div className="p-3 bg-[#F7F9FC] border border-[#E3E8EF] rounded-xl space-y-2 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
                     <div>
                       <div className="font-mono font-bold text-slate-900 text-xs">
                         RUC: {proveedorSeleccionado?.numeroDocumento || resultadoConsultaRuc?.ruc}
@@ -795,194 +1077,711 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {/* Badge Estado SUNAT */}
-                      {(() => {
-                        const estado = proveedorSeleccionado?.estadoSunat || resultadoConsultaRuc?.estado;
-                        const esActivo = estado === 'ACTIVO';
-                        return (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                            esActivo 
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                          }`}>
-                            {esActivo ? <ShieldCheck className="w-3 h-3 text-emerald-600" /> : <ShieldAlert className="w-3 h-3 text-rose-600" />}
-                            {estado}
-                          </span>
-                        );
-                      })()}
+                      {/* Estado */}
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                        (proveedorSeleccionado?.estadoSunat || resultadoConsultaRuc?.estado) === 'ACTIVO'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300'
+                      }`}>
+                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                        {proveedorSeleccionado?.estadoSunat || resultadoConsultaRuc?.estado || 'ACTIVO'}
+                      </span>
 
-                      {/* Badge Condición SUNAT */}
-                      {(() => {
-                        const condicion = proveedorSeleccionado?.condicionSunat || resultadoConsultaRuc?.condicion;
-                        const esHabido = condicion === 'HABIDO';
-                        return (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                            esHabido 
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                              : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
-                          }`}>
-                            {esHabido ? 'HABIDO' : '⚠️ NO HABIDO'}
-                          </span>
-                        );
-                      })()}
-
-                      {/* Origen de los datos */}
-                      {resultadoConsultaRuc?.origen && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 text-slate-600">
-                          {resultadoConsultaRuc.origen === 'CACHE_LOCAL' ? '⚡ Caché DB' : 'Simulado / sin conexión'}
-                        </span>
-                      )}
-
-                      {/* Botón Revalidar en Vivo */}
-                      <button
-                        type="button"
-                        onClick={() => handleConsultarRucEnRegistro(true)}
-                        disabled={consultarRucMutation.isPending}
-                        className="px-2 py-1 text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 cursor-pointer transition"
-                        title="Forzar actualización en tiempo real desde SUNAT"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${consultarRucMutation.isPending ? 'animate-spin' : ''}`} />
-                        <span>Revalidar</span>
-                      </button>
+                      {/* Condición */}
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                        (proveedorSeleccionado?.condicionSunat || resultadoConsultaRuc?.condicion) === 'HABIDO'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                      }`}>
+                        {(proveedorSeleccionado?.condicionSunat || resultadoConsultaRuc?.condicion) === 'HABIDO' ? 'HABIDO' : '⚠️ NO HABIDO'}
+                      </span>
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] text-slate-600">
                     <span className="font-semibold text-slate-700">Dirección Fiscal: </span>
-                    {proveedorSeleccionado?.direccion || resultadoConsultaRuc?.direccion || 'Sin dirección registrada en padrón'}
+                    {proveedorSeleccionado?.direccion || resultadoConsultaRuc?.direccion || 'Sin dirección registrada'}
                   </div>
-
-                  {/* Alerta de Contingencia Tributaria (No Bloqueante) */}
-                  {((proveedorSeleccionado?.condicionSunat === 'NO_HABIDO' || resultadoConsultaRuc?.condicion === 'NO_HABIDO') ||
-                    (proveedorSeleccionado?.estadoSunat && proveedorSeleccionado?.estadoSunat !== 'ACTIVO') ||
-                    (resultadoConsultaRuc?.estado && resultadoConsultaRuc?.estado !== 'ACTIVO')) && (
-                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
-                      <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>Contingencia Tributaria SUNAT (Art. 65-A TUO IGV / Art. 44 TUO LIR)</span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-amber-900">
-                        {resultadoConsultaRuc?.advertenciaFiscal || 
-                          'Este proveedor figura como NO HABIDO o NO ACTIVO. El comprobante no otorgará derecho a crédito fiscal ni a deducción de gasto de renta, a menos que regularice su condición de domicilio fiscal antes del vencimiento del periodo.'}
-                      </p>
-                      <div className="text-[10px] text-amber-800 font-semibold italic">
-                        ℹ️ El sistema permite continuar el registro para efectos de control contable interno y cuentas por pagar.
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* Importes con cálculo automático */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Base Gravada (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formBase || ''}
-                  onChange={(e) => handleBaseChange(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-sm font-mono font-bold p-2.5 border border-blue-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
+            {/* 3. Bases Imponibles y Tributos SUNAT (Asiento Completo) */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Coins className="w-4 h-4 text-[#2457D6]" />
+                  <span>3. Bases Imponibles y Tributos del Comprobante</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-slate-600">Tasa IGV:</label>
+                  <select
+                    value={formTasaIgv}
+                    onChange={(e) => {
+                      const tasa = parseFloat(e.target.value);
+                      setFormTasaIgv(tasa);
+                      recalcularTotales(formBase, formBaseDestino2, formBaseDestino3, formBaseNoGravada, formExonerado, formIsc, formIcbper, formOtrosTributos, tasa);
+                    }}
+                    className="text-xs font-bold px-2 py-1 border border-slate-300 rounded-lg bg-[#F7F9FC]"
+                  >
+                    <option value={0.18}>18% (General)</option>
+                    <option value={0.10}>10% (Ley 31556 MYPEs Turismo/Rest.)</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">IGV 18% (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formIgv || ''}
-                  onChange={(e) => setFormIgv(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-sm font-mono font-bold p-2.5 border border-blue-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
+              {/* Fila 1: Las 4 Bases Imponibles Oficiales SUNAT */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-50/50 border border-blue-200">
+                  <label className="block text-[10.5px] font-bold text-blue-900 mb-1">
+                    Base Gravada (Destino 1)
+                  </label>
+                  <span className="text-[9.5px] text-slate-500 block mb-1">100% Crédito Fiscal</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBase || ''}
+                    onChange={(e) => handleBaseChange(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-blue-300 rounded-lg bg-white text-right outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    Base Gravada (Destino 2)
+                  </label>
+                  <span className="text-[9.5px] text-slate-500 block mb-1">Prorrata / Común</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseDestino2 || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseDestino2(v);
+                      recalcularTotales(formBase, v, formBaseDestino3, formBaseNoGravada, formExonerado, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    Base Gravada (Destino 3)
+                  </label>
+                  <span className="text-[9.5px] text-slate-500 block mb-1">Sin Crédito (Al Costo)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseDestino3 || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseDestino3(v);
+                      recalcularTotales(formBase, formBaseDestino2, v, formBaseNoGravada, formExonerado, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    No Gravada / Exonerada
+                  </label>
+                  <span className="text-[9.5px] text-slate-500 block mb-1">Sin IGV (Destino 4)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseNoGravada || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseNoGravada(v);
+                      recalcularTotales(formBase, formBaseDestino2, formBaseDestino3, v, formExonerado, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-blue-900 mb-1">Total Comprobante (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formTotal || ''}
-                  onChange={(e) => handleTotalChange(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-base font-mono font-black text-blue-950 p-2.5 border border-blue-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                />
+              {/* Fila 2: Tributos Complementarios (IGV, ISC, ICBPER, Otros y Total) */}
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5 pt-1">
+                <div>
+                  <label className="block text-[10.5px] font-bold text-blue-900 mb-1">
+                    IGV (S/)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIgv || ''}
+                    onChange={(e) => setFormIgv(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-blue-300 rounded-lg bg-white text-right outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    I.S.C. (S/)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIsc || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormIsc(v);
+                      recalcularTotales(formBase, formBaseDestino2, formBaseDestino3, formBaseNoGravada, formExonerado, v, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    ICBPER (Bolsa)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIcbper || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormIcbper(v);
+                      recalcularTotales(formBase, formBaseDestino2, formBaseDestino3, formBaseNoGravada, formExonerado, formIsc, v, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                    Otros Tributos
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formOtrosTributos || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormOtrosTributos(v);
+                      recalcularTotales(formBase, formBaseDestino2, formBaseDestino3, formBaseNoGravada, formExonerado, formIsc, formIcbper, v, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-lg bg-white text-right outline-none"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-[10.5px] font-bold text-[#2457D6] mb-1">
+                    Total Comprobante (Precio con IGV)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formTotal || ''}
+                    onChange={(e) => handleTotalChange(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-sm font-mono font-black text-[#2457D6] p-2 border-2 border-blue-400 rounded-lg bg-blue-50/40 text-right outline-none focus:ring-2 focus:ring-[#2457D6]"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Forma de Pago y Detracción SPOT */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <label className="text-[11px] font-bold text-slate-700">Forma de Pago</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="formaPago"
-                      checked={formFormaPago === 'CONTADO'}
-                      onChange={() => setFormFormaPago('CONTADO')}
-                    />
-                    Contado
-                  </label>
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="formaPago"
-                      checked={formFormaPago === 'CREDITO'}
-                      onChange={() => setFormFormaPago('CREDITO')}
-                    />
-                    Crédito (Genera CxP)
-                  </label>
-                </div>
-                {formFormaPago === 'CREDITO' && (
-                  <div className="pt-2 flex items-center gap-2 text-xs">
-                    <span className="text-slate-500">Plazo en días:</span>
-                    <input
-                      type="number"
-                      value={formDiasCredito}
-                      onChange={(e) => setFormDiasCredito(parseInt(e.target.value, 10) || 30)}
-                      className="w-20 p-1 font-mono font-bold text-center border border-slate-300 rounded-lg bg-white"
-                    />
-                  </div>
-                )}
+            {/* 4. Regímenes de Recaudación SUNAT (SPOT, Percepción, Retención) */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-100 pb-2 text-xs font-bold text-slate-800">
+                <Receipt className="w-4 h-4 text-[#2457D6]" />
+                <span>4. Regímenes de Recaudación (Detracción SPOT / Percepción / Retención)</span>
               </div>
 
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              {/* Detracción SPOT */}
+              <div className={`p-3 rounded-xl border transition ${formTieneDetraccion ? 'bg-amber-50/60 border-amber-300' : 'bg-[#F7F9FC] border-slate-200'}`}>
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={formTieneDetraccion}
-                      onChange={(e) => setFormTieneDetraccion(e.target.checked)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormTieneDetraccion(checked);
+                        if (checked) {
+                          setFormMontoDetraccion(Number((formTotal * (formPctDetraccion / 100)).toFixed(2)));
+                        } else {
+                          setFormMontoDetraccion(0);
+                        }
+                      }}
+                      className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
                     />
-                    Sujeto a Detracción SPOT (Banco Nación)
+                    <span>Sujeto a Detracción SPOT (Banco de la Nación - Cuenta 4213)</span>
                   </label>
-                </div>
-                {formTieneDetraccion && (
-                  <div className="flex items-center justify-between pt-1 text-xs">
-                    <span className="text-slate-600">Porcentaje:</span>
-                    <select
-                      value={formPctDetraccion}
-                      onChange={(e) => setFormPctDetraccion(parseFloat(e.target.value))}
-                      className="p-1 font-mono font-bold border border-slate-300 rounded-lg bg-white"
-                    >
-                      <option value="4">4% (Transporte)</option>
-                      <option value="10">10% (Otros servicios)</option>
-                      <option value="12">12% (Servicios empresariales)</option>
-                    </select>
-                    <span className="font-mono font-bold text-amber-800">
-                      Monto: S/ {(formTotal * (formPctDetraccion / 100)).toFixed(2)}
+                  {formTieneDetraccion && (
+                    <span className="font-mono font-bold text-xs text-amber-800">
+                      Monto Detracción: S/ {formMontoDetraccion.toFixed(2)}
                     </span>
+                  )}
+                </div>
+
+                {formTieneDetraccion && (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-2.5 mt-2 border-t border-amber-200 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Tipo de Bien / Servicio</label>
+                      <select
+                        value={formCodigoBienDetraccion}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFormCodigoBienDetraccion(val);
+                          let pct = 12;
+                          if (val === '019') pct = 4; // Transporte de carga
+                          else if (val === '037') pct = 4; // Contratos de construcción
+                          else if (val === '022') pct = 12; // Otros servicios
+                          setFormPctDetraccion(pct);
+                          setFormMontoDetraccion(Number((formTotal * (pct / 100)).toFixed(2)));
+                        }}
+                        className="w-full text-xs font-semibold p-1.5 border border-amber-300 rounded-lg bg-white"
+                      >
+                        <option value="022">022 - Otros servicios empresariales (12%)</option>
+                        <option value="019">019 - Transporte de carga terrestre (4%)</option>
+                        <option value="037">037 - Contratos de construcción (4%)</option>
+                        <option value="020">020 - Mantenimiento y reparación (12%)</option>
+                        <option value="025">025 - Fabricación de bienes por encargo (10%)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Tasa %</label>
+                      <input
+                        type="number"
+                        value={formPctDetraccion}
+                        onChange={(e) => {
+                          const p = parseFloat(e.target.value) || 0;
+                          setFormPctDetraccion(p);
+                          setFormMontoDetraccion(Number((formTotal * (p / 100)).toFixed(2)));
+                        }}
+                        className="w-full text-xs font-mono font-bold p-1.5 border border-amber-300 rounded-lg bg-white text-right"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Nº Constancia Depósito</label>
+                      <input
+                        type="text"
+                        value={formNroConstanciaDetraccion}
+                        onChange={(e) => setFormNroConstanciaDetraccion(e.target.value)}
+                        placeholder="Ej: 99012345"
+                        className="w-full text-xs font-mono p-1.5 border border-amber-300 rounded-lg bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-1">Fecha Depósito</label>
+                      <input
+                        type="date"
+                        value={formFechaDetraccion}
+                        onChange={(e) => setFormFechaDetraccion(e.target.value)}
+                        className="w-full text-xs p-1.5 border border-amber-300 rounded-lg bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Percepción de IGV */}
+              <div className={`p-3 rounded-xl border transition ${formTienePercepcion ? 'bg-purple-50/60 border-purple-300' : 'bg-[#F7F9FC] border-slate-200'}`}>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTienePercepcion}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormTienePercepcion(checked);
+                        if (checked) {
+                          setFormMontoPercepcion(Number((formTotal * (formPctPercepcion / 100)).toFixed(2)));
+                        } else {
+                          setFormMontoPercepcion(0);
+                        }
+                      }}
+                      className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
+                    />
+                    <span>Afecto a Régimen de Percepción de IGV (Suma al pasivo, imputa a cuenta 40113)</span>
+                  </label>
+                  {formTienePercepcion && (
+                    <span className="font-mono font-bold text-xs text-purple-800">
+                      Monto Percepción: S/ {formMontoPercepcion.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+
+                {formTienePercepcion && (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-2.5 mt-2 border-t border-purple-200 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-purple-900 mb-1">Tasa % Percepción</label>
+                      <select
+                        value={formPctPercepcion}
+                        onChange={(e) => {
+                          const p = parseFloat(e.target.value) || 2.0;
+                          setFormPctPercepcion(p);
+                          setFormMontoPercepcion(Number((formTotal * (p / 100)).toFixed(2)));
+                        }}
+                        className="w-full text-xs font-semibold p-1.5 border border-purple-300 rounded-lg bg-white"
+                      >
+                        <option value={2.0}>2.0% (Ventas con agentes de percepción)</option>
+                        <option value={0.5}>0.5% (Combustibles y derivados)</option>
+                        <option value={1.0}>1.0% (Venta interna)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-purple-900 mb-1">Monto Percepción (S/)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formMontoPercepcion || ''}
+                        onChange={(e) => setFormMontoPercepcion(parseFloat(e.target.value) || 0)}
+                        placeholder="0.00"
+                        className="w-full text-xs font-mono font-bold p-1.5 border border-purple-300 rounded-lg bg-white text-right"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-purple-900 mb-1">Serie Percepción</label>
+                      <input
+                        type="text"
+                        value={formSeriePercepcion}
+                        onChange={(e) => setFormSeriePercepcion(e.target.value.toUpperCase())}
+                        placeholder="P001"
+                        className="w-full text-xs font-mono p-1.5 border border-purple-300 rounded-lg bg-white uppercase"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-purple-900 mb-1">Número Percepción</label>
+                      <input
+                        type="text"
+                        value={formNumeroPercepcion}
+                        onChange={(e) => setFormNumeroPercepcion(e.target.value)}
+                        placeholder="000123"
+                        className="w-full text-xs font-mono p-1.5 border border-purple-300 rounded-lg bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Retención de IGV */}
+              <div className={`p-3 rounded-xl border transition ${formTieneRetencion ? 'bg-indigo-50/60 border-indigo-300' : 'bg-[#F7F9FC] border-slate-200'}`}>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTieneRetencion}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormTieneRetencion(checked);
+                        if (checked) {
+                          setFormMontoRetencion(Number((formTotal * (formPctRetencion / 100)).toFixed(2)));
+                        } else {
+                          setFormMontoRetencion(0);
+                        }
+                      }}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span>Afecto a Régimen de Retención de IGV (Resta del pago neto, imputa a cuenta 40114)</span>
+                  </label>
+                  {formTieneRetencion && (
+                    <span className="font-mono font-bold text-xs text-indigo-800">
+                      Monto Retenido: S/ {formMontoRetencion.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+
+                {formTieneRetencion && (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 pt-2.5 mt-2 border-t border-indigo-200 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-indigo-900 mb-1">Tasa % Retención</label>
+                      <input
+                        type="number"
+                        value={formPctRetencion}
+                        onChange={(e) => {
+                          const p = parseFloat(e.target.value) || 3.0;
+                          setFormPctRetencion(p);
+                          setFormMontoRetencion(Number((formTotal * (p / 100)).toFixed(2)));
+                        }}
+                        className="w-full text-xs font-mono font-bold p-1.5 border border-indigo-300 rounded-lg bg-white text-right"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-indigo-900 mb-1">Monto Retención (S/)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formMontoRetencion || ''}
+                        onChange={(e) => setFormMontoRetencion(parseFloat(e.target.value) || 0)}
+                        placeholder="0.00"
+                        className="w-full text-xs font-mono font-bold p-1.5 border border-indigo-300 rounded-lg bg-white text-right"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-indigo-900 mb-1">Serie Retención</label>
+                      <input
+                        type="text"
+                        value={formSerieRetencion}
+                        onChange={(e) => setFormSerieRetencion(e.target.value.toUpperCase())}
+                        placeholder="R001"
+                        className="w-full text-xs font-mono p-1.5 border border-indigo-300 rounded-lg bg-white uppercase"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-indigo-900 mb-1">Número Retención</label>
+                      <input
+                        type="text"
+                        value={formNumeroRetencion}
+                        onChange={(e) => setFormNumeroRetencion(e.target.value)}
+                        placeholder="000456"
+                        className="w-full text-xs font-mono p-1.5 border border-indigo-300 rounded-lg bg-white"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+            {/* 5. Desglose Contable y Centros de Costo (U.Negocio) */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-2 gap-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Layers className="w-4 h-4 text-[#2457D6]" />
+                  <span>5. Distribución de Cuentas Contables y Centros de Costo</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModoDesglose(!modoDesglose)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      modoDesglose
+                        ? 'bg-[#2457D6] text-white shadow-xs'
+                        : 'bg-[#F1F4F9] text-slate-700 hover:bg-[#E8EDF6]'
+                    }`}
+                  >
+                    <Split className="w-3.5 h-3.5" />
+                    <span>{modoDesglose ? 'Desglose Multilínea Activo' : 'Cuenta Única (Modo Rápido)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {!modoDesglose ? (
+                /* Modo Simple: Cuenta Única */
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-[#F7F9FC] border border-[#E3E8EF] rounded-xl text-xs">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Cuenta Contable de Gasto/Costo (PCGE)</label>
+                    <select
+                      value={formCuentaCompra}
+                      onChange={(e) => setFormCuentaCompra(e.target.value)}
+                      className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-white"
+                    >
+                      <option value="6011">6011 - Mercaderías manufacturadas</option>
+                      <option value="6021">6021 - Materias primas</option>
+                      <option value="6031">6031 - Materiales auxiliares y suministros</option>
+                      <option value="6311">6311 - Transporte de mercaderías y fletes</option>
+                      <option value="6321">6321 - Asesoría y consultoría administrativa</option>
+                      <option value="6361">6361 - Energía eléctrica</option>
+                      <option value="6363">6363 - Agua potable</option>
+                      <option value="6364">6364 - Teléfono e Internet</option>
+                      <option value="659">659 - Otros gastos de gestión</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Destino Tributario SUNAT</label>
+                    <select
+                      value={formTipoAdquisicion}
+                      onChange={(e) => setFormTipoAdquisicion(e.target.value as any)}
+                      className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-white"
+                    >
+                      <option value="1">1: Gravada (100% Crédito Fiscal)</option>
+                      <option value="2">2: Prorrata (Operaciones Mixtas)</option>
+                      <option value="3">3: Gravada sin derecho a crédito fiscal (Al Costo)</option>
+                      <option value="4">4: Adquisición No Gravada / Exonerada</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                /* Modo Multilínea: Hasta 3 o más cuentas y centros de costo */
+                <div className="space-y-2.5">
+                  <div className="overflow-x-auto border border-[#E3E8EF] rounded-xl">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-[#F7F9FC] text-slate-700 font-bold border-b border-[#E3E8EF]">
+                        <tr>
+                          <th className="p-2 w-10 text-center">#</th>
+                          <th className="p-2 w-28">Monto (S/)</th>
+                          <th className="p-2 w-32">Cta Contable</th>
+                          <th className="p-2">Denominación</th>
+                          <th className="p-2 w-32">Centro Costo</th>
+                          <th className="p-2 w-12 text-center"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {lineasDesglose.map((item, idx) => (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="p-2 text-center font-bold text-slate-400">{idx + 1}</td>
+                            <td className="p-2">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={item.monto || ''}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  const copy = [...lineasDesglose];
+                                  copy[idx].monto = val;
+                                  setLineasDesglose(copy);
+                                }}
+                                placeholder="0.00"
+                                className="w-full p-1.5 font-mono font-bold text-right border border-slate-300 rounded-lg bg-white"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="text"
+                                value={item.cuentaCodigo}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const copy = [...lineasDesglose];
+                                  copy[idx].cuentaCodigo = val;
+                                  setLineasDesglose(copy);
+                                }}
+                                placeholder="6011"
+                                className="w-full p-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="text"
+                                value={item.denominacion}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const copy = [...lineasDesglose];
+                                  copy[idx].denominacion = val;
+                                  setLineasDesglose(copy);
+                                }}
+                                placeholder="Descripción del gasto"
+                                className="w-full p-1.5 border border-slate-300 rounded-lg bg-white"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <select
+                                value={item.centroCostoId}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const copy = [...lineasDesglose];
+                                  copy[idx].centroCostoId = val;
+                                  setLineasDesglose(copy);
+                                }}
+                                className="w-full p-1.5 border border-slate-300 rounded-lg bg-white font-semibold"
+                              >
+                                <option value="CC-ADM">CC-ADM (Administración)</option>
+                                <option value="CC-VTAS">CC-VTAS (Ventas)</option>
+                                <option value="CC-PROD">CC-PROD (Producción)</option>
+                                <option value="CC-OPER">CC-OPER (Operaciones)</option>
+                              </select>
+                            </td>
+                            <td className="p-2 text-center">
+                              {lineasDesglose.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLineasDesglose(lineasDesglose.filter((_, i) => i !== idx))}
+                                  className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                  title="Eliminar línea"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineasDesglose([
+                          ...lineasDesglose,
+                          {
+                            id: String(Date.now()),
+                            cuentaCodigo: '6311',
+                            denominacion: 'Transporte y fletes',
+                            monto: 0,
+                            centroCostoId: 'CC-ADM',
+                            glosa: 'Gasto complementario'
+                          }
+                        ]);
+                      }}
+                      className="px-2.5 py-1 text-xs font-bold text-[#2457D6] bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> + Agregar Cuenta / Gasto
+                    </button>
+
+                    <div className="font-mono text-[11px] text-slate-600">
+                      Total Desglosado:{' '}
+                      <strong className="text-slate-900 font-bold">
+                        S/ {lineasDesglose.reduce((acc, l) => acc + (l.monto || 0), 0).toFixed(2)}
+                      </strong>{' '}
+                      / Base Total: <strong>S/ {(formBase + formBaseDestino2 + formBaseDestino3 + formBaseNoGravada).toFixed(2)}</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 6. Forma de Pago */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-xs font-bold text-slate-700">Forma de Pago:</span>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="formaPago"
+                    checked={formFormaPago === 'CONTADO'}
+                    onChange={() => setFormFormaPago('CONTADO')}
+                  />
+                  <span>Contado</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="formaPago"
+                    checked={formFormaPago === 'CREDITO'}
+                    onChange={() => setFormFormaPago('CREDITO')}
+                  />
+                  <span>Crédito (Genera CxP)</span>
+                </label>
+              </div>
+
+              {formFormaPago === 'CREDITO' && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-500">Plazo en días:</span>
+                  <input
+                    type="number"
+                    value={formDiasCredito}
+                    onChange={(e) => setFormDiasCredito(parseInt(e.target.value, 10) || 30)}
+                    className="w-20 p-1 font-mono font-bold text-center border border-slate-300 rounded-lg bg-white"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Barra de Acciones y Guardado */}
+            <div className="bg-white border border-[#E3E8EF] rounded-2xl p-4 shadow-xs flex items-center justify-between">
               <button
                 type="button"
                 onClick={limpiarFormulario}
@@ -995,7 +1794,8 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleRegistrar(true)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition cursor-pointer"
+                  disabled={crearCompraMutation.isPending}
+                  className="px-4 py-2.5 rounded-xl bg-[#F1F4F9] hover:bg-slate-200 text-slate-800 text-xs font-bold transition cursor-pointer"
                 >
                   Guardar Borrador
                 </button>
@@ -1003,7 +1803,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   type="button"
                   onClick={() => handleRegistrar(false)}
                   disabled={crearCompraMutation.isPending}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-xl bg-[#2457D6] hover:bg-blue-700 text-white text-xs font-bold shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Registrar y Contabilizar (Ctrl+Enter)</span>
@@ -1012,30 +1812,30 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
             </div>
           </div>
 
-          {/* Side Preview Panel (4 cols) */}
-          <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+          {/* Columna Derecha: Previsualización de Asiento PCGE en Tiempo Real (4 cols) */}
+          <div className="lg:col-span-4 bg-white border border-[#E3E8EF] rounded-2xl p-5 shadow-xs space-y-4 h-fit sticky top-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 Previsualización de Asiento PCGE
               </h3>
-              {loadingPreview && <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />}
+              {loadingPreview && <RefreshCw className="w-3.5 h-3.5 text-[#2457D6] animate-spin" />}
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Generado en tiempo real según las reglas de contabilización de la empresa antes del guardado físico.
+              Generado en tiempo real según las cuentas, bases tributarias, SPOT y percepciones configuradas.
             </p>
 
             {previewAsiento ? (
               <div className="space-y-3">
-                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono">
+                <div className="p-2.5 rounded-xl bg-[#F7F9FC] border border-[#E3E8EF] text-xs font-mono">
                   <div className="text-[10px] text-slate-400 uppercase font-bold">Glosa Automática</div>
                   <div className="font-semibold text-slate-800 truncate">{previewAsiento.glosaGeneral}</div>
                 </div>
 
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="border border-[#E3E8EF] rounded-xl overflow-hidden">
                   <table className="w-full text-[11px] font-mono">
-                    <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                    <thead className="bg-[#F1F4F9] text-slate-600 font-bold border-b border-[#E3E8EF]">
                       <tr>
                         <th className="p-2 text-left">Cuenta</th>
                         <th className="p-2 text-right">Debe</th>
@@ -1046,8 +1846,17 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                       {previewAsiento.lineas.map((l: any, idx: number) => (
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="p-2">
-                            <div className="font-bold text-slate-800">{l.codigoCuenta}</div>
-                            <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{l.glosaLinea}</div>
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                              <span>{l.codigoCuenta}</span>
+                              {l.centroCosto && (
+                                <span className="text-[9px] px-1 py-0.2 bg-blue-100 text-blue-800 rounded font-sans">
+                                  {l.centroCosto}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate max-w-[140px]" title={l.denominacion || l.glosaLinea}>
+                              {l.denominacion || l.glosaLinea}
+                            </div>
                           </td>
                           <td className="p-2 text-right font-bold text-slate-900">
                             {l.debe > 0 ? l.debe.toFixed(2) : '-'}
@@ -1058,7 +1867,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-slate-900">
+                    <tfoot className="bg-[#F7F9FC] font-bold border-t border-[#E3E8EF] text-slate-900">
                       <tr>
                         <td className="p-2">Total</td>
                         <td className="p-2 text-right">{previewAsiento.totalDebe.toFixed(2)}</td>
@@ -1068,15 +1877,22 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                   </table>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-center justify-between">
-                  <span>Partida Doble:</span>
-                  <span>CUADRADO (Dif: S/ {previewAsiento.diferenciaCuadre.toFixed(2)})</span>
+                <div className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-between ${
+                  previewAsiento.cuadrado
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}>
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Partida Doble:</span>
+                  </span>
+                  <span>{previewAsiento.cuadrado ? `CUADRADO (Dif: S/ ${previewAsiento.diferenciaCuadre.toFixed(2)})` : `DESCUADRADO (Dif: S/ ${previewAsiento.diferenciaCuadre.toFixed(2)})`}</span>
                 </div>
               </div>
             ) : (
               <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs">
                 <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                Ingrese un importe mayor a cero para previsualizar el asiento oficial.
+                Ingrese un importe mayor a cero para previsualizar el asiento completo con todas las cuentas y tributos.
               </div>
             )}
           </div>

@@ -102,7 +102,23 @@ export interface CompraAutomatizadaInput {
   fechaEmision: string;
   fechaContable?: string;
   baseImponible: number;
+  baseGravadaDestino2?: number;
+  baseGravadaDestino3?: number;
+  baseNoGravada?: number;
+  exonerado?: number;
+  isc?: number;
+  icbper?: number;
+  otrosTributos?: number;
+  tienePercepcion?: boolean;
+  montoPercepcion?: number;
   cuentaCompra?: string;
+  desgloseCuentas?: Array<{
+    cuentaCodigo: string;
+    denominacion?: string;
+    monto: number;
+    centroCostoId?: string;
+    glosa?: string;
+  }>;
   destino: '1' | '2' | '3' | '4';
   moneda?: 'PEN' | 'USD';
   tipoCambio?: number;
@@ -786,25 +802,52 @@ export const contabilizacionService = {
     let costoCompra = base;
     let totalComprobante = base;
 
+    const tieneDesglose = Array.isArray(input.desgloseCuentas) && input.desgloseCuentas.length > 0;
+    const montoNoGravado = Money.create((input.baseNoGravada || 0) + (input.exonerado || 0));
+    const montoIsc = Money.create(input.isc || 0);
+    const montoIcbper = Money.create(input.icbper || 0);
+    const montoOtrosTrib = Money.create(input.otrosTributos || 0);
+    const montoPercepcion = input.tienePercepcion && input.montoPercepcion ? Money.create(input.montoPercepcion) : Money.create(0);
+    const montoRetencion = input.tieneRetencion && input.montoRetencion ? Money.create(input.montoRetencion) : Money.create(0);
+
     if (input.destino === '1' || input.destino === '2') {
       // Destinos 1 y 2: Derecho a crédito fiscal
       igv = Money.round(base.times(0.18));
       costoCompra = base;
       totalComprobante = Money.add(base, igv);
 
-      // 1. Cuenta de compra (Gasto / Costo)
-      lineas.push({
-        linea: lineaNum++,
-        codigoCuenta: ctaCompra,
-        denominacionCuenta: 'Mercaderías manufacturadas - Costo',
-        debe: Money.toNumber(costoCompra),
-        haber: 0.00,
-        glosaLinea: `Compra comprobante ${input.docSerie}-${input.docNumero} (Destino ${input.destino})`,
-        docTipo: input.docTipo,
-        docSerie: input.docSerie,
-        docNumero: input.docNumero,
-        anexoId: input.proveedorId
-      });
+      // 1. Cuentas de compra (Gasto / Costo)
+      if (tieneDesglose) {
+        for (const item of input.desgloseCuentas!) {
+          if (item.monto > 0) {
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: item.cuentaCodigo,
+              denominacionCuenta: item.denominacion || 'Compra / Gasto desglosado',
+              debe: Number(item.monto),
+              haber: 0.00,
+              glosaLinea: item.glosa || `Compra desglosada ${input.docSerie}-${input.docNumero}`,
+              docTipo: input.docTipo,
+              docSerie: input.docSerie,
+              docNumero: input.docNumero,
+              anexoId: input.proveedorId
+            });
+          }
+        }
+      } else {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaCompra,
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo',
+          debe: Money.toNumber(costoCompra),
+          haber: 0.00,
+          glosaLinea: `Compra comprobante ${input.docSerie}-${input.docNumero} (Destino ${input.destino})`,
+          docTipo: input.docTipo,
+          docSerie: input.docSerie,
+          docNumero: input.docNumero,
+          anexoId: input.proveedorId
+        });
+      }
 
       // 2. Crédito Fiscal IGV
       lineas.push({
@@ -816,8 +859,8 @@ export const contabilizacionService = {
         glosaLinea: `Crédito fiscal IGV 18% compra ${input.docSerie}-${input.docNumero}`
       });
 
-      // 3. Destino al Almacén (SOLO en método PERMANENTE)
-      if (metodoInventario === 'PERMANENTE') {
+      // 3. Destino al Almacén (SOLO en método PERMANENTE para cuentas clase 60)
+      if (metodoInventario === 'PERMANENTE' && ctaCompra.startsWith('60')) {
         lineas.push({
           linea: lineaNum++,
           codigoCuenta: '20111',
@@ -912,24 +955,109 @@ export const contabilizacionService = {
       }
     }
 
-    // Obligación comercial al Proveedor
-    if (input.tieneDetraccion && input.montoDetraccion && input.montoDetraccion > 0) {
-      const montoDet = Money.create(input.montoDetraccion);
-      const netoPagar = Money.sub(totalComprobante, montoDet);
-
+    // Conceptos tributarios complementarios (Exoneradas adicionales, ISC, ICBPER, Otros Tributos, Percepción)
+    if (montoNoGravado.greaterThan(0) && input.destino !== '4') {
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '4212',
-        denominacionCuenta: 'Facturas por pagar - Emitidas (Neto proveedor)',
-        debe: 0.00,
-        haber: Money.toNumber(netoPagar),
-        glosaLinea: `Obligación neta a pagar ${input.docSerie}-${input.docNumero}`,
+        codigoCuenta: ctaCompra,
+        denominacionCuenta: 'Adquisiciones no gravadas / exoneradas',
+        debe: Money.toNumber(montoNoGravado),
+        haber: 0.00,
+        glosaLinea: `Operaciones no gravadas / exoneradas ${input.docSerie}-${input.docNumero}`,
         docTipo: input.docTipo,
         docSerie: input.docSerie,
         docNumero: input.docNumero,
         anexoId: input.proveedorId
       });
+      totalComprobante = Money.add(totalComprobante, montoNoGravado);
+    }
 
+    if (montoIsc.greaterThan(0)) {
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '6412',
+        denominacionCuenta: 'Impuesto selectivo al consumo',
+        debe: Money.toNumber(montoIsc),
+        haber: 0.00,
+        glosaLinea: `ISC compra ${input.docSerie}-${input.docNumero}`
+      });
+      totalComprobante = Money.add(totalComprobante, montoIsc);
+    }
+
+    if (montoIcbper.greaterThan(0)) {
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '6413',
+        denominacionCuenta: 'Impuesto al consumo de las bolsas de plástico',
+        debe: Money.toNumber(montoIcbper),
+        haber: 0.00,
+        glosaLinea: `ICBPER bolsas ${input.docSerie}-${input.docNumero}`
+      });
+      totalComprobante = Money.add(totalComprobante, montoIcbper);
+    }
+
+    if (montoOtrosTrib.greaterThan(0)) {
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '6491',
+        denominacionCuenta: 'Otros tributos y recargos no gravados',
+        debe: Money.toNumber(montoOtrosTrib),
+        haber: 0.00,
+        glosaLinea: `Otros tributos compra ${input.docSerie}-${input.docNumero}`
+      });
+      totalComprobante = Money.add(totalComprobante, montoOtrosTrib);
+    }
+
+    if (montoPercepcion.greaterThan(0)) {
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '40113',
+        denominacionCuenta: 'IGV - Régimen de percepciones',
+        debe: Money.toNumber(montoPercepcion),
+        haber: 0.00,
+        glosaLinea: `Percepción de IGV compra ${input.docSerie}-${input.docNumero}`
+      });
+      totalComprobante = Money.add(totalComprobante, montoPercepcion);
+    }
+
+    // Obligación comercial al Proveedor y Retenciones / Detracciones
+    const montoDet = input.tieneDetraccion && input.montoDetraccion ? Money.create(input.montoDetraccion) : Money.create(0);
+    let netoPagar = totalComprobante;
+
+    if (montoDet.greaterThan(0)) {
+      netoPagar = Money.sub(netoPagar, montoDet);
+    }
+
+    if (montoRetencion.greaterThan(0)) {
+      netoPagar = Money.sub(netoPagar, montoRetencion);
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '40114',
+        denominacionCuenta: 'IGV - Régimen de retenciones',
+        debe: 0.00,
+        haber: Money.toNumber(montoRetencion),
+        glosaLinea: `Retención de IGV 3% ${input.docSerie}-${input.docNumero}`,
+        docTipo: input.docTipo,
+        docSerie: input.docSerie,
+        docNumero: input.docNumero,
+        anexoId: input.proveedorId
+      });
+    }
+
+    lineas.push({
+      linea: lineaNum++,
+      codigoCuenta: '4212',
+      denominacionCuenta: 'Facturas, boletas y otros comprobantes por pagar - Emitidas',
+      debe: 0.00,
+      haber: Money.toNumber(netoPagar),
+      glosaLinea: `Obligación neta por compra ${input.docSerie}-${input.docNumero}`,
+      docTipo: input.docTipo,
+      docSerie: input.docSerie,
+      docNumero: input.docNumero,
+      anexoId: input.proveedorId
+    });
+
+    if (montoDet.greaterThan(0)) {
       lineas.push({
         linea: lineaNum++,
         codigoCuenta: '4213',
@@ -937,19 +1065,6 @@ export const contabilizacionService = {
         debe: 0.00,
         haber: Money.toNumber(montoDet),
         glosaLinea: `Detracción SPOT ${input.docSerie}-${input.docNumero}`,
-        docTipo: input.docTipo,
-        docSerie: input.docSerie,
-        docNumero: input.docNumero,
-        anexoId: input.proveedorId
-      });
-    } else {
-      lineas.push({
-        linea: lineaNum++,
-        codigoCuenta: '4212',
-        denominacionCuenta: 'Facturas, boletas y otros comprobantes por pagar - Emitidas',
-        debe: 0.00,
-        haber: Money.toNumber(totalComprobante),
-        glosaLinea: `Obligación por compra ${input.docSerie}-${input.docNumero}`,
         docTipo: input.docTipo,
         docSerie: input.docSerie,
         docNumero: input.docNumero,
