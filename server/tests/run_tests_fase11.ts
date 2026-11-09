@@ -92,9 +92,9 @@ async function runFase11Tests() {
   console.log(`  ✅ PASÓ: Provisión de Impuesto a la Renta Diferido (NIC 12): S/ ${calculoDeprec.totalIrDiferido} (ACTIVO_IR_DIFERIDO)`);
 
   // =========================================================================
-  // TEST 3: Generación del Asiento Contable de Depreciación con Destino
+  // TEST 3: Generación del Asiento Contable de Depreciación con Destino (ESC-VAR-8.01)
   // =========================================================================
-  console.log('\n🔹 Test 3: Generación del Asiento Contable de Depreciación con Asiento de Destino');
+  console.log('\n🔹 Test 3: Generación del Asiento Contable de Depreciación con Asiento de Destino [ESC-VAR-8.01]');
 
   const resultadoAsiento = await activosFijosService.generarAsientoDepreciacion(empresaAId, periodo);
 
@@ -137,9 +137,9 @@ async function runFase11Tests() {
   console.log('  ✅ PASÓ: Formato delimitado por plecas conforme a R.S. N° 234-2006/SUNAT');
 
   // =========================================================================
-  // TEST 5: Kardex Valorado (Libro 13.1) — Método Promedio Ponderado Móvil
+  // TEST 5: Kardex Valorado (Libro 13.1) — Método Promedio Ponderado Móvil (ESC-VAR-8.03)
   // =========================================================================
-  console.log('\n🔹 Test 5: Kardex Valorado (Libro 13.1) — Método Promedio Ponderado Móvil');
+  console.log('\n🔹 Test 5: Kardex Valorado (Libro 13.1) — Método Promedio Ponderado Móvil [ESC-VAR-8.03]');
 
   const prod = await kardexService.registrarProducto(empresaAId, {
     codigoProducto: 'SKU-PAPEL-A4',

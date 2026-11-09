@@ -338,8 +338,9 @@ async function runTestsFase5Planillas() {
 
   // -------------------------------------------------------------------------
   // 4. MES DE GRATIFICACIÓN (JULIO + BONIF. 9%) Y CTS (MAYO CON 1/6 GRATIFICACIÓN)
+  // [ESC-PLA-7.02 / ESC-PLA-7.03]
   // -------------------------------------------------------------------------
-  console.log('4. Verificando Gratificaciones (Julio + Bonif. 9%) y CTS (Mayo con 1/6 de gratificación)...');
+  console.log('4. Verificando Gratificaciones [ESC-PLA-7.02] (Julio + Bonif. 9%) y CTS [ESC-PLA-7.03] (Mayo con 1/6 de gratificación)...');
 
   const resGratiJulio = await planillaService.calcularGratificaciones(EMPRESA_PLANILLA_TEST, '2026-07', USER_ID);
   assert.ok(resGratiJulio.items.length >= 3, 'Debe calcular gratificaciones para los trabajadores activos');
@@ -949,6 +950,7 @@ async function runTestsFase5Planillas() {
     USER_ID
   );
 
+  // [ESC-PLA-7.04 / ESC-PLA-7.05] Liquidación de Beneficios Sociales y Vacaciones
   const lbsOct = await planillaService.calcularLiquidacionBeneficios(
     EMPRESA_DORADA,
     {

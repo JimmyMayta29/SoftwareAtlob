@@ -22,9 +22,9 @@ async function runFase10Tests() {
   ASIENTOS_MEMORIA.length = 0;
 
   // =========================================================================
-  // TEST 1: Diagnóstico de Auditoría Preventiva SUNAT
+  // TEST 1: Diagnóstico de Auditoría Preventiva SUNAT (ESC-HON-6.04)
   // =========================================================================
-  console.log('🔹 Test 1: Algoritmo de Detección de Inconsistencias Fiscales SUNAT');
+  console.log('🔹 Test 1: Algoritmo de Detección de Inconsistencias Fiscales SUNAT [ESC-HON-6.04]');
 
   // Insertar compras con casos de prueba para el algoritmo
   // 1. Compra > S/ 2,000 sin bancarización
@@ -292,9 +292,9 @@ async function runFase10Tests() {
   console.log(`  ✅ PASÓ: Archivo ${daot.nombreArchivoTxt} validado`);
 
   // =========================================================================
-  // TEST 3: Secuencia Completa de Cierre Anual PCGE (8 Pasos)
+  // TEST 3: Secuencia Completa de Cierre Anual PCGE (8 Pasos) [ESC-VAR-8.04]
   // =========================================================================
-  console.log('\n🔹 Test 3: Secuencia Normativa de Cierre Anual PCGE (Cuentas 80 a 89 y Balance)');
+  console.log('\n🔹 Test 3: Secuencia Normativa de Cierre Anual PCGE (Cuentas 80 a 89 y Balance) [ESC-VAR-8.04]');
 
   const propuestaCierre = await cierreAnualService.simularCierreAnual(empresaAId, anio);
 

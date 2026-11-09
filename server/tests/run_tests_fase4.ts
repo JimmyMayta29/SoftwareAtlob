@@ -37,9 +37,9 @@ async function ejecutarSuiteFase4() {
   await periodoService.abrirPeriodo(EMPRESA_B, '2026-09', USER_ID);
 
   // --------------------------------------------------------------------------
-  // TEST 1: Cobro múltiple, pago parcial y anticipos
+  // TEST 1: Cobro múltiple, pago parcial y anticipos (ESC-COB-3.01 / ESC-COB-3.02)
   // --------------------------------------------------------------------------
-  console.log('🔹 Test 1: Cobro Múltiple de Facturas, Pago Parcial y Anticipo');
+  console.log('🔹 Test 1: Cobro Múltiple de Facturas, Pago Parcial y Anticipo [ESC-COB-3.01 / ESC-COB-3.02]');
   {
     // Crear 2 facturas en cartera de cobros (CxC)
     const doc1 = {
@@ -103,9 +103,9 @@ async function ejecutarSuiteFase4() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 2: Transferencia entre cuentas con diferencia de cambio
+  // TEST 2: Transferencia entre cuentas con diferencia de cambio (ESC-COB-3.03 / ESC-PAG-4.04 / ESC-PAG-4.06)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 2: Transferencia Entre Cuentas Multimoneda y Partida Doble');
+  console.log('\n🔹 Test 2: Transferencia Entre Cuentas Multimoneda y Partida Doble [ESC-COB-3.03 / ESC-PAG-4.04 / ESC-PAG-4.06]');
   {
     const ctaUsd = CUENTAS_FINANCIERAS_MEMORIA.find(c => c.moneda === 'USD')!;
     const ctaPen = CUENTAS_FINANCIERAS_MEMORIA.find(c => c.moneda === 'PEN')!;
@@ -136,9 +136,9 @@ async function ejecutarSuiteFase4() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 3: Anulación de movimiento, reversión y extorno vinculado
+  // TEST 3: Anulación de movimiento, reversión y extorno vinculado (ESC-PAG-4.01)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 3: Anulación con Reversión de Aplicaciones y Extorno Contable');
+  console.log('\n🔹 Test 3: Anulación con Reversión de Aplicaciones y Extorno Contable [ESC-PAG-4.01]');
   {
     const docPagar = {
       id: `cxp-t3-1`,
@@ -243,9 +243,9 @@ async function ejecutarSuiteFase4() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 5: Recibos por honorarios con umbral, suspensión y parámetros
+  // TEST 5: Recibos por honorarios con umbral, suspensión y parámetros (ESC-HON-6.01 / ESC-HON-6.02 / ESC-HON-6.03)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 5: Honorarios de 4ta Categoría, Umbral y Suspensión');
+  console.log('\n🔹 Test 5: Honorarios de 4ta Categoría, Umbral y Suspensión [ESC-HON-6.01 / ESC-HON-6.02 / ESC-HON-6.03]');
   {
     // Caso A: Honorario de S/ 1,200 (Menor a S/ 1,500) -> Retención 0
     const rhMenor = await honorariosService.registrarRecibo(EMPRESA_A, {
@@ -300,9 +300,9 @@ async function ejecutarSuiteFase4() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 6: Cálculo de planilla con ONP, AFP y Asignación Familiar
+  // TEST 6: Cálculo de planilla con ONP, AFP y Asignación Familiar (ESC-PLA-7.01)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 6: Planilla de Remuneraciones, Aportes y Contabilización');
+  console.log('\n🔹 Test 6: Planilla de Remuneraciones, Aportes y Contabilización [ESC-PLA-7.01]');
   {
     // Trabajador 1: Carlos Mendoza (S/ 3,500 + Asig Fam S/ 113.00 = S/ 3,613.00) con ONP (13%)
     // ONP 13% = S/ 469.69, EsSalud 9% = S/ 325.17, Neto = S/ 3,143.31

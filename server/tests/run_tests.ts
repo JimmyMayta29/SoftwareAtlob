@@ -288,9 +288,9 @@ async function ejecutarPruebas() {
   }
 
   // --------------------------------------------------------------------------
-  // TEST 8: Diferencia de Cambio y Apertura/Cierre
+  // TEST 8: Diferencia de Cambio y Apertura/Cierre (ESC-VAR-8.02)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 8: Ajuste por Diferencia de Cambio');
+  console.log('\n🔹 Test 8: Ajuste por Diferencia de Cambio [ESC-VAR-8.02]');
   try {
     const tcOrigen = 3.75;
     const tcCierre = 3.80; // Subió el dólar

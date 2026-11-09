@@ -412,6 +412,7 @@ async function runTestsFase4Tributos() {
     'Asiento de determinación debe cuadrar por partida doble'
   );
 
+  // [ESC-PAG-4.05] Pago y Presentación de Declaración Jurada Tributaria FV 1662 / PDT 621
   const presentadaV1 = await liquidacionIGVService.presentar(
     empresaId,
     '2026-09',
