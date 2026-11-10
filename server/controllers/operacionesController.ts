@@ -72,7 +72,7 @@ export const ventaSchema = z.object({
   fechaEmision: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   fechaVencimiento: z.string().nullable().optional(),
   fechaContable: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  tipoComprobante: z.enum(['01', '03', '07', '08']),
+  tipoComprobante: z.enum(['01', '03', '07', '08', '12']),
   serie: z.string().min(1).max(10),
   numero: z.string().min(1).max(20),
   clienteId: z.string().min(1),
@@ -80,8 +80,10 @@ export const ventaSchema = z.object({
   tipoCambio: z.number().positive().default(1.0),
   baseGravada: z.number().min(0),
   igv: z.number().min(0),
+  tasaIgv: z.number().optional(),
   baseNoGravada: z.number().min(0).optional().default(0),
   exonerado: z.number().min(0).optional().default(0),
+  baseExportacion: z.number().min(0).optional().default(0),
   isc: z.number().min(0).optional().default(0),
   icbper: z.number().min(0).optional().default(0),
   otrosTributos: z.number().min(0).optional().default(0),
@@ -92,8 +94,22 @@ export const ventaSchema = z.object({
   tieneDetraccion: z.boolean().optional().default(false),
   codigoBienDetraccion: z.string().optional(),
   porcentajeDetraccion: z.number().optional(),
+  montoDetraccion: z.number().min(0).optional(),
+  justificacionTasaDetraccion: z.string().optional(),
   tienePercepcion: z.boolean().optional().default(false),
   porcentajePercepcion: z.number().optional(),
+  montoPercepcion: z.number().min(0).optional(),
+  tieneRetencion: z.boolean().optional().default(false),
+  montoRetencion: z.number().min(0).optional(),
+  anticipoDeducido: z.number().min(0).optional(),
+  esAnticipo: z.boolean().optional().default(false),
+  esGratuito: z.boolean().optional().default(false),
+  descuentoGlobal: z.number().min(0).optional(),
+  descuentoFueraFactura: z.number().min(0).optional(),
+  costoVenta: z.number().min(0).optional(),
+  cuentaVenta: z.string().optional(),
+  cuentaCosto: z.string().optional(),
+  motivoNota: z.string().optional(),
   hashCpe: z.string().optional(),
   glosa: z.string().optional(),
   estado: z.enum(['BORRADOR', 'REGISTRADO']).optional().default('REGISTRADO'),
@@ -160,7 +176,7 @@ export const previsualizarAsientoSchema = z.object({
     anexoId: z.string().optional(),
     porcentajeAdmin: z.number().min(0).max(100).optional(),
     porcentajeVentas: z.number().min(0).max(100).optional()
-  })
+  }).passthrough()
 });
 
 export const anexoSchema = z.object({

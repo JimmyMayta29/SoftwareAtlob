@@ -133,18 +133,41 @@ export interface CompraAutomatizadaInput {
 }
 
 export interface VentaAutomatizadaInput {
-  clienteId: string;
-  docTipo: string;
-  docSerie: string;
-  docNumero: string;
-  fechaEmision: string;
+  clienteId?: string;
+  docTipo?: string;
+  docSerie?: string;
+  docNumero?: string;
+  fechaEmision?: string;
   fechaContable?: string;
-  baseImponible: number;
+  baseImponible?: number;
   igv?: number;
+  tasaIgv?: number;
+  baseExonerada?: number;
+  baseInafecta?: number;
+  baseExportacion?: number;
+  isc?: number;
+  icbper?: number;
+  otrosTributos?: number;
   cuentaVenta?: string;
+  cuentaCosto?: string;
   costoVenta?: number;
   moneda?: 'PEN' | 'USD';
   tipoCambio?: number;
+  tieneDetraccion?: boolean;
+  montoDetraccion?: number;
+  porcentajeDetraccion?: number;
+  codigoDetraccion?: string;
+  tienePercepcion?: boolean;
+  montoPercepcion?: number;
+  porcentajePercepcion?: number;
+  tieneRetencion?: boolean;
+  montoRetencion?: number;
+  anticipoDeducido?: number;
+  esAnticipo?: boolean;
+  esGratuito?: boolean;
+  descuentoGlobal?: number;
+  descuentoFueraFactura?: number;
+  motivoNota?: string;
   glosa?: string;
 }
 
@@ -330,38 +353,43 @@ export const contabilizacionService = {
       }
 
       case 'VENTA': {
-        // 1. Cliente
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '1212',
-          denominacionCuenta: 'Facturas por cobrar - Emitidas en cartera',
-          debe: Money.toNumber(total),
-          haber: 0.00,
-          glosaLinea: `Cobro según comprobante ${datos.docSerie}-${datos.docNumero}`,
-          anexoId: datos.anexoId,
-          docTipo: datos.docTipo,
-          docSerie: datos.docSerie,
-          docNumero: datos.docNumero
-        });
-        // 2. Débito Fiscal IGV
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '40111',
-          denominacionCuenta: 'IGV - Cuenta propia',
-          debe: 0.00,
-          haber: Money.toNumber(igv),
-          glosaLinea: `Débito fiscal IGV 18% venta ${datos.docSerie}-${datos.docNumero}`
-        });
-        // 3. Ingreso por Venta
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '70111',
-          denominacionCuenta: 'Mercaderías manufacturadas - Venta local',
-          debe: 0.00,
-          haber: Money.toNumber(base),
-          glosaLinea: `Venta de mercaderías comprobante ${datos.docSerie}-${datos.docNumero}`
-        });
-        break;
+        const datosVenta: VentaAutomatizadaInput = {
+          clienteId: datos.anexoId || 'anx-cliente',
+          docTipo: datos.docTipo || '01',
+          docSerie: datos.docSerie || 'F001',
+          docNumero: datos.docNumero || '00000001',
+          fechaEmision: new Date().toISOString().substring(0, 10),
+          baseImponible: datos.baseImponible !== undefined ? datos.baseImponible : Money.toNumber(base),
+          igv: datos.igv !== undefined ? datos.igv : Money.toNumber(igv),
+          cuentaVenta: (datos as any).cuentaVenta,
+          cuentaCosto: (datos as any).cuentaCosto,
+          baseExonerada: (datos as any).baseExonerada || (datos as any).exonerado,
+          baseInafecta: (datos as any).baseInafecta || (datos as any).baseNoGravada,
+          baseExportacion: (datos as any).baseExportacion,
+          isc: (datos as any).isc,
+          icbper: (datos as any).icbper,
+          otrosTributos: (datos as any).otrosTributos,
+          tieneDetraccion: (datos as any).tieneDetraccion,
+          montoDetraccion: (datos as any).montoDetraccion,
+          porcentajeDetraccion: (datos as any).porcentajeDetraccion,
+          codigoDetraccion: (datos as any).codigoDetraccion || (datos as any).codigoBienDetraccion,
+          tienePercepcion: (datos as any).tienePercepcion,
+          montoPercepcion: (datos as any).montoPercepcion,
+          porcentajePercepcion: (datos as any).porcentajePercepcion,
+          tieneRetencion: (datos as any).tieneRetencion,
+          montoRetencion: (datos as any).montoRetencion,
+          anticipoDeducido: (datos as any).anticipoDeducido,
+          esAnticipo: (datos as any).esAnticipo,
+          esGratuito: (datos as any).esGratuito,
+          descuentoGlobal: (datos as any).descuentoGlobal,
+          descuentoFueraFactura: (datos as any).descuentoFueraFactura,
+          costoVenta: (datos as any).costoVenta,
+          motivoNota: (datos as any).motivoNota,
+          moneda: datos.moneda,
+          tipoCambio: datos.tipoCambio,
+          glosa: datos.glosa
+        };
+        return await this.generarAsientoVentaAutomatizada(empresaId, datosVenta);
       }
 
       case 'COBRANZA': {
@@ -1104,8 +1132,12 @@ export const contabilizacionService = {
   },
 
   /**
-   * Genera el asiento automatizado de venta evaluando el método de inventario.
-   * - Si es PERMANENTE: genera asiento de costo de ventas D 69111 / H 20111 si se provee costo de ventas o salida de kardex.
+   * Genera el asiento automatizado de venta evaluando el método de inventario y normativa SUNAT.
+   * - Soporta Factura, Boleta, NC, ND, Exportación, Exonerada, Inafecta, Detracción SPOT clientes,
+   *   Percepción cobrada, Anticipos, Operaciones gratuitas, Tributos adicionales (ISC, ICBPER)
+   *   y Moneda Extranjera (USD).
+   * - Si es PERMANENTE: genera asiento de costo de ventas D 69121 (o 69111 si exportación) / H 20111
+   *   si se provee costo de ventas o salida de kardex.
    * - Si es PERIODICO: omite el costo en la venta y se registra en la consolidación mensual.
    */
   async generarAsientoVentaAutomatizada(
@@ -1118,69 +1150,395 @@ export const contabilizacionService = {
     }
 
     const metodoInventario = empresa.metodoInventario;
-    const base = Money.create(input.baseImponible);
-    const igv = input.igv !== undefined ? Money.create(input.igv) : Money.round(base.times(0.18));
-    const total = Money.add(base, igv);
-    const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
     const esDolares = input.moneda === 'USD';
-    const ctaVenta = input.cuentaVenta || '70111';
+    const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
+
+    // Incompatibilidad normativa: Bloqueo de Percepción + Retención en el mismo comprobante
+    const tieneRet = Boolean(input.tieneRetencion || (input.montoRetencion && input.montoRetencion > 0));
+    const tienePerc = Boolean(input.tienePercepcion || (input.montoPercepcion && input.montoPercepcion > 0));
+    if (tieneRet && tienePerc) {
+      throw new Error('COMBINACION_TRIBUTARIA_BLOQUEADA: Un comprobante no puede estar sujeto simultáneamente al Régimen de Percepciones y al Régimen de Retenciones del IGV (RS 037-2002/SUNAT y Ley 28053). [SUPUESTO A VALIDAR con contador]');
+    }
+
+    let base = Money.create(input.baseImponible || 0);
+    const descGlobal = Money.create(input.descuentoGlobal || 0);
+    if (descGlobal.greaterThan(0)) {
+      base = Money.sub(base, descGlobal);
+    }
+
+    let igv = Money.create(0);
+    if (input.igv !== undefined) {
+      igv = Money.create(input.igv);
+    } else if (input.tasaIgv === 10 || input.tasaIgv === 0.10) {
+      igv = Money.round(base.times(0.10));
+    } else if (input.tasaIgv === 14 || input.tasaIgv === 0.14) {
+      igv = Money.round(base.times(0.14));
+    } else if (base.greaterThan(0)) {
+      igv = Money.round(base.times(0.18));
+    }
+
+    const baseExonerada = Money.create(input.baseExonerada || 0);
+    const baseInafecta = Money.create(input.baseInafecta || 0);
+    const baseExportacion = Money.create(input.baseExportacion || 0);
+    const isc = Money.create(input.isc || 0);
+    const icbper = Money.create(input.icbper || 0);
+    const otros = Money.create(input.otrosTributos || 0);
+    const montoPercepcion = tienePerc && input.montoPercepcion ? Money.create(input.montoPercepcion) : Money.create(0);
+    const montoDetraccion = input.tieneDetraccion && input.montoDetraccion ? Money.create(input.montoDetraccion) : Money.create(0);
+    const anticipoDeducido = Money.create(input.anticipoDeducido || 0);
+
+    const docTipo = input.docTipo || '01';
+    const docSerie = input.docSerie || 'F001';
+    const docNumero = input.docNumero || '00000001';
+    const clienteId = input.clienteId;
 
     const lineas: LineaAsientoPropuesta[] = [];
     let lineaNum = 1;
 
-    // 1. Cliente
-    lineas.push({
-      linea: lineaNum++,
-      codigoCuenta: '1212',
-      denominacionCuenta: 'Facturas, boletas y otros comprobantes por cobrar - Emitidas en cartera',
-      debe: Money.toNumber(total),
-      haber: 0.00,
-      glosaLinea: `Cobro según comprobante ${input.docSerie}-${input.docNumero}`,
-      docTipo: input.docTipo,
-      docSerie: input.docSerie,
-      docNumero: input.docNumero,
-      anexoId: input.clienteId
-    });
+    // Caso 1: NOTA DE CRÉDITO ('07')
+    if (docTipo === '07') {
+      const totalNC = Money.add(base, igv);
+      if (input.descuentoFueraFactura || input.motivoNota?.includes('DESCUENTO')) {
+        // Descuento concedido fuera de factura -> D: 7411 / D: 40111 / H: 1212
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '7411',
+          denominacionCuenta: 'Descuentos, rebajas y bonificaciones concedidos - Terceros',
+          debe: Money.toNumber(base),
+          haber: 0.00,
+          glosaLinea: `Descuento concedido NC ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+        if (igv.greaterThan(0)) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '40111',
+            denominacionCuenta: 'IGV - Cuenta propia (Ajuste débito fiscal)',
+            debe: Money.toNumber(igv),
+            haber: 0.00,
+            glosaLinea: `Ajuste débito fiscal IGV NC ${docSerie}-${docNumero}`
+          });
+        }
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1212',
+          denominacionCuenta: 'Facturas, boletas y otros comprobantes por cobrar - Emitidas',
+          debe: 0.00,
+          haber: Money.toNumber(totalNC),
+          glosaLinea: `Disminución cuenta por cobrar cliente NC ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+      } else {
+        // Anulación total o descuento en venta -> D: 70121 / D: 40111 / H: 1212
+        const ctaVenta = input.cuentaVenta || (baseExportacion.greaterThan(0) ? '70111' : '70121');
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaVenta,
+          denominacionCuenta: ctaVenta === '70111' ? 'Mercaderías - venta de exportación - Terceros' : 'Mercaderías - venta local - Terceros',
+          debe: Money.toNumber(base),
+          haber: 0.00,
+          glosaLinea: `Reversa venta por NC ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+        if (igv.greaterThan(0)) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '40111',
+            denominacionCuenta: 'IGV - Cuenta propia (Ajuste débito fiscal)',
+            debe: Money.toNumber(igv),
+            haber: 0.00,
+            glosaLinea: `Ajuste débito fiscal IGV NC ${docSerie}-${docNumero}`
+          });
+        }
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1212',
+          denominacionCuenta: 'Facturas, boletas y otros comprobantes por cobrar - Emitidas',
+          debe: 0.00,
+          haber: Money.toNumber(totalNC),
+          glosaLinea: `Disminución de exigibilidad cliente NC ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
 
-    // 2. Débito Fiscal IGV
-    lineas.push({
-      linea: lineaNum++,
-      codigoCuenta: '40111',
-      denominacionCuenta: 'IGV - Cuenta propia',
-      debe: 0.00,
-      haber: Money.toNumber(igv),
-      glosaLinea: `Débito fiscal IGV 18% venta ${input.docSerie}-${input.docNumero}`
-    });
-
-    // 3. Ingreso por Venta
-    lineas.push({
-      linea: lineaNum++,
-      codigoCuenta: ctaVenta,
-      denominacionCuenta: 'Mercaderías manufacturadas - Venta local',
-      debe: 0.00,
-      haber: Money.toNumber(base),
-      glosaLinea: `Venta de mercaderías comprobante ${input.docSerie}-${input.docNumero}`
-    });
-
-    // 4 y 5. Costo de ventas (SOLO si método PERMANENTE y costoVenta > 0)
-    if (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0) {
-      const costo = Money.create(input.costoVenta);
+        // Si hay devolución física al almacén en inventario PERMANENTE
+        if (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0) {
+          const costo = Money.create(input.costoVenta);
+          const ctaCosto = input.cuentaCosto || (ctaVenta === '70111' ? '69111' : '69121');
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '20111',
+            denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+            debe: Money.toNumber(costo),
+            haber: 0.00,
+            glosaLinea: `Reingreso al almacén por devolución NC ${docSerie}-${docNumero}`
+          });
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: ctaCosto,
+            denominacionCuenta: 'Costo de ventas - Reversa',
+            debe: 0.00,
+            haber: Money.toNumber(costo),
+            glosaLinea: `Ajuste costo de ventas por devolución NC ${docSerie}-${docNumero}`
+          });
+        }
+      }
+    } else if (docTipo === '08') {
+      // Caso 2: NOTA DE DÉBITO ('08')
+      const totalND = Money.add(base, igv);
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '69111',
-        denominacionCuenta: 'Mercaderías manufacturadas - Terceros (Costo de ventas)',
-        debe: Money.toNumber(costo),
+        codigoCuenta: '1212',
+        denominacionCuenta: 'Facturas, boletas y otros comprobantes por cobrar - Emitidas',
+        debe: Money.toNumber(totalND),
         haber: 0.00,
-        glosaLinea: `Costo de ventas salida de almacén según kardex ${input.docSerie}-${input.docNumero}`
+        glosaLinea: `Incremento de exigibilidad cliente ND ${docSerie}-${docNumero}`,
+        docTipo, docSerie, docNumero, anexoId: clienteId
       });
+      if (igv.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40111',
+          denominacionCuenta: 'IGV - Cuenta propia (Débito fiscal)',
+          debe: 0.00,
+          haber: Money.toNumber(igv),
+          glosaLinea: `Débito fiscal IGV ND ${docSerie}-${docNumero}`
+        });
+      }
+      const esInteresMora = Boolean(input.motivoNota?.includes('INTERES') || input.motivoNota?.includes('MORA') || input.motivoNota?.includes('PENALIDAD'));
+      const ctaND = esInteresMora ? '7721' : (input.cuentaVenta || '70121');
+      const nomND = esInteresMora ? 'Intereses sobre cuentas por cobrar comerciales' : 'Mercaderías - venta local - Terceros';
       lineas.push({
         linea: lineaNum++,
-        codigoCuenta: '20111',
-        denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+        codigoCuenta: ctaND,
+        denominacionCuenta: nomND,
         debe: 0.00,
-        haber: Money.toNumber(costo),
-        glosaLinea: `Descargo de existencias por venta ${input.docSerie}-${input.docNumero}`
+        haber: Money.toNumber(base),
+        glosaLinea: esInteresMora ? `Intereses por mora / penalidad ND ${docSerie}-${docNumero}` : `Aumento de precio base ND ${docSerie}-${docNumero}`
       });
+    } else if (input.esGratuito) {
+      // Caso 3: OPERACIÓN A TÍTULO GRATUITO (Retiro de bienes, Art. 3 TUO LIGV)
+      const totalGastoGratuito = (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0)
+        ? Money.add(igv, Money.create(input.costoVenta))
+        : igv;
+
+      lineas.push({
+        linea: lineaNum++,
+        codigoCuenta: '659',
+        denominacionCuenta: 'Otros gastos de gestión - Donaciones y entregas a título gratuito',
+        debe: Money.toNumber(totalGastoGratuito),
+        haber: 0.00,
+        glosaLinea: `Gasto por entrega a título gratuito según ${docSerie}-${docNumero}`,
+        docTipo, docSerie, docNumero, anexoId: clienteId
+      });
+      if (igv.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40111',
+          denominacionCuenta: 'IGV - Cuenta propia (Débito fiscal asumido)',
+          debe: 0.00,
+          haber: Money.toNumber(igv),
+          glosaLinea: `IGV débito fiscal retiro a título gratuito ${docSerie}-${docNumero}`
+        });
+      }
+      if (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0) {
+        const costo = Money.create(input.costoVenta);
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: 0.00,
+          haber: Money.toNumber(costo),
+          glosaLinea: `Salida de existencias entregadas a título gratuito ${docSerie}-${docNumero}`
+        });
+      }
+    } else {
+      // Caso 4: FACTURA, BOLETA O VENTA ORDINARIA ('01', '03', '12', etc.)
+      const totalVenta = Money.add(
+        base,
+        Money.add(igv, Money.add(baseExonerada, Money.add(baseInafecta, Money.add(baseExportacion, Money.add(isc, Money.add(icbper, Money.add(otros, montoPercepcion)))))))
+      );
+      let totalCobrar = totalVenta;
+      if (anticipoDeducido.greaterThan(0)) {
+        totalCobrar = Money.sub(totalCobrar, anticipoDeducido);
+      }
+
+      // --- Cuentas por Cobrar (DEBE) ---
+      if (montoDetraccion.greaterThan(0)) {
+        const netoCobrar = Money.sub(totalCobrar, montoDetraccion);
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '12121',
+          denominacionCuenta: 'Facturas por cobrar - Emitidas en cartera - Saldo comercial neto',
+          debe: Money.toNumber(netoCobrar),
+          haber: 0.00,
+          glosaLinea: `Cobro neto según comprobante ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '12122',
+          denominacionCuenta: 'Facturas por cobrar - Emitidas en cartera - SPOT Detracciones por cobrar',
+          debe: Money.toNumber(montoDetraccion),
+          haber: 0.00,
+          glosaLinea: `Detracción SPOT cliente Banco de la Nación ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+      } else {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1212',
+          denominacionCuenta: docTipo === '03' ? 'Boletas por cobrar - Emitidas en cartera' : 'Facturas por cobrar - Emitidas en cartera',
+          debe: Money.toNumber(totalCobrar),
+          haber: 0.00,
+          glosaLinea: `Cobro según comprobante ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+      }
+
+      if (anticipoDeducido.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1221',
+          denominacionCuenta: 'Anticipos de clientes - Facturados',
+          debe: Money.toNumber(anticipoDeducido),
+          haber: 0.00,
+          glosaLinea: `Deducción de anticipo facturado previamente ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+      }
+
+      // --- Pasivos Tributarios (HABER) ---
+      if (igv.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40111',
+          denominacionCuenta: 'IGV - Cuenta propia',
+          debe: 0.00,
+          haber: Money.toNumber(igv),
+          glosaLinea: `Débito fiscal IGV ${input.tasaIgv === 10 || input.tasaIgv === 0.10 ? '10%' : (input.tasaIgv === 14 || input.tasaIgv === 0.14 ? '14%' : '18%')} venta ${docSerie}-${docNumero}`
+        });
+      }
+
+      if (montoPercepcion.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40113',
+          denominacionCuenta: 'IGV - Régimen de percepciones por pagar',
+          debe: 0.00,
+          haber: Money.toNumber(montoPercepcion),
+          glosaLinea: `Percepción cobrada al cliente ${docSerie}-${docNumero}`
+        });
+      }
+
+      if (isc.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40121',
+          denominacionCuenta: 'Impuesto selectivo al consumo',
+          debe: 0.00,
+          haber: Money.toNumber(isc),
+          glosaLinea: `ISC venta ${docSerie}-${docNumero}`
+        });
+      }
+
+      if (icbper.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '401891',
+          denominacionCuenta: 'Impuesto al consumo de las bolsas de plástico',
+          debe: 0.00,
+          haber: Money.toNumber(icbper),
+          glosaLinea: `ICBPER bolsas de plástico ${docSerie}-${docNumero}`
+        });
+      }
+
+      if (otros.greaterThan(0)) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '40189',
+          denominacionCuenta: 'Otros impuestos y cargos por pagar',
+          debe: 0.00,
+          haber: Money.toNumber(otros),
+          glosaLinea: `Otros tributos venta ${docSerie}-${docNumero}`
+        });
+      }
+
+      // --- Ingresos por Venta (HABER) ---
+      if (input.esAnticipo) {
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1221',
+          denominacionCuenta: 'Anticipos de clientes - Facturados',
+          debe: 0.00,
+          haber: Money.toNumber(base),
+          glosaLinea: `Anticipo recibido de cliente comprobante ${docSerie}-${docNumero}`,
+          docTipo, docSerie, docNumero, anexoId: clienteId
+        });
+      } else {
+        if (base.greaterThan(0)) {
+          const ctaVenta = input.cuentaVenta || '70121';
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: ctaVenta,
+            denominacionCuenta: 'Mercaderías manufacturadas - Venta local - Terceros',
+            debe: 0.00,
+            haber: Money.toNumber(base),
+            glosaLinea: `Venta de mercaderías comprobante ${docSerie}-${docNumero}`
+          });
+        }
+        if (baseExonerada.greaterThan(0)) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '70122',
+            denominacionCuenta: 'Mercaderías - Venta Local - Operaciones Exoneradas',
+            debe: 0.00,
+            haber: Money.toNumber(baseExonerada),
+            glosaLinea: `Venta exonerada del IGV (Apéndice I y II) ${docSerie}-${docNumero}`
+          });
+        }
+        if (baseInafecta.greaterThan(0)) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '70123',
+            denominacionCuenta: 'Mercaderías - Venta Local - Operaciones Inafectas',
+            debe: 0.00,
+            haber: Money.toNumber(baseInafecta),
+            glosaLinea: `Operaciones inafectas al IGV ${docSerie}-${docNumero}`
+          });
+        }
+        if (baseExportacion.greaterThan(0)) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '70111',
+            denominacionCuenta: 'Mercaderías - Venta de Exportación - Terceros',
+            debe: 0.00,
+            haber: Money.toNumber(baseExportacion),
+            glosaLinea: `Venta de exportación comprobante ${docSerie}-${docNumero}`
+          });
+        }
+      }
+
+      // --- Costo de Ventas (en método PERMANENTE) ---
+      if (metodoInventario === 'PERMANENTE' && input.costoVenta !== undefined && input.costoVenta > 0) {
+        const costo = Money.create(input.costoVenta);
+        const ctaCosto = input.cuentaCosto || (baseExportacion.greaterThan(0) || input.cuentaVenta === '70111' ? '69111' : '69121');
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaCosto,
+          denominacionCuenta: ctaCosto === '69111' ? 'Mercaderías manufacturadas - Exportación (Costo de ventas)' : 'Mercaderías manufacturadas - Terceros (Costo de ventas)',
+          debe: Money.toNumber(costo),
+          haber: 0.00,
+          glosaLinea: `Costo de ventas salida de almacén según kardex ${docSerie}-${docNumero}`
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '20111',
+          denominacionCuenta: 'Mercaderías manufacturadas - Costo almacén',
+          debe: 0.00,
+          haber: Money.toNumber(costo),
+          glosaLinea: `Descargo de existencias por venta ${docSerie}-${docNumero}`
+        });
+      }
     }
 
     // Calcular totales y verificar cuadre
@@ -1201,7 +1559,7 @@ export const contabilizacionService = {
     const dif = Money.sub(sumDebe, sumHaber);
 
     return {
-      glosaGeneral: input.glosa || `Venta automática ${input.docTipo} ${input.docSerie}-${input.docNumero}`,
+      glosaGeneral: input.glosa || `Venta automática ${docTipo} ${docSerie}-${docNumero}`,
       lineas,
       totalDebe: Money.toNumber(sumDebe),
       totalHaber: Money.toNumber(sumHaber),

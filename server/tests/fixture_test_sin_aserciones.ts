@@ -4,3 +4,4 @@ export const dummySinAserciones = {
   id: 'ESC-C-1.01',
   comentario: 'Este archivo intencionalmente carece de llamadas a assert o expect'
 };
+

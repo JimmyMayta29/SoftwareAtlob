@@ -4,6 +4,7 @@ process.env.DATABASE_URL = '';
 import assert from 'node:assert/strict';
 import { contabilizacionService } from '../services/contabilizacionService';
 import { compraService } from '../services/compraService';
+import { ventaService } from '../services/ventaService';
 import { EMPRESAS_STORE } from '../repositories/empresaRepository';
 
 async function ejecutarSuitePruebas() {
@@ -891,6 +892,304 @@ async function ejecutarSuitePruebas() {
     assert.ok(propBoleta.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 236.00), 'ESC-V-2.02: Boletas por cobrar 1212 S/ 236.00');
     assert.ok(propBoleta.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 36.00), 'ESC-V-2.02: IGV 40111 S/ 36.00');
     console.log('✔ ESC-V-2.02 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.03: Venta con Costo de Ventas en Inventario Permanente (69 vs 20)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.03: Venta con Costo de Ventas en Inventario Permanente ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-01',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000001',
+      fechaEmision: '2026-09-02',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      costoVenta: 600.00
+    });
+    // ESC-V-2.03: Validar cuadre, débito 1212, crédito 40111, crédito 70121, costo 69121 y almacén 20111
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.03: Asiento debe cuadrar');
+    assert.equal(prop.totalDebe, 1780.00, 'ESC-V-2.03: Total Debe S/ 1,780.00');
+    assert.equal(prop.totalHaber, 1780.00, 'ESC-V-2.03: Total Haber S/ 1,780.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 1180.00), 'ESC-V-2.03: CxC 1212 al Debe S/ 1,180.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 180.00), 'ESC-V-2.03: IGV 40111 al Haber S/ 180.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70121' && l.haber === 1000.00), 'ESC-V-2.03: Venta local 70121 al Haber S/ 1,000.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '69121' && l.debe === 600.00), 'ESC-V-2.03: Costo de ventas 69121 al Debe S/ 600.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '20111' && l.haber === 600.00), 'ESC-V-2.03: Descargo almacén 20111 al Haber S/ 600.00');
+    console.log('✔ ESC-V-2.03 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.04: Venta Exonerada del IGV (Apéndice I y II)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.04: Venta Exonerada del IGV (Apéndice I y II) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-02',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000002',
+      fechaEmision: '2026-09-03',
+      baseImponible: 0,
+      baseExonerada: 800.00,
+      igv: 0.00
+    });
+    // ESC-V-2.04: Venta exonerada debe abonarse en la subcuenta analítica 70122 sin IGV
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.04: Asiento exonerado debe cuadrar');
+    assert.equal(prop.totalDebe, 800.00, 'ESC-V-2.04: Total Debe S/ 800.00');
+    assert.equal(prop.totalHaber, 800.00, 'ESC-V-2.04: Total Haber S/ 800.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 800.00), 'ESC-V-2.04: CxC 1212 al Debe S/ 800.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70122' && l.haber === 800.00), 'ESC-V-2.04: Venta exonerada 70122 al Haber S/ 800.00');
+    assert.ok(!prop.lineas.some(l => l.codigoCuenta === '40111'), 'ESC-V-2.04: No debe generar cuenta de IGV');
+    console.log('✔ ESC-V-2.04 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.05: Venta Inafecta del IGV (Operaciones No Gravadas)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.05: Venta Inafecta del IGV (Operaciones No Gravadas) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-03',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000003',
+      fechaEmision: '2026-09-04',
+      baseImponible: 0,
+      baseInafecta: 500.00,
+      igv: 0.00
+    });
+    // ESC-V-2.05: Operación inafecta acreditada en la subcuenta 70123 sin débito fiscal
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.05: Asiento inafecto debe cuadrar');
+    assert.equal(prop.totalDebe, 500.00, 'ESC-V-2.05: Total Debe S/ 500.00');
+    assert.equal(prop.totalHaber, 500.00, 'ESC-V-2.05: Total Haber S/ 500.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 500.00), 'ESC-V-2.05: CxC 1212 al Debe S/ 500.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70123' && l.haber === 500.00), 'ESC-V-2.05: Venta inafecta 70123 al Haber S/ 500.00');
+    console.log('✔ ESC-V-2.05 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.06: Exportación de Bienes / Servicios (Facturas E001 / Tipo 01)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.06: Exportación de Bienes / Servicios ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-ext',
+      docTipo: '01',
+      docSerie: 'E001',
+      docNumero: '00000001',
+      fechaEmision: '2026-09-05',
+      baseImponible: 0,
+      baseExportacion: 5000.00,
+      igv: 0.00
+    });
+    // ESC-V-2.06: Factura de exportación con ingreso acreditado en 70111 sin IGV
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.06: Asiento de exportación debe cuadrar');
+    assert.equal(prop.totalDebe, 5000.00, 'ESC-V-2.06: Total Debe S/ 5,000.00');
+    assert.equal(prop.totalHaber, 5000.00, 'ESC-V-2.06: Total Haber S/ 5,000.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 5000.00), 'ESC-V-2.06: CxC 1212 al Debe S/ 5,000.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70111' && l.haber === 5000.00), 'ESC-V-2.06: Venta exportación 70111 al Haber S/ 5,000.00');
+    console.log('✔ ESC-V-2.06 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.07: Venta sujeta a Detracción SPOT (Cliente deposita al BN)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.07: Venta sujeta a Detracción SPOT ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-spot',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000050',
+      fechaEmision: '2026-09-06',
+      baseImponible: 2000.00,
+      igv: 360.00,
+      tieneDetraccion: true,
+      montoDetraccion: 283.20,
+      codigoDetraccion: '022'
+    });
+    // ESC-V-2.07: Desglose analítico entre saldo comercial 12121 y SPOT por cobrar 12122
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.07: Asiento con detracción debe cuadrar');
+    assert.equal(prop.totalDebe, 2360.00, 'ESC-V-2.07: Total Debe S/ 2,360.00');
+    assert.equal(prop.totalHaber, 2360.00, 'ESC-V-2.07: Total Haber S/ 2,360.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '12121' && l.debe === 2076.80), 'ESC-V-2.07: Neto cliente 12121 al Debe S/ 2,076.80');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '12122' && l.debe === 283.20), 'ESC-V-2.07: SPOT Banco de la Nación 12122 al Debe S/ 283.20');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 360.00), 'ESC-V-2.07: IGV 40111 al Haber S/ 360.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70121' && l.haber === 2000.00), 'ESC-V-2.07: Venta local 70121 al Haber S/ 2,000.00');
+    console.log('✔ ESC-V-2.07 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.08: Venta con Percepción de IGV Cobrada al Cliente
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.08: Venta con Percepción de IGV Cobrada al Cliente ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-perc',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000060',
+      fechaEmision: '2026-09-07',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      tienePercepcion: true,
+      montoPercepcion: 23.60,
+      porcentajePercepcion: 2.0
+    });
+    // ESC-V-2.08: Pasivo 40113 al Haber por la percepción cobrada y total incrementado en 1212 al Debe
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.08: Asiento con percepción debe cuadrar');
+    assert.equal(prop.totalDebe, 1203.60, 'ESC-V-2.08: Total Debe S/ 1,203.60');
+    assert.equal(prop.totalHaber, 1203.60, 'ESC-V-2.08: Total Haber S/ 1,203.60');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 1203.60), 'ESC-V-2.08: CxC total con percepción 1212 al Debe S/ 1,203.60');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 180.00), 'ESC-V-2.08: Débito fiscal IGV 40111 al Haber S/ 180.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40113' && l.haber === 23.60), 'ESC-V-2.08: Percepción por pagar 40113 al Haber S/ 23.60');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70121' && l.haber === 1000.00), 'ESC-V-2.08: Venta local 70121 al Haber S/ 1,000.00');
+    console.log('✔ ESC-V-2.08 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.09: Venta con Tributos Adicionales (ISC / ICBPER / Otros)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.09: Venta con Tributos Adicionales (ISC / ICBPER) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-trib',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000070',
+      fechaEmision: '2026-09-08',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      isc: 50.00,
+      icbper: 2.00
+    });
+    // ESC-V-2.09: Registro de pasivos por ISC en 40121 e ICBPER en 401891 al Haber
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.09: Asiento con ISC/ICBPER debe cuadrar');
+    assert.equal(prop.totalDebe, 1232.00, 'ESC-V-2.09: Total Debe S/ 1,232.00');
+    assert.equal(prop.totalHaber, 1232.00, 'ESC-V-2.09: Total Haber S/ 1,232.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 1232.00), 'ESC-V-2.09: CxC 1212 al Debe S/ 1,232.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 180.00), 'ESC-V-2.09: IGV 40111 al Haber S/ 180.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40121' && l.haber === 50.00), 'ESC-V-2.09: ISC por pagar 40121 al Haber S/ 50.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '401891' && l.haber === 2.00), 'ESC-V-2.09: ICBPER por pagar 401891 al Haber S/ 2.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '70121' && l.haber === 1000.00), 'ESC-V-2.09: Venta local 70121 al Haber S/ 1,000.00');
+    console.log('✔ ESC-V-2.09 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.10: Venta en Moneda Extranjera (USD) con Tipo de Cambio Compra SUNAT
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.10: Venta en Moneda Extranjera (USD) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-usd',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000080',
+      fechaEmision: '2026-09-09',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      moneda: 'USD',
+      tipoCambio: 3.750
+    });
+    // ESC-V-2.10: Registro en PEN al tipo de cambio con importes en ME reflejados en debeMe/haberMe
+    assert.equal(prop.cuadrado, true, 'ESC-V-2.10: Asiento USD en PEN debe cuadrar');
+    assert.equal(prop.totalDebe, 4425.00, 'ESC-V-2.10: Total Debe PEN S/ 4,425.00 (USD 1,180 * 3.75)');
+    assert.equal(prop.totalHaber, 4425.00, 'ESC-V-2.10: Total Haber PEN S/ 4,425.00');
+    const lineaCliente = prop.lineas.find(l => l.codigoCuenta === '1212');
+    assert.ok(lineaCliente, 'ESC-V-2.10: Línea cliente 1212 existe');
+    assert.equal(lineaCliente.debe, 4425.00, 'ESC-V-2.10: Debe PEN 4,425.00');
+    assert.equal(lineaCliente.debeMe, 1180.00, 'ESC-V-2.10: Debe ME USD 1,180.00');
+    const lineaIgv = prop.lineas.find(l => l.codigoCuenta === '40111');
+    assert.ok(lineaIgv, 'ESC-V-2.10: Línea IGV 40111 existe');
+    assert.equal(lineaIgv.haber, 675.00, 'ESC-V-2.10: Haber PEN 675.00 (USD 180 * 3.75)');
+    assert.equal(lineaIgv.haberMe, 180.00, 'ESC-V-2.10: Haber ME USD 180.00');
+    console.log('✔ ESC-V-2.10 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-V-2.11: Nota de Crédito y Nota de Débito de Ventas
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-V-2.11: Nota de Crédito y Nota de Débito de Ventas ---');
+  {
+    // Subcaso 1: NC con reversa de ingreso y reingreso al almacén
+    const propNC = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-nc',
+      docTipo: '07',
+      docSerie: 'FC01',
+      docNumero: '00000010',
+      fechaEmision: '2026-09-10',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      costoVenta: 500.00
+    });
+    // ESC-V-2.11: NC anulación debita 70121 y 40111, acredita 1212, y reingresa 20111 contra 69121
+    assert.equal(propNC.cuadrado, true, 'ESC-V-2.11: Asiento de NC debe cuadrar');
+    assert.equal(propNC.totalDebe, 1680.00, 'ESC-V-2.11: Total Debe S/ 1,680.00');
+    assert.equal(propNC.totalHaber, 1680.00, 'ESC-V-2.11: Total Haber S/ 1,680.00');
+    assert.ok(propNC.lineas.some(l => l.codigoCuenta === '70121' && l.debe === 1000.00), 'ESC-V-2.11: Reversa 70121 al Debe S/ 1,000.00');
+    assert.ok(propNC.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 180.00), 'ESC-V-2.11: Ajuste débito 40111 al Debe S/ 180.00');
+    assert.ok(propNC.lineas.some(l => l.codigoCuenta === '1212' && l.haber === 1180.00), 'ESC-V-2.11: Disminución CxC 1212 al Haber S/ 1,180.00');
+    assert.ok(propNC.lineas.some(l => l.codigoCuenta === '20111' && l.debe === 500.00), 'ESC-V-2.11: Reingreso existencias 20111 al Debe S/ 500.00');
+    assert.ok(propNC.lineas.some(l => l.codigoCuenta === '69121' && l.haber === 500.00), 'ESC-V-2.11: Reversa costo 69121 al Haber S/ 500.00');
+
+    // Subcaso 2: NC por descuento concedido fuera de factura (cuenta 7411)
+    const propNCDesc = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-nc',
+      docTipo: '07',
+      docSerie: 'FC01',
+      docNumero: '00000011',
+      fechaEmision: '2026-09-11',
+      baseImponible: 200.00,
+      igv: 36.00,
+      descuentoFueraFactura: 200.00
+    });
+    assert.equal(propNCDesc.cuadrado, true, 'ESC-V-2.11: Asiento NC descuento debe cuadrar');
+    assert.ok(propNCDesc.lineas.some(l => l.codigoCuenta === '7411' && l.debe === 200.00), 'ESC-V-2.11: Descuento 7411 al Debe S/ 200.00');
+    assert.ok(propNCDesc.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 36.00), 'ESC-V-2.11: Ajuste IGV 40111 al Debe S/ 36.00');
+    assert.ok(propNCDesc.lineas.some(l => l.codigoCuenta === '1212' && l.haber === 236.00), 'ESC-V-2.11: Disminución CxC 1212 al Haber S/ 236.00');
+
+    // Subcaso 3: ND por intereses de mora (cuenta 7721)
+    const propND = await contabilizacionService.generarAsientoVentaAutomatizada(empresaId, {
+      clienteId: 'anx-cli-nd',
+      docTipo: '08',
+      docSerie: 'FD01',
+      docNumero: '00000005',
+      fechaEmision: '2026-09-12',
+      baseImponible: 100.00,
+      igv: 18.00,
+      motivoNota: 'INTERESES_MORA'
+    });
+    assert.equal(propND.cuadrado, true, 'ESC-V-2.11: Asiento ND intereses debe cuadrar');
+    assert.ok(propND.lineas.some(l => l.codigoCuenta === '1212' && l.debe === 118.00), 'ESC-V-2.11: Incremento CxC 1212 al Debe S/ 118.00');
+    assert.ok(propND.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 18.00), 'ESC-V-2.11: IGV 40111 al Haber S/ 18.00');
+    assert.ok(propND.lineas.some(l => l.codigoCuenta === '7721' && l.haber === 100.00), 'ESC-V-2.11: Intereses comerciales 7721 al Haber S/ 100.00');
+    console.log('✔ ESC-V-2.11 superado exitosamente.\n');
+  }
+
+  // Validación tributaria cruzada: Bloqueo de Percepción + Retención en Ventas
+  {
+    assert.throws(() => {
+      ventaService.validarCoherencia({
+        periodoId: 'per-2026-09',
+        fechaEmision: '2026-09-13',
+        fechaContable: '2026-09-13',
+        tipoComprobante: '01',
+        serie: 'F001',
+        numero: '00000099',
+        clienteId: 'anx-cli-bloq',
+        baseGravada: 1000.00,
+        igv: 180.00,
+        total: 1180.00,
+        tienePercepcion: true,
+        montoPercepcion: 23.60,
+        tieneRetencion: true,
+        montoRetencion: 35.40
+      });
+    }, /COMBINACION_TRIBUTARIA_BLOQUEADA/);
+    console.log('✔ Validación tributaria: Bloqueo de Percepción + Retención en ventas verificado exitosamente.\n');
   }
 
   console.log('========================================================================');

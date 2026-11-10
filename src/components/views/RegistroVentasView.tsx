@@ -4,6 +4,7 @@ import {
   Search, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertCircle,
   FileText,
   Plus,
   Copy,
@@ -15,7 +16,13 @@ import {
   ShieldCheck,
   ShieldAlert,
   Info,
-  Loader2
+  Loader2,
+  FileSpreadsheet,
+  Download,
+  Coins,
+  Split,
+  Layers,
+  Receipt
 } from 'lucide-react';
 import { Comprobante, EmpresaCliente } from '../../types';
 import { 
@@ -30,6 +37,7 @@ import {
 } from '../../hooks/useOperaciones';
 import { operacionesApi } from '../../api/operacionesApi';
 import { generarSireRvieTxt, exportarComprobantesCsv } from '../../services/sireTxtGenerator';
+import { CATALOGO_OFICIAL_DETRACCIONES_SUNAT, buscarDetraccionPorCodigo } from '../../data/detraccionesCatalogo';
 import { construirDefinicionRegistroVentasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
@@ -87,21 +95,57 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
   const [consultandoModalRuc, setConsultandoModalRuc] = useState(false);
 
   // Formulario Digitación Rápida
-  const [formTipo, setFormTipo] = useState<'01' | '03' | '07' | '08'>('01');
+  const [formTipo, setFormTipo] = useState<'01' | '03' | '07' | '08' | '12'>('01');
   const [formSerie, setFormSerie] = useState('F001');
   const [formNumero, setFormNumero] = useState('');
   const [formFechaEmision, setFormFechaEmision] = useState(() => new Date().toISOString().substring(0, 10));
+  const [formFechaVencimiento, setFormFechaVencimiento] = useState(() => new Date().toISOString().substring(0, 10));
   const [formFechaContable, setFormFechaContable] = useState(() => new Date().toISOString().substring(0, 10));
   const [formClienteId, setFormClienteId] = useState('');
+  const [formGlosa, setFormGlosa] = useState('');
+
+  // Bases imponibles y tributos
   const [formBase, setFormBase] = useState<number>(0);
+  const [formTasaIgv, setFormTasaIgv] = useState<number>(0.18);
   const [formIgv, setFormIgv] = useState<number>(0);
+  const [formBaseExonerada, setFormBaseExonerada] = useState<number>(0);
+  const [formBaseInafecta, setFormBaseInafecta] = useState<number>(0);
+  const [formBaseExportacion, setFormBaseExportacion] = useState<number>(0);
+  const [formIsc, setFormIsc] = useState<number>(0);
+  const [formIcbper, setFormIcbper] = useState<number>(0);
+  const [formOtrosTributos, setFormOtrosTributos] = useState<number>(0);
   const [formTotal, setFormTotal] = useState<number>(0);
+
+  // Moneda y Forma de Pago
   const [formMoneda, setFormMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [formTipoCambio, setFormTipoCambio] = useState<number>(1.0);
   const [formFormaPago, setFormFormaPago] = useState<'CONTADO' | 'CREDITO'>('CONTADO');
   const [formDiasCredito, setFormDiasCredito] = useState<number>(30);
+
+  // Regímenes y Condiciones Especiales
   const [formTieneDetraccion, setFormTieneDetraccion] = useState(false);
+  const [formCodigoBienDetraccion, setFormCodigoBienDetraccion] = useState<string>('022');
   const [formPctDetraccion, setFormPctDetraccion] = useState<number>(12);
+  const [formMontoDetraccion, setFormMontoDetraccion] = useState<number>(0);
+  const [formJustificacionTasaDetraccion, setFormJustificacionTasaDetraccion] = useState('');
+
+  const [formTienePercepcion, setFormTienePercepcion] = useState(false);
+  const [formPctPercepcion, setFormPctPercepcion] = useState<number>(2.0);
+  const [formMontoPercepcion, setFormMontoPercepcion] = useState<number>(0);
+
+  const [formTieneRetencion, setFormTieneRetencion] = useState(false);
+  const [formPctRetencion, setFormPctRetencion] = useState<number>(3.0);
+  const [formMontoRetencion, setFormMontoRetencion] = useState<number>(0);
+
+  const [formAnticipoDeducido, setFormAnticipoDeducido] = useState<number>(0);
+  const [formEsAnticipo, setFormEsAnticipo] = useState(false);
+  const [formEsGratuito, setFormEsGratuito] = useState(false);
+  const [formDescuentoGlobal, setFormDescuentoGlobal] = useState<number>(0);
+  const [formDescuentoFueraFactura, setFormDescuentoFueraFactura] = useState<number>(0);
+  const [formCostoVenta, setFormCostoVenta] = useState<number>(0);
+  const [formCuentaVenta, setFormCuentaVenta] = useState<string>('70121');
+  const [formCuentaCosto, setFormCuentaCosto] = useState<string>('69121');
+  const [formMotivoNota, setFormMotivoNota] = useState('');
 
   // Previsualización de Asiento
   const [previewAsiento, setPreviewAsiento] = useState<any | null>(null);
@@ -110,34 +154,91 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
 
   const clienteSeleccionado = anexosList.find((a: any) => a.id === formClienteId);
 
+  // Cálculo automático y sincronización
+  const recalcularTotales = (
+    baseGrav: number,
+    baseExon: number,
+    baseInaf: number,
+    baseExp: number,
+    isc: number,
+    icb: number,
+    otros: number,
+    tasa: number,
+    descGlob: number = formDescuentoGlobal,
+    anticipo: number = formAnticipoDeducido
+  ) => {
+    const baseNeta = descGlob > 0 ? Math.max(0, baseGrav - descGlob) : baseGrav;
+    const calcIgv = Number((baseNeta * tasa).toFixed(2));
+    let calcTotal = Number((baseGrav + baseExon + baseInaf + baseExp + isc + icb + otros + calcIgv).toFixed(2));
+    if (anticipo > 0) {
+      calcTotal = Math.max(0, Number((calcTotal - anticipo).toFixed(2)));
+    }
+    setFormIgv(calcIgv);
+    setFormTotal(calcTotal);
+
+    if (formTieneDetraccion) {
+      setFormMontoDetraccion(Number((calcTotal * (formPctDetraccion / 100)).toFixed(2)));
+    }
+    if (formTienePercepcion) {
+      setFormMontoPercepcion(Number((calcTotal * (formPctPercepcion / 100)).toFixed(2)));
+    }
+  };
+
   const handleBaseChange = (valor: number) => {
     setFormBase(valor);
-    const calcIgv = Number((valor * 0.18).toFixed(2));
-    setFormIgv(calcIgv);
-    setFormTotal(Number((valor + calcIgv).toFixed(2)));
+    recalcularTotales(valor, formBaseExonerada, formBaseInafecta, formBaseExportacion, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
   };
 
   const handleTotalChange = (valor: number) => {
     setFormTotal(valor);
-    const calcBase = Number((valor / 1.18).toFixed(2));
+    const tasa = formTasaIgv || 0.18;
+    const calcBase = Number((valor / (1 + tasa)).toFixed(2));
     const calcIgv = Number((valor - calcBase).toFixed(2));
     setFormBase(calcBase);
     setFormIgv(calcIgv);
   };
 
   useEffect(() => {
-    if (formTotal > 0) {
+    if (formTotal > 0 || formEsGratuito) {
       setLoadingPreview(true);
       const timer = setTimeout(async () => {
         try {
           const res = await operacionesApi.previsualizarAsiento(empresa.id, 'VENTA', {
             total: formTotal,
             baseImponible: formBase,
+            tasaIgv: formTasaIgv,
+            baseExonerada: formBaseExonerada,
+            baseInafecta: formBaseInafecta,
+            baseExportacion: formBaseExportacion,
             igv: formIgv,
+            isc: formIsc,
+            icbper: formIcbper,
+            otrosTributos: formOtrosTributos,
             docTipo: formTipo,
             docSerie: formSerie,
             docNumero: formNumero || '00000001',
-            anexoId: formClienteId || 'anx-01'
+            anexoId: formClienteId || 'anx-01',
+            cuentaVenta: formCuentaVenta || (formBaseExportacion > 0 ? '70111' : (formBaseExonerada > 0 ? '70122' : (formBaseInafecta > 0 ? '70123' : '70121'))),
+            costoVenta: formCostoVenta,
+            cuentaCosto: formCuentaCosto,
+            moneda: formMoneda,
+            tipoCambio: formTipoCambio,
+            tieneDetraccion: formTieneDetraccion,
+            montoDetraccion: formMontoDetraccion,
+            porcentajeDetraccion: formPctDetraccion,
+            codigoDetraccion: formCodigoBienDetraccion,
+            tienePercepcion: formTienePercepcion,
+            montoPercepcion: formMontoPercepcion,
+            porcentajePercepcion: formPctPercepcion,
+            tieneRetencion: formTieneRetencion,
+            montoRetencion: formMontoRetencion,
+            anticipoDeducido: formAnticipoDeducido,
+            esAnticipo: formEsAnticipo,
+            esGratuito: formEsGratuito,
+            descuentoGlobal: formDescuentoGlobal,
+            descuentoFueraFactura: formDescuentoFueraFactura,
+            motivoNota: formMotivoNota,
+            glosa: formGlosa
           });
           setPreviewAsiento(res);
         } catch {
@@ -145,12 +246,20 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
         } finally {
           setLoadingPreview(false);
         }
-      }, 300);
+      }, 250);
       return () => clearTimeout(timer);
     } else {
       setPreviewAsiento(null);
     }
-  }, [formTotal, formBase, formIgv, formTipo, formSerie, formNumero, formClienteId]);
+  }, [
+    formTotal, formBase, formTasaIgv, formBaseExonerada, formBaseInafecta, formBaseExportacion,
+    formIgv, formIsc, formIcbper, formOtrosTributos, formTipo, formSerie, formNumero,
+    formClienteId, formCuentaVenta, formCostoVenta, formCuentaCosto, formMoneda, formTipoCambio,
+    formTieneDetraccion, formMontoDetraccion, formPctDetraccion, formCodigoBienDetraccion,
+    formTienePercepcion, formMontoPercepcion, formPctPercepcion, formTieneRetencion, formMontoRetencion,
+    formAnticipoDeducido, formEsAnticipo, formEsGratuito, formDescuentoGlobal, formDescuentoFueraFactura,
+    formMotivoNota, formGlosa
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -171,7 +280,26 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
     setFormNumero('');
     setFormBase(0);
     setFormIgv(0);
+    setFormBaseExonerada(0);
+    setFormBaseInafecta(0);
+    setFormBaseExportacion(0);
+    setFormIsc(0);
+    setFormIcbper(0);
+    setFormOtrosTributos(0);
     setFormTotal(0);
+    setFormTieneDetraccion(false);
+    setFormMontoDetraccion(0);
+    setFormTienePercepcion(false);
+    setFormMontoPercepcion(0);
+    setFormTieneRetencion(false);
+    setFormMontoRetencion(0);
+    setFormAnticipoDeducido(0);
+    setFormEsAnticipo(false);
+    setFormEsGratuito(false);
+    setFormDescuentoGlobal(0);
+    setFormDescuentoFueraFactura(0);
+    setFormCostoVenta(0);
+    setFormMotivoNota('');
     setBannerError(null);
   };
 
@@ -181,12 +309,17 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
       setBannerError('Debe ingresar la serie y el número correlativo.');
       return;
     }
-    if (!formClienteId) {
+    if (!formClienteId && !formEsGratuito) {
       setBannerError('Debe seleccionar o registrar un cliente.');
       return;
     }
-    if (formTotal <= 0) {
+    if (formTotal <= 0 && !formEsGratuito) {
       setBannerError('El total debe ser mayor a cero.');
+      return;
+    }
+
+    if (formTienePercepcion && formTieneRetencion) {
+      setBannerError('Un comprobante no puede estar sujeto simultáneamente a Percepción y Retención.');
       return;
     }
 
@@ -194,22 +327,47 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
       await crearVentaMutation.mutateAsync({
         periodoId: periodo,
         fechaEmision: formFechaEmision,
-        fechaVencimiento: formFormaPago === 'CREDITO' ? new Date(Date.now() + formDiasCredito * 86400000).toISOString().substring(0, 10) : formFechaEmision,
+        fechaVencimiento: formFormaPago === 'CREDITO' ? formFechaVencimiento : formFechaEmision,
         fechaContable: formFechaContable,
         tipoComprobante: formTipo,
         serie: formSerie.toUpperCase(),
         numero: formNumero,
-        clienteId: formClienteId,
+        clienteId: formClienteId || '00000000-0000-0000-0000-000000000001',
         moneda: formMoneda,
         tipoCambio: formTipoCambio,
         baseGravada: formBase,
         igv: formIgv,
+        tasaIgv: formTasaIgv,
+        baseNoGravada: formBaseInafecta,
+        exonerado: formBaseExonerada,
+        baseExportacion: formBaseExportacion,
+        isc: formIsc,
+        icbper: formIcbper,
+        otrosTributos: formOtrosTributos,
         total: formTotal,
-        tipoOperacion: 'VENTA_INTERNA',
+        tipoOperacion: formBaseExportacion > 0 ? 'EXPORTACION' : 'VENTA_INTERNA',
         formaPago: formFormaPago,
         diasCredito: formDiasCredito,
         tieneDetraccion: formTieneDetraccion,
+        codigoBienDetraccion: formCodigoBienDetraccion,
         porcentajeDetraccion: formPctDetraccion,
+        montoDetraccion: formMontoDetraccion,
+        justificacionTasaDetraccion: formJustificacionTasaDetraccion,
+        tienePercepcion: formTienePercepcion,
+        porcentajePercepcion: formPctPercepcion,
+        montoPercepcion: formMontoPercepcion,
+        tieneRetencion: formTieneRetencion,
+        montoRetencion: formMontoRetencion,
+        anticipoDeducido: formAnticipoDeducido,
+        esAnticipo: formEsAnticipo,
+        esGratuito: formEsGratuito,
+        descuentoGlobal: formDescuentoGlobal,
+        descuentoFueraFactura: formDescuentoFueraFactura,
+        costoVenta: formCostoVenta,
+        cuentaVenta: formCuentaVenta,
+        cuentaCosto: formCuentaCosto,
+        motivoNota: formMotivoNota,
+        glosa: formGlosa,
         estado: comoBorrador ? 'BORRADOR' : 'REGISTRADO'
       });
 
@@ -459,7 +617,7 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Keyboard className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-bold text-slate-900 text-sm">Digitación Rápida de Venta</h3>
+                <h3 className="font-bold text-slate-900 text-sm">Digitación Rápida de Comprobante de Venta (RVIE - Subdiario 02)</h3>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
                 <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-700">Ctrl+Enter: Registrar</span>
@@ -474,18 +632,27 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
               </div>
             )}
 
+            {/* Fila 1: Comprobante y Numeración */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">Tipo Comprobante</label>
                 <select
                   value={formTipo}
-                  onChange={(e) => setFormTipo(e.target.value as any)}
+                  onChange={(e) => {
+                    const tipo = e.target.value as any;
+                    setFormTipo(tipo);
+                    if (tipo === '03' && !formSerie.startsWith('B')) setFormSerie('B001');
+                    else if (tipo === '01' && !formSerie.startsWith('F')) setFormSerie('F001');
+                    else if (tipo === '07' && !formSerie.startsWith('FC') && !formSerie.startsWith('BC')) setFormSerie('FC01');
+                    else if (tipo === '08' && !formSerie.startsWith('FD') && !formSerie.startsWith('BD')) setFormSerie('FD01');
+                  }}
                   className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                 >
                   <option value="01">01 - Factura Electrónica</option>
                   <option value="03">03 - Boleta de Venta</option>
                   <option value="07">07 - Nota de Crédito</option>
                   <option value="08">08 - Nota de Débito</option>
+                  <option value="12">12 - Ticket o Cinta Emitida por Máquina</option>
                 </select>
               </div>
 
@@ -513,7 +680,8 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Fila 2: Fechas y Moneda */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">Fecha Emisión</label>
                 <input
@@ -533,9 +701,35 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
                   className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50"
                 />
               </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Moneda</label>
+                <select
+                  value={formMoneda}
+                  onChange={(e) => setFormMoneda(e.target.value as any)}
+                  className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-slate-50"
+                >
+                  <option value="PEN">PEN (Soles - S/)</option>
+                  <option value="USD">USD (Dólares - $)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Tipo Cambio (SUNAT Compra)</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={formTipoCambio}
+                  onChange={(e) => setFormTipoCambio(parseFloat(e.target.value) || 1.0)}
+                  disabled={formMoneda === 'PEN'}
+                  className={`w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl ${
+                    formMoneda === 'PEN' ? 'bg-slate-100 text-slate-400' : 'bg-white focus:ring-2 focus:ring-emerald-500'
+                  }`}
+                />
+              </div>
             </div>
 
-            {/* Cliente con Validación SUNAT en Tiempo Real */}
+            {/* Fila 3: Cliente con Validación SUNAT en Tiempo Real */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -706,69 +900,355 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
                     <span className="font-semibold text-slate-700">Dirección Fiscal: </span>
                     {clienteSeleccionado?.direccion || resultadoConsultaRuc?.direccion || 'Sin dirección registrada en padrón'}
                   </div>
-
-                  {/* Alerta de Contingencia para Ventas */}
-                  {((clienteSeleccionado?.condicionSunat === 'NO_HABIDO' || resultadoConsultaRuc?.condicion === 'NO_HABIDO') ||
-                    (clienteSeleccionado?.estadoSunat && clienteSeleccionado?.estadoSunat !== 'ACTIVO') ||
-                    (resultadoConsultaRuc?.estado && resultadoConsultaRuc?.estado !== 'ACTIVO')) && (
-                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1">
-                      <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>Observación Tributaria SUNAT (Cliente en condición especial)</span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-amber-900">
-                        {resultadoConsultaRuc?.advertenciaFiscal || 
-                          'Este cliente figura como NO HABIDO o NO ACTIVO en SUNAT. La emisión de facturas electrónicas a contribuyentes no válidos puede ser observada en la validación del CDR o generar contingencias fiscales en la fiscalización de ventas.'}
-                      </p>
-                      <div className="text-[10px] text-amber-800 font-semibold italic">
-                        ℹ️ Se permite emitir y registrar el comprobante conforme a la política comercial de la empresa.
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* Importes */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Base Imponible (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formBase || ''}
-                  onChange={(e) => handleBaseChange(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-sm font-mono font-bold p-2.5 border border-emerald-200 rounded-xl bg-white outline-none"
-                />
+            {/* Fila 4: Desglose Completo de Bases Imponibles y Tributos (RVIE) */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Receipt className="w-4 h-4 text-emerald-600" />
+                  Bases Imponibles y Liquidación Tributaria (RVIE)
+                </span>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-500 font-semibold">Tasa IGV:</span>
+                  <select
+                    value={formTasaIgv}
+                    onChange={(e) => {
+                      const tasa = parseFloat(e.target.value);
+                      setFormTasaIgv(tasa);
+                      recalcularTotales(formBase, formBaseExonerada, formBaseInafecta, formBaseExportacion, formIsc, formIcbper, formOtrosTributos, tasa);
+                    }}
+                    className="p-1 font-bold border border-slate-300 rounded-lg bg-white text-emerald-800 text-xs"
+                  >
+                    <option value={0.18}>18% General (16% IGV + 2% IPM)</option>
+                    <option value={0.10}>10% Especial (Ley 31556 / 32219 Restaurantes/Hoteles)</option>
+                    <option value={0.14}>14% Reducida (2027 Ley 32219)</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">IGV 18% (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formIgv || ''}
-                  onChange={(e) => setFormIgv(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-sm font-mono font-bold p-2.5 border border-emerald-200 rounded-xl bg-white outline-none"
-                />
-              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Base Gravada</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBase || ''}
+                    onChange={(e) => handleBaseChange(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-emerald-900 mb-1">Total Venta (S/)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formTotal || ''}
-                  onChange={(e) => handleTotalChange(parseFloat(e.target.value) || 0)}
-                  placeholder="0.00"
-                  className="w-full text-base font-mono font-black text-emerald-950 p-2.5 border border-emerald-300 rounded-xl bg-white outline-none"
-                />
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">IGV Débito Fiscal</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIgv || ''}
+                    onChange={(e) => setFormIgv(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Venta Exonerada (70122)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseExonerada || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseExonerada(v);
+                      recalcularTotales(formBase, v, formBaseInafecta, formBaseExportacion, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Venta Inafecta (70123)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseInafecta || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseInafecta(v);
+                      recalcularTotales(formBase, formBaseExonerada, v, formBaseExportacion, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Exportación (70111)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formBaseExportacion || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormBaseExportacion(v);
+                      recalcularTotales(formBase, formBaseExonerada, formBaseInafecta, v, formIsc, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">ISC (40121)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIsc || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormIsc(v);
+                      recalcularTotales(formBase, formBaseExonerada, formBaseInafecta, formBaseExportacion, v, formIcbper, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">ICBPER Bolsas (401891)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formIcbper || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormIcbper(v);
+                      recalcularTotales(formBase, formBaseExonerada, formBaseInafecta, formBaseExportacion, formIsc, v, formOtrosTributos, formTasaIgv);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-emerald-900 mb-1">Total Comprobante</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formTotal || ''}
+                    onChange={(e) => handleTotalChange(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-sm font-mono font-black text-emerald-950 p-2 border border-emerald-300 rounded-xl bg-emerald-50/50"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Forma de Pago */}
+            {/* Fila 5: Regímenes Tributarios Avanzados (SPOT, Percepción, Anticipo, Gratuito) */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Coins className="w-4 h-4 text-emerald-600" />
+                Regímenes Tributarios y Opciones Contables
+              </span>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Detracción SPOT Clientes */}
+                <div className={`p-3 rounded-xl border transition ${
+                  formTieneDetraccion ? 'bg-amber-50/80 border-amber-300' : 'bg-white border-slate-200'
+                }`}>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTieneDetraccion}
+                      onChange={(e) => {
+                        const check = e.target.checked;
+                        setFormTieneDetraccion(check);
+                        if (check) {
+                          const item = buscarDetraccionPorCodigo(formCodigoBienDetraccion);
+                          const pct = item ? item.porcentaje : 12;
+                          setFormPctDetraccion(pct);
+                          setFormMontoDetraccion(Number((formTotal * (pct / 100)).toFixed(2)));
+                        } else {
+                          setFormMontoDetraccion(0);
+                        }
+                      }}
+                      className="rounded text-emerald-600"
+                    />
+                    Sujeto a Detracción SPOT Clientes (12121 / 12122)
+                  </label>
+
+                  {formTieneDetraccion && (
+                    <div className="mt-2 space-y-2 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-bold uppercase">Bien o Servicio Sujeto:</span>
+                        <select
+                          value={formCodigoBienDetraccion}
+                          onChange={(e) => {
+                            const cod = e.target.value;
+                            setFormCodigoBienDetraccion(cod);
+                            const item = buscarDetraccionPorCodigo(cod);
+                            if (item) {
+                              setFormPctDetraccion(item.porcentaje);
+                              setFormMontoDetraccion(Number((formTotal * (item.porcentaje / 100)).toFixed(2)));
+                            }
+                          }}
+                          className="w-full p-1.5 mt-0.5 border border-slate-300 rounded-lg bg-white text-xs"
+                        >
+                          {CATALOGO_OFICIAL_DETRACCIONES_SUNAT.map((it) => (
+                            <option key={it.codigo} value={it.codigo}>
+                              {it.codigo} - {it.descripcion} ({it.porcentaje}%)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="w-1/2">
+                          <span className="text-[10px] text-slate-500 font-bold">Tasa SPOT (%):</span>
+                          <input
+                            type="number"
+                            value={formPctDetraccion}
+                            onChange={(e) => {
+                              const pct = parseFloat(e.target.value) || 0;
+                              setFormPctDetraccion(pct);
+                              setFormMontoDetraccion(Number((formTotal * (pct / 100)).toFixed(2)));
+                            }}
+                            className="w-full p-1.5 mt-0.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                          />
+                        </div>
+                        <div className="w-1/2">
+                          <span className="text-[10px] text-slate-500 font-bold">Monto Detracción (S/):</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formMontoDetraccion}
+                            onChange={(e) => setFormMontoDetraccion(parseFloat(e.target.value) || 0)}
+                            className="w-full p-1.5 mt-0.5 font-mono font-bold border border-amber-300 rounded-lg bg-white text-amber-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Percepción de IGV */}
+                <div className={`p-3 rounded-xl border transition ${
+                  formTienePercepcion ? 'bg-indigo-50/80 border-indigo-300' : 'bg-white border-slate-200'
+                }`}>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTienePercepcion}
+                      onChange={(e) => {
+                        const check = e.target.checked;
+                        if (check && formTieneRetencion) {
+                          setBannerError('Incompatibilidad normativa: No se puede aplicar Percepción y Retención simultáneamente.');
+                          return;
+                        }
+                        setFormTienePercepcion(check);
+                        if (check) {
+                          setFormMontoPercepcion(Number((formTotal * (formPctPercepcion / 100)).toFixed(2)));
+                        } else {
+                          setFormMontoPercepcion(0);
+                        }
+                      }}
+                      className="rounded text-emerald-600"
+                    />
+                    Agente de Percepción de IGV (40113 al Haber)
+                  </label>
+
+                  {formTienePercepcion && (
+                    <div className="mt-2 space-y-2 text-xs">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1/2">
+                          <span className="text-[10px] text-slate-500 font-bold">Tasa Percepción (%):</span>
+                          <select
+                            value={formPctPercepcion}
+                            onChange={(e) => {
+                              const pct = parseFloat(e.target.value) || 2.0;
+                              setFormPctPercepcion(pct);
+                              setFormMontoPercepcion(Number((formTotal * (pct / 100)).toFixed(2)));
+                            }}
+                            className="w-full p-1.5 mt-0.5 border border-slate-300 rounded-lg bg-white font-bold"
+                          >
+                            <option value={2.0}>2% Venta Interna de Bienes</option>
+                            <option value={0.5}>0.5% Combustibles y Derivados</option>
+                          </select>
+                        </div>
+                        <div className="w-1/2">
+                          <span className="text-[10px] text-slate-500 font-bold">Monto Percepción:</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={formMontoPercepcion}
+                            onChange={(e) => setFormMontoPercepcion(parseFloat(e.target.value) || 0)}
+                            className="w-full p-1.5 mt-0.5 font-mono font-bold border border-indigo-300 rounded-lg bg-white text-indigo-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Opciones Adicionales: Anticipo, Gratuito, Costo Kardex */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-200">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Deducción de Anticipo (1221)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formAnticipoDeducido || ''}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setFormAnticipoDeducido(v);
+                      recalcularTotales(formBase, formBaseExonerada, formBaseInafecta, formBaseExportacion, formIsc, formIcbper, formOtrosTributos, formTasaIgv, formDescuentoGlobal, v);
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Costo de Ventas (Kardex 69/20)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formCostoVenta || ''}
+                    onChange={(e) => setFormCostoVenta(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00"
+                    className="w-full text-xs font-mono font-bold p-2 border border-slate-300 rounded-xl bg-white"
+                  />
+                </div>
+
+                <div className="flex flex-col justify-center space-y-1.5 pt-2">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formEsGratuito}
+                      onChange={(e) => setFormEsGratuito(e.target.checked)}
+                      className="rounded text-emerald-600"
+                    />
+                    Operación a Título Gratuito (659)
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formEsAnticipo}
+                      onChange={(e) => setFormEsAnticipo(e.target.checked)}
+                      className="rounded text-emerald-600"
+                    />
+                    Emisión de Factura de Anticipo (1221)
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Fila 6: Forma de Pago */}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <label className="text-[11px] font-bold text-slate-700">Forma de Pago</label>
               <div className="flex gap-4">
@@ -846,7 +1326,7 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Cuentas 1212 (Cliente), 40111 (Débito Fiscal) y 70111 (Venta Mercadería).
+              Generado en tiempo real según las reglas de contabilización de la empresa antes del guardado físico.
             </p>
 
             {previewAsiento ? (
@@ -870,13 +1350,13 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="p-2">
                             <div className="font-bold text-slate-800">{l.codigoCuenta}</div>
-                            <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{l.glosaLinea}</div>
+                            <div className="text-[10px] text-slate-500 truncate max-w-[140px]">{l.denominacionCuenta || l.glosaLinea}</div>
                           </td>
                           <td className="p-2 text-right font-bold text-slate-900">
-                            {l.debe > 0 ? l.debe.toFixed(2) : '-'}
+                            {l.debe > 0 ? Number(l.debe).toFixed(2) : '-'}
                           </td>
                           <td className="p-2 text-right font-bold text-slate-900">
-                            {l.haber > 0 ? l.haber.toFixed(2) : '-'}
+                            {l.haber > 0 ? Number(l.haber).toFixed(2) : '-'}
                           </td>
                         </tr>
                       ))}
@@ -884,22 +1364,33 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
                     <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-slate-900">
                       <tr>
                         <td className="p-2">Total</td>
-                        <td className="p-2 text-right">{previewAsiento.totalDebe.toFixed(2)}</td>
-                        <td className="p-2 text-right">{previewAsiento.totalHaber.toFixed(2)}</td>
+                        <td className="p-2 text-right">{Number(previewAsiento.totalDebe).toFixed(2)}</td>
+                        <td className="p-2 text-right">{Number(previewAsiento.totalHaber).toFixed(2)}</td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-center justify-between">
+                <div className={`p-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-between ${
+                  previewAsiento.cuadrado
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}>
                   <span>Partida Doble:</span>
-                  <span>CUADRADO (Dif: S/ {previewAsiento.diferenciaCuadre.toFixed(2)})</span>
+                  <span>{previewAsiento.cuadrado ? `CUADRADO (Dif: S/ 0.00)` : `DESCUADRADO (Dif: S/ ${Number(previewAsiento.diferencia).toFixed(2)})`}</span>
                 </div>
+
+                {previewAsiento.metodoInventario && (
+                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-[10px] text-slate-600 font-mono">
+                    Método de Inventario: <strong>{previewAsiento.metodoInventario}</strong>
+                    {previewAsiento.metodoInventario === 'PERMANENTE' && ' (Costo integrado en venta)'}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-xs">
                 <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                Ingrese un importe mayor a cero para previsualizar el asiento de ventas.
+                Ingrese un importe o configure la venta para previsualizar el asiento contable en partida doble.
               </div>
             )}
           </div>

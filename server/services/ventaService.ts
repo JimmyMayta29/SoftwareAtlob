@@ -6,6 +6,7 @@ import { periodoService } from './periodoService';
 import { anexoService } from './anexoService';
 import { subdiarioService } from './subdiarioService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { buscarDetraccionPorCodigo } from '../data/catalogos/detraccionesCatalogo';
 
 export interface VentaInput {
   periodoId: string;
@@ -20,8 +21,10 @@ export interface VentaInput {
   tipoCambio?: number;
   baseGravada: number;
   igv: number;
+  tasaIgv?: number;
   baseNoGravada?: number;
   exonerado?: number;
+  baseExportacion?: number;
   isc?: number;
   icbper?: number;
   otrosTributos?: number;
@@ -32,8 +35,22 @@ export interface VentaInput {
   tieneDetraccion?: boolean;
   codigoBienDetraccion?: string;
   porcentajeDetraccion?: number;
+  montoDetraccion?: number;
+  justificacionTasaDetraccion?: string;
   tienePercepcion?: boolean;
   porcentajePercepcion?: number;
+  montoPercepcion?: number;
+  tieneRetencion?: boolean;
+  montoRetencion?: number;
+  anticipoDeducido?: number;
+  esAnticipo?: boolean;
+  esGratuito?: boolean;
+  descuentoGlobal?: number;
+  descuentoFueraFactura?: number;
+  costoVenta?: number;
+  cuentaVenta?: string;
+  cuentaCosto?: string;
+  motivoNota?: string;
   hashCpe?: string;
   glosa?: string;
   version?: number;
@@ -85,29 +102,74 @@ const VENTA_LOCKS = new Set<string>();
 
 export const ventaService = {
   validarCoherencia(input: VentaInput) {
+    const esNotaCredito = input.tipoComprobante === '07';
+
+    // 1. Incompatibilidad de Regímenes: Bloqueo de Retención + Percepción en el mismo comprobante
+    const tieneRet = Boolean(input.tieneRetencion || (input.montoRetencion && input.montoRetencion > 0));
+    const tienePerc = Boolean(input.tienePercepcion || (input.montoPercepcion && input.montoPercepcion > 0));
+    if (tieneRet && tienePerc) {
+      throw new Error('COMBINACION_TRIBUTARIA_BLOQUEADA: Un comprobante no puede estar sujeto simultáneamente al Régimen de Percepciones y al Régimen de Retenciones del IGV (RS 037-2002/SUNAT y Ley 28053). [SUPUESTO A VALIDAR con contador]');
+    }
+
+    // 2. Operación gratuita: el retiro de bienes no genera cobranza al cliente
+    if (input.esGratuito) {
+      return;
+    }
+
     const total = Money.create(input.total);
-    const baseGravada = Money.create(input.baseGravada);
-    const igv = Money.create(input.igv);
+    const baseGravada = Money.create(input.baseGravada || 0);
+    const igv = Money.create(input.igv || 0);
     const noGravada = Money.create(input.baseNoGravada || 0);
     const exonerado = Money.create(input.exonerado || 0);
+    const exportacion = Money.create(input.baseExportacion || 0);
     const isc = Money.create(input.isc || 0);
     const icbper = Money.create(input.icbper || 0);
     const otros = Money.create(input.otrosTributos || 0);
+    const percepcion = (tienePerc && input.montoPercepcion) ? Money.create(input.montoPercepcion) : Money.create(0);
+    const anticipo = input.anticipoDeducido ? Money.create(input.anticipoDeducido) : Money.create(0);
+    const descGlobal = Money.create(input.descuentoGlobal || 0);
 
-    const sumaComponentes = Money.add(
+    let sumaComponentes = Money.add(
       baseGravada,
-      Money.add(igv, Money.add(noGravada, Money.add(exonerado, Money.add(isc, Money.add(icbper, otros)))))
+      Money.add(igv, Money.add(noGravada, Money.add(exonerado, Money.add(exportacion, Money.add(isc, Money.add(icbper, Money.add(otros, percepcion)))))))
     );
+    if (anticipo.greaterThan(0)) {
+      sumaComponentes = Money.sub(sumaComponentes, anticipo);
+    }
 
     if (!Money.isEqual(total, sumaComponentes)) {
       throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de base + IGV + tributos (S/ ${sumaComponentes}) no coincide con el total (S/ ${total}).`);
     }
 
+    // 3. Verificación de cálculo de IGV con soporte a tasa 18%, 10% y 14%
     if (!baseGravada.isZero()) {
-      const igvCalculado = Money.round(baseGravada.times(0.18));
+      let tasa = 0.18;
+      if (input.tasaIgv === 10 || input.tasaIgv === 0.10) tasa = 0.10;
+      else if (input.tasaIgv === 14 || input.tasaIgv === 0.14) tasa = 0.14;
+      const baseNeta = descGlobal.greaterThan(0) ? Money.sub(baseGravada, descGlobal) : baseGravada;
+      const igvCalculado = Money.round(baseNeta.times(tasa));
       const difIgv = Money.sub(igv, igvCalculado).abs();
       if (difIgv.greaterThan(0.05)) {
-        throw new Error(`IGV_INCOHERENTE: El IGV de venta (S/ ${igv}) difiere del 18% calculado (S/ ${igvCalculado}).`);
+        throw new Error(`IGV_INCOHERENTE: El IGV de venta (S/ ${igv}) difiere del ${(tasa * 100).toFixed(0)}% calculado (S/ ${igvCalculado}).`);
+      }
+    }
+
+    // 4. Validación de Detracción en Ventas según catálogo oficial SUNAT
+    if (input.tieneDetraccion) {
+      const codigoBien = input.codigoBienDetraccion || '022';
+      const itemDetraccion = buscarDetraccionPorCodigo(codigoBien);
+      if (itemDetraccion) {
+        const pctIngresado = input.porcentajeDetraccion !== undefined ? input.porcentajeDetraccion : itemDetraccion.porcentaje;
+        if (pctIngresado !== itemDetraccion.porcentaje) {
+          const justificacion = input.justificacionTasaDetraccion;
+          if (!justificacion || typeof justificacion !== 'string' || justificacion.trim().length < 5) {
+            throw new Error(`TASA_DETRACCION_REQUIERE_JUSTIFICACION: La tasa ingresada (${pctIngresado}%) difiere de la tasa oficial (${itemDetraccion.porcentaje}%) del concepto ${itemDetraccion.codigo} (${itemDetraccion.descripcion}). Debe ingresar una justificación técnica o legal visible.`);
+          }
+        }
+      }
+      const montoDet = input.montoDetraccion || 0;
+      if (montoDet > input.total && !esNotaCredito) {
+        throw new Error(`DETRACCION_EXCEDE_TOTAL: El monto de detracción (S/ ${montoDet}) no puede ser mayor al total del comprobante (S/ ${input.total}).`);
       }
     }
   },
@@ -407,10 +469,34 @@ export const ventaService = {
       fechaEmision: input.fechaEmision,
       fechaContable: input.fechaContable,
       baseImponible: input.baseGravada,
+      tasaIgv: input.tasaIgv,
+      baseExonerada: input.exonerado,
+      baseInafecta: input.baseNoGravada,
+      baseExportacion: input.baseExportacion,
       igv: input.igv,
-      cuentaVenta: '70111',
+      isc: input.isc,
+      icbper: input.icbper,
+      otrosTributos: input.otrosTributos,
+      cuentaVenta: input.cuentaVenta,
+      cuentaCosto: input.cuentaCosto,
+      costoVenta: input.costoVenta,
       moneda,
       tipoCambio,
+      tieneDetraccion: input.tieneDetraccion,
+      montoDetraccion: input.montoDetraccion,
+      porcentajeDetraccion: input.porcentajeDetraccion,
+      codigoDetraccion: input.codigoBienDetraccion,
+      tienePercepcion: input.tienePercepcion,
+      montoPercepcion: input.montoPercepcion,
+      porcentajePercepcion: input.porcentajePercepcion,
+      tieneRetencion: input.tieneRetencion,
+      montoRetencion: input.montoRetencion,
+      anticipoDeducido: input.anticipoDeducido,
+      esAnticipo: input.esAnticipo,
+      esGratuito: input.esGratuito,
+      descuentoGlobal: input.descuentoGlobal,
+      descuentoFueraFactura: input.descuentoFueraFactura,
+      motivoNota: input.motivoNota,
       glosa: input.glosa || `Venta ${input.tipoComprobante} ${input.serie}-${input.numero}`
     });
 

@@ -85,3 +85,4 @@
 - **`40115`**: Exclusiva para Importaciones Aduaneras físicas (DAM/DUA). **Depurada**: Cero usos para no domiciliados en la matriz y el código.
 - **`40173`**: Exclusiva para Retención de Renta de Quinta Categoría a trabajadores en planilla. **Depurada**: Cero usos para no domiciliados.
 - **`40112` y `40174`**: Establecidas formalmente como las únicas cuentas para compras de servicios a No Domiciliados.
+
