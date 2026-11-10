@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   FileText, 
   Plus, 
@@ -11,7 +11,11 @@ import {
   UserCheck,
   ShieldAlert,
   ShieldCheck,
-  XCircle
+  XCircle,
+  FileCheck,
+  Coins,
+  SlidersHorizontal,
+  RotateCcw
 } from 'lucide-react';
 import { ReciboHonorario, EmpresaCliente } from '../../types';
 import { 
@@ -58,11 +62,14 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
   const [serie, setSerie] = useState('E001');
   const [numero, setNumero] = useState('');
   const [proveedorId, setProveedorId] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState<'digitacion' | 'lista'>('digitacion');
   const [profesionOcupacion, setProfesionOcupacion] = useState('');
   const [fechaEmision, setFechaEmision] = useState(`${periodo}-15`);
   const [fechaPago, setFechaPago] = useState(`${periodo}-20`);
   const [montoTotal, setMontoTotal] = useState<number>(0);
-  const [cuentaGasto, setCuentaGasto] = useState('6321');
+  const [cuentaGasto, setCuentaGasto] = useState('63211');
+  const [pctAdmin, setPctAdmin] = useState<number>(60);
+  const [pctVentas, setPctVentas] = useState<number>(40);
   const [glosa, setGlosa] = useState('');
 
   // Suspensión de 4ta
@@ -78,6 +85,111 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
     ? Number((montoTotal * tasaRetencionParam).toFixed(2))
     : 0;
   const netoPagar = Number((montoTotal - retencionCalculada).toFixed(2));
+
+  // Previsualización contable en tiempo real para Honorarios (Subdiario 06)
+  const previsualizacion = useMemo(() => {
+    const lineas: Array<{
+      linea: number;
+      codigoCuenta: string;
+      denominacionCuenta: string;
+      debe: number;
+      haber: number;
+    }> = [];
+    const bruto = Number(montoTotal || 0);
+    if (bruto <= 0) {
+      return { lineas: [], totalDebe: 0, totalHaber: 0, cuadrado: false, diferencia: 0 };
+    }
+
+    const retencion = (!suspensionCuarta && bruto > topeRetencionParam)
+      ? Number((bruto * tasaRetencionParam).toFixed(2))
+      : 0;
+    const neto = Number((bruto - retencion).toFixed(2));
+
+    const denominaciones: Record<string, string> = {
+      '63211': 'Asesoría y consultoría administrativa',
+      '63221': 'Asesoría legal y tributaria',
+      '63231': 'Auditoría contable y financiera',
+      '63241': 'Capacitación y entrenamiento técnico',
+      '63291': 'Otros servicios de asesoría y consultoría',
+      '6321': 'Asesoría y consultoría administrativa'
+    };
+
+    const ctaGasto5 = cuentaGasto.length === 4 ? `${cuentaGasto}1` : cuentaGasto;
+    let num = 1;
+
+    // 1. Cuenta de Gasto por Honorarios (Elemento 6)
+    lineas.push({
+      linea: num++,
+      codigoCuenta: ctaGasto5,
+      denominacionCuenta: denominaciones[ctaGasto5] || 'Servicios profesionales independientes',
+      debe: bruto,
+      haber: 0.00
+    });
+
+    // 2. Retención 4ta Categoría 8%
+    if (retencion > 0) {
+      lineas.push({
+        linea: num++,
+        codigoCuenta: '40172',
+        denominacionCuenta: 'Renta de cuarta categoría por pagar (8%)',
+        debe: 0.00,
+        haber: retencion
+      });
+    }
+
+    // 3. Neto por pagar al profesional
+    lineas.push({
+      linea: num++,
+      codigoCuenta: '424',
+      denominacionCuenta: 'Honorarios por pagar',
+      debe: 0.00,
+      haber: neto
+    });
+
+    // 4. Asiento de destino por función (Elemento 9 vs 79)
+    const montoAdmin = Number(((bruto * pctAdmin) / 100).toFixed(2));
+    const montoVentas = Number((bruto - montoAdmin).toFixed(2));
+
+    if (montoAdmin > 0) {
+      lineas.push({
+        linea: num++,
+        codigoCuenta: '9411',
+        denominacionCuenta: `Gastos de administración (${pctAdmin}%)`,
+        debe: montoAdmin,
+        haber: 0.00
+      });
+    }
+
+    if (montoVentas > 0) {
+      lineas.push({
+        linea: num++,
+        codigoCuenta: '9511',
+        denominacionCuenta: `Gastos de ventas (${pctVentas}%)`,
+        debe: montoVentas,
+        haber: 0.00
+      });
+    }
+
+    lineas.push({
+      linea: num++,
+      codigoCuenta: '7911',
+      denominacionCuenta: 'Cargas imputables a cuentas de costos y gastos',
+      debe: 0.00,
+      haber: bruto
+    });
+
+    const sumDebe = lineas.reduce((acc, l) => acc + l.debe, 0);
+    const sumHaber = lineas.reduce((acc, l) => acc + l.haber, 0);
+    const dif = Number((sumDebe - sumHaber).toFixed(2));
+
+    return {
+      lineas,
+      totalDebe: Number(sumDebe.toFixed(2)),
+      totalHaber: Number(sumHaber.toFixed(2)),
+      cuadrado: Math.abs(dif) < 0.001,
+      diferencia: dif
+    };
+  }, [montoTotal, suspensionCuarta, cuentaGasto, pctAdmin, pctVentas]);
 
   const items = apiHonorarios.length > 0 ? apiHonorarios : legacyHonorarios.map(h => ({
     id: h.id,
@@ -113,13 +225,17 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
   const totalRetenciones = filtered.reduce((a, b) => a + (b.estado !== 'ANULADO' ? b.retencion : 0), 0);
   const totalNeto = filtered.reduce((a, b) => a + (b.estado !== 'ANULADO' ? b.netoPagar : 0), 0);
 
-  const handleCrear = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!serie || !numero || !proveedorId || montoTotal <= 0) return;
+  const handleCrear = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!serie || !numero || !proveedorId || montoTotal <= 0) {
+      error('Complete la serie, número correlativo, prestador del servicio y monto mayor a 0.', 'Campos Requeridos');
+      return;
+    }
 
     const proveedor = anexos.find((a: any) => a.id === proveedorId);
 
     try {
+      const ctaGasto5 = cuentaGasto.length === 4 ? `${cuentaGasto}1` : cuentaGasto;
       await regHonorarioMutation.mutateAsync({
         periodoId: `per-${periodo}`,
         proveedorId,
@@ -132,8 +248,8 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
         moneda: 'PEN',
         tipoCambio: 1.0,
         importeBruto: montoTotal,
-        cuentaGasto,
-        glosa: glosa || `Honorario profesional según ${serie}-${numero}`,
+        cuentaGasto: ctaGasto5,
+        glosa: glosa || `Honorarios profesionales ${serie}-${numero} - ${proveedor?.razonSocial || ''}`,
         suspensionCuarta,
         numeroResolucionSuspension: suspensionCuarta ? numResolucion : undefined,
         vigenciaSuspensionDesde: suspensionCuarta ? `${periodo.substring(0, 4)}-01-01` : undefined,
@@ -146,7 +262,7 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
       setGlosa('');
       setSuspensionCuarta(false);
       setNumResolucion('');
-      success('Recibo por honorarios registrado y contabilizado.', 'Recibo Guardado');
+      success('Recibo por honorarios registrado y contabilizado en Subdiario 06 con partida doble cuadrada.', 'Asiento Generado');
     } catch (err: any) {
       error('Error registrando recibo: ' + (err?.response?.data?.error || err.message), 'Fallo al Guardar');
     }
@@ -169,36 +285,392 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
+      {/* Top Header & Sub-tabs Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-600" />
-            Recibos por Honorarios Electrónicos (Rentas de 4ta Categoría)
+            Subdiario 06: Recibos por Honorarios Electrónicos (4ta Categoría)
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Registro con retención calculada paramétricamente y control de suspensión de retenciones SUNAT.
+            Registro de honorarios con cálculo automático de retención 8%, destinos PCGE y comprobantes electrónicos SUNAT.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-semibold text-amber-900 flex items-center gap-1.5">
-            <Calculator className="w-3.5 h-3.5 text-amber-600" />
-            Parámetro vigente: <strong>8% (Tope S/ 1,500.00)</strong>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Sub-tabs switch */}
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
+            <button
+              onClick={() => setActiveSubTab('digitacion')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                activeSubTab === 'digitacion' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              Digitación Rápida
+            </button>
+            <button
+              onClick={() => setActiveSubTab('lista')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                activeSubTab === 'lista' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Lista de Honorarios ({items.length})
+            </button>
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo Recibo por Honorarios
-          </button>
+          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+            <Calculator className="w-3.5 h-3.5 text-amber-600" />
+            Parámetro: <strong>8% (Tope S/ 1,500.00)</strong>
+          </div>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* MODO 1: DIGITACIÓN RÁPIDA (DUAL PANEL CON PREVISUALIZACIÓN PCGE) */}
+      {activeSubTab === 'digitacion' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Columna Izquierda: Formulario de RH */}
+          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Digitación de Recibo por Honorarios Electrónico (Tipo 02)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ESC-HON-6.01 y 6.02: Provisión del servicio, retención 8% y asiento automático de destino
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                SD: 06
+              </span>
+            </div>
+
+            {/* Serie y Número Correlativo */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Serie</label>
+                <input
+                  type="text"
+                  value={serie}
+                  onChange={(e) => setSerie(e.target.value.toUpperCase())}
+                  placeholder="E001"
+                  className="w-full text-xs font-mono font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900 uppercase focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1">Número Correlativo</label>
+                <input
+                  type="text"
+                  value={numero}
+                  onChange={(e) => setNumero(e.target.value)}
+                  placeholder="Ej. 145"
+                  className="w-full text-xs font-mono font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Prestador del Servicio */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Prestador del Servicio (Profesional Independiente)
+              </label>
+              <select
+                value={proveedorId}
+                onChange={(e) => setProveedorId(e.target.value)}
+                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">-- Seleccione al profesional del catálogo de anexos --</option>
+                {anexos.map((a: any) => (
+                  <option key={a.id} value={a.id}>
+                    {a.numeroDocumento} - {a.razonSocial}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Fechas */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Fecha de Emisión</label>
+                <input
+                  type="date"
+                  value={fechaEmision}
+                  onChange={(e) => setFechaEmision(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Fecha Contable / Pago Prevista</label>
+                <input
+                  type="date"
+                  value={fechaPago}
+                  onChange={(e) => setFechaPago(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Cuenta de Gasto PCGE */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Cuenta Contable de Gasto (PCGE 2020)
+              </label>
+              <select
+                value={cuentaGasto}
+                onChange={(e) => setCuentaGasto(e.target.value)}
+                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="63211">63211 - Asesoría y consultoría administrativa</option>
+                <option value="63221">63221 - Asesoría legal y tributaria</option>
+                <option value="63231">63231 - Auditoría contable y financiera</option>
+                <option value="63241">63241 - Capacitación y entrenamiento técnico</option>
+                <option value="63291">63291 - Otros servicios de asesoría y consultoría</option>
+              </select>
+            </div>
+
+            {/* Importe y Suspensión */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Importe Total Bruto (S/)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={montoTotal || ''}
+                  onChange={(e) => setMontoTotal(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-full text-sm font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Checkbox Suspensión Form. 1609 */}
+              <div className="pt-2 border-t border-slate-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={suspensionCuarta}
+                    onChange={(e) => setSuspensionCuarta(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-bold text-slate-800">
+                    Acredita Constancia de Suspensión de Retenciones SUNAT (Formulario 1609)
+                  </span>
+                </label>
+                {suspensionCuarta && (
+                  <div className="mt-2 pl-6">
+                    <label className="text-[11px] text-slate-600 block mb-1">N° Formulario / Constancia</label>
+                    <input
+                      type="text"
+                      value={numResolucion}
+                      onChange={(e) => setNumResolucion(e.target.value)}
+                      placeholder="Ej. 1609-00918231"
+                      className="w-full text-xs border border-slate-300 rounded-xl p-2 bg-white font-mono text-slate-800"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Desglose de Liquidación */}
+              <div className="grid grid-cols-3 gap-2 pt-2 text-center text-xs font-mono">
+                <div className="p-2 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Total Bruto</span>
+                  <span className="font-bold text-slate-900">S/ {montoTotal.toFixed(2)}</span>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Retención 8%</span>
+                  <span className="font-bold text-rose-600">- S/ {retencionCalculada.toFixed(2)}</span>
+                </div>
+                <div className="p-2 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block">Neto a Pagar</span>
+                  <span className="font-bold text-emerald-700">S/ {netoPagar.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Distribución de Destinos (Centro de Costos) */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  % Destino Administración (9411)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={pctAdmin}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setPctAdmin(v);
+                    setPctVentas(Math.max(0, 100 - v));
+                  }}
+                  className="w-full text-xs font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  % Destino Ventas (9511)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={pctVentas}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setPctVentas(v);
+                    setPctAdmin(Math.max(0, 100 - v));
+                  }}
+                  className="w-full text-xs font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Glosa */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Glosa Contable</label>
+              <input
+                type="text"
+                placeholder="Descripción concisa de los servicios prestados"
+                value={glosa}
+                onChange={(e) => setGlosa(e.target.value)}
+                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Columna Derecha: Panel de Previsualización Contable PCGE */}
+          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  Previsualización de Asiento PCGE
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
+                  Partida Doble
+                </span>
+              </div>
+
+              {/* Glosa Automática */}
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Glosa Automática</div>
+                <div className="text-xs text-slate-800 font-medium truncate mt-0.5">
+                  {glosa || `Honorarios profesionales ${serie}-${numero || '00000'} - 4ta Categoría`}
+                </div>
+              </div>
+
+              {/* Grilla de Cuentas */}
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[10px] uppercase">
+                    <tr>
+                      <th className="p-2.5">Cuenta</th>
+                      <th className="p-2.5 text-right">Debe</th>
+                      <th className="p-2.5 text-right">Haber</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                    {previsualizacion.lineas.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="p-4 text-center text-slate-400 text-xs">
+                          Ingrese el importe del honorario para previsualizar el asiento contable.
+                        </td>
+                      </tr>
+                    ) : (
+                      previsualizacion.lineas.map((l) => (
+                        <tr key={l.linea} className="hover:bg-slate-50/60">
+                          <td className="p-2.5">
+                            <span className="font-mono font-bold text-blue-700">{l.codigoCuenta}</span>
+                            <div className="text-[11px] text-slate-500 truncate max-w-[200px]">
+                              {l.denominacionCuenta}
+                            </div>
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">
+                            {l.debe > 0 ? l.debe.toFixed(2) : '-'}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">
+                            {l.haber > 0 ? l.haber.toFixed(2) : '-'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {previsualizacion.lineas.length > 0 && (
+                    <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-slate-900">
+                      <tr>
+                        <td className="p-2.5 text-[11px] uppercase">Totales</td>
+                        <td className="p-2.5 text-right font-mono text-xs">
+                          {previsualizacion.totalDebe.toFixed(2)}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-xs">
+                          {previsualizacion.totalHaber.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+
+              {/* Estado de Partida Doble */}
+              <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200">
+                <span className="text-xs font-bold text-slate-700">Partida Doble:</span>
+                {previsualizacion.cuadrado ? (
+                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    CUADRADO (Dif: S/ 0.00)
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold text-rose-600 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    DESCUADRADO (Dif: S/ {Math.abs(previsualizacion.diferencia).toFixed(2)})
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Acciones de Registro */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => handleCrear()}
+                disabled={!previsualizacion.cuadrado || previsualizacion.lineas.length === 0}
+                className="w-full py-2.5 px-4 bg-[#2457D6] hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <FileCheck className="w-4 h-4" />
+                Registrar y Contabilizar (Ctrl+Enter)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMontoTotal(0);
+                  setNumero('');
+                  setGlosa('');
+                  setSuspensionCuarta(false);
+                  setNumResolucion('');
+                }}
+                className="w-full py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition text-center"
+              >
+                Limpiar Formulario (Ctrl+N)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODO 2: LISTA DE HONORARIOS Y REPORTES */}
+      {activeSubTab === 'lista' && (
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
           <span className="text-xs text-slate-500 font-semibold">Total Honorarios Brutos</span>
           <div className="text-xl font-black text-slate-900 font-mono mt-1">
@@ -320,6 +792,8 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
           </table>
         </div>
       </div>
+      </div>
+    )}
 
       {/* MODAL REGISTRAR RECIBO */}
       {isModalOpen && (

@@ -1581,7 +1581,7 @@ export const planillaService = {
 
     const asiento = await asientoService.crearAsiento(empresaId, {
       periodoId: planilla.periodoId || `per-${planilla.mes}`,
-      subdiario: '08', // Subdiario Planillas
+      subdiario: '07', // Subdiario 07 Planilla de Remuneraciones
       fecha: `${planilla.mes}-28`,
       moneda: 'PEN',
       tipoCambio: 1.0,
@@ -1809,7 +1809,7 @@ export const planillaService = {
 
     const asiento = await asientoService.crearAsiento(empresaId, {
       periodoId: `per-${periodo}`,
-      subdiario: '08',
+      subdiario: '07',
       fecha: `${periodo}-15`,
       moneda: 'PEN',
       tipoCambio: 1.0,
@@ -2012,7 +2012,7 @@ export const planillaService = {
 
     const asiento = await asientoService.crearAsiento(empresaId, {
       periodoId: `per-${periodo}`,
-      subdiario: '08',
+      subdiario: '07',
       fecha: `${periodo}-15`,
       moneda: 'PEN',
       tipoCambio: 1.0,

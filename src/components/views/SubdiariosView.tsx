@@ -226,9 +226,9 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
       case 'VENTAS':
         return <RegistroVentasView ventas={[]} empresa={empresa as any} periodo={periodo} />;
       case 'HONORARIOS':
-        return <HonorariosView />;
+        return <HonorariosView empresa={empresa as any} periodo={periodo} />;
       case 'PLANILLA':
-        return <PlanillaPlameView />;
+        return <PlanillaPlameView empresaId={empresaId} periodo={periodo} />;
       case 'CAJA':
       case 'BANCO':
         return (

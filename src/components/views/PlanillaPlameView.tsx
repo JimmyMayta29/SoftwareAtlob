@@ -129,7 +129,7 @@ export const PlanillaPlameView: React.FC<PlanillaPlameViewProps> = ({
         asientoNumero: res.asientoNumero
       }));
       success(
-        `Asiento de planilla por centro de costos generado en Subdiario 08 (Voucher ${res.asientoNumero || res.asientoId}).`,
+        `Asiento de planilla por centro de costos generado en Subdiario 07 (Voucher ${res.asientoNumero || res.asientoId}).`,
         'Asiento Contabilizado'
       );
     } catch (err: any) {
@@ -310,11 +310,11 @@ export const PlanillaPlameView: React.FC<PlanillaPlameViewProps> = ({
                 className="h-6 px-3 bg-[#1E6F42] hover:bg-[#165331] text-[#FFFFFF] text-[11px] font-bold inline-flex items-center gap-1"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Contabilizar Asiento (Subdiario 08)
+                Contabilizar Asiento (Subdiario 07)
               </button>
             ) : (
               <span className="font-mono text-[11px] font-bold text-[#1E6F42]">
-                Voucher Subdiario 08 Registrado
+                Voucher Subdiario 07 Registrado
               </span>
             )}
           </div>
@@ -647,7 +647,7 @@ export const PlanillaPlameView: React.FC<PlanillaPlameViewProps> = ({
       <VentanaModal
         abierto={modalAsientoAbierto}
         onCerrar={() => setModalAsientoAbierto(false)}
-        titulo={`Asiento Contable de Planilla por Centro de Costos — Subdiario 08 (${mesSeleccionado})`}
+        titulo={`Asiento Contable de Planilla por Centro de Costos — Subdiario 07 (${mesSeleccionado})`}
         ancho="lg"
         footer={
           <>

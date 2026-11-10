@@ -294,8 +294,8 @@ export const PLANTILLAS_ASIENTOS: PlantillaAsiento[] = [
   },
   {
     id: 'plantilla-depreciacion',
-    nombre: 'Depreciación del ejercicio de propiedad, planta y equipo',
-    subdiario: '07',
+    nombre: 'Depreciación del ejercicio de propiedad, planta y equipo (ESC-VAR-8.01)',
+    subdiario: '08',
     metodoInventario: 'no_aplica',
     glosaGeneralSugerida: 'Por la depreciación periódica del activo fijo según tablas SUNAT',
     avisoNormativo: AVISO_REVISION_CONTADOR,
@@ -333,7 +333,7 @@ export const PLANTILLAS_ASIENTOS: PlantillaAsiento[] = [
   {
     id: 'plantilla-amortizacion',
     nombre: 'Amortización del ejercicio de activos intangibles',
-    subdiario: '07',
+    subdiario: '08',
     metodoInventario: 'no_aplica',
     glosaGeneralSugerida: 'Por la amortización periódica de software y licencias intangibles',
     avisoNormativo: AVISO_REVISION_CONTADOR,
