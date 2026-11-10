@@ -1192,6 +1192,182 @@ async function ejecutarSuitePruebas() {
     console.log('✔ Validación tributaria: Bloqueo de Percepción + Retención en ventas verificado exitosamente.\n');
   }
 
+  // -------------------------------------------------------------------------
+  // ESC-COB-3.04: Cobro con Cheque de Cliente en Cartera y Posterior Depósito
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-COB-3.04: Cobro con Cheque en Cartera (1031) y Depósito Bancario (10411/1031) ---');
+  {
+    // Fase 1: Recepción de cheque de cliente en cartera (1031 / 1212)
+    const cobroCheque = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'COBRANZA',
+      monto: 3500.00,
+      esCheque: true,
+      glosa: 'Cobro de factura con cheque en cartera BCP N° 849201',
+      anexoId: 'cli-001'
+    });
+    assert.equal(cobroCheque.cuadrado, true, 'ESC-COB-3.04: Recepción de cheque debe cuadrar');
+    assert.ok(cobroCheque.lineas.some(l => l.codigoCuenta === '1031' && l.debe === 3500.00), 'ESC-COB-3.04: Debe 1031 Cheques en cartera S/ 3,500.00');
+    assert.ok(cobroCheque.lineas.some(l => l.codigoCuenta === '1212' && l.haber === 3500.00), 'ESC-COB-3.04: Haber 1212 Facturas por cobrar S/ 3,500.00');
+
+    // Fase 2: Depósito bancario del cheque en cuenta corriente (10411 / 1031)
+    const depositoCheque = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'COBRANZA',
+      monto: 3500.00,
+      esDepositoCheque: true,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Depósito en cuenta BCP de cheque N° 849201'
+    });
+    assert.equal(depositoCheque.cuadrado, true, 'ESC-COB-3.04: Depósito de cheque debe cuadrar');
+    assert.ok(depositoCheque.lineas.some(l => l.codigoCuenta === '10411' && l.debe === 3500.00), 'ESC-COB-3.04: Debe 10411 Bancos Cta Cte S/ 3,500.00');
+    assert.ok(depositoCheque.lineas.some(l => l.codigoCuenta === '1031' && l.haber === 3500.00), 'ESC-COB-3.04: Haber 1031 Cheques en cartera descargados S/ 3,500.00');
+    console.log('✔ ESC-COB-3.04 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-COB-3.05: Cobro de Anticipos de Clientes sin Factura Definitiva
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-COB-3.05: Cobro de Anticipo de Clientes (10411 / 1221) ---');
+  {
+    const anticipo = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'COBRANZA',
+      monto: 5000.00,
+      esAnticipo: true,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Anticipo recibido de cliente para fabricación de estructuras',
+      anexoId: 'cli-002'
+    });
+    assert.equal(anticipo.cuadrado, true, 'ESC-COB-3.05: Asiento de anticipo debe cuadrar');
+    assert.ok(anticipo.lineas.some(l => l.codigoCuenta === '10411' && l.debe === 5000.00), 'ESC-COB-3.05: Debe 10411 Bancos Cta Cte S/ 5,000.00');
+    assert.ok(anticipo.lineas.some(l => l.codigoCuenta === '1221' && l.haber === 5000.00), 'ESC-COB-3.05: Haber 1221 Anticipos de clientes S/ 5,000.00');
+    console.log('✔ ESC-COB-3.05 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-COB-3.06: Apertura y Constitución de Fondo Fijo de Caja Chica
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-COB-3.06: Apertura Fondo Fijo Caja Chica (1021 / 10411) ---');
+  {
+    const aperturaCaja = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'CAJA_CHICA_APERTURA',
+      monto: 1500.00,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Constitución y asignación de fondo fijo caja chica administración'
+    });
+    assert.equal(aperturaCaja.cuadrado, true, 'ESC-COB-3.06: Asiento apertura caja chica debe cuadrar');
+    assert.ok(aperturaCaja.lineas.some(l => l.codigoCuenta === '1021' && l.debe === 1500.00), 'ESC-COB-3.06: Debe 1021 Fondos fijos S/ 1,500.00');
+    assert.ok(aperturaCaja.lineas.some(l => l.codigoCuenta === '10411' && l.haber === 1500.00), 'ESC-COB-3.06: Haber 10411 Banco Cta Cte S/ 1,500.00');
+    console.log('✔ ESC-COB-3.06 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-PAG-4.02: Pago con Comprobante de Retención Electrónica CRE 3%
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-PAG-4.02: Pago a Proveedor con Retención Electrónica CRE 3% (4212 / 40114 / 10411) ---');
+  {
+    const pagoCRE = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'PAGO',
+      monto: 2000.00,
+      tieneRetencion: true,
+      montoRetencion: 60.00,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Pago factura F001-901 con retención CRE R001-15 (3%)',
+      anexoId: 'prov-001'
+    });
+    assert.equal(pagoCRE.cuadrado, true, 'ESC-PAG-4.02: Asiento con retención CRE debe cuadrar');
+    assert.equal(pagoCRE.totalDebe, 2000.00, 'ESC-PAG-4.02: Total Debe S/ 2,000.00');
+    assert.equal(pagoCRE.totalHaber, 2000.00, 'ESC-PAG-4.02: Total Haber S/ 2,000.00');
+    assert.ok(pagoCRE.lineas.some(l => l.codigoCuenta === '4212' && l.debe === 2000.00), 'ESC-PAG-4.02: Debe 4212 Total factura S/ 2,000.00');
+    assert.ok(pagoCRE.lineas.some(l => l.codigoCuenta === '40114' && l.haber === 60.00), 'ESC-PAG-4.02: Haber 40114 Retención 3% S/ 60.00');
+    assert.ok(pagoCRE.lineas.some(l => l.codigoCuenta === '10411' && l.haber === 1940.00), 'ESC-PAG-4.02: Haber 10411 Neto pagado S/ 1,940.00');
+    console.log('✔ ESC-PAG-4.02 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-PAG-4.03: Pago en Efectivo de Compras Menores (Caja Chica)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-PAG-4.03: Pago de Compras Menores con Caja Chica (4212 / 1021) ---');
+  {
+    const pagoCajaChica = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'CAJA_CHICA_PAGO',
+      monto: 180.00,
+      cuentaContrapartidaCodigo: '4212',
+      glosa: 'Pago de útiles y refrigerio menor con fondo de caja chica',
+      anexoId: 'prov-libreria'
+    });
+    assert.equal(pagoCajaChica.cuadrado, true, 'ESC-PAG-4.03: Pago caja chica debe cuadrar');
+    assert.ok(pagoCajaChica.lineas.some(l => l.codigoCuenta === '4212' && l.debe === 180.00), 'ESC-PAG-4.03: Debe 4212 Compras menores S/ 180.00');
+    assert.ok(pagoCajaChica.lineas.some(l => l.codigoCuenta === '1021' && l.haber === 180.00), 'ESC-PAG-4.03: Haber 1021 Caja chica S/ 180.00');
+    console.log('✔ ESC-PAG-4.03 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-PAG-4.07: Rendición y Reembolso / Reposición de Caja Chica
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-PAG-4.07: Rendición y Reposición de Caja Chica (1021 / 10411) ---');
+  {
+    const reposicion = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'CAJA_CHICA_REPOSICION',
+      monto: 850.00,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Reembolso y reposición de fondo fijo caja chica rendición N° 004-2026'
+    });
+    assert.equal(reposicion.cuadrado, true, 'ESC-PAG-4.07: Asiento reposición caja chica debe cuadrar');
+    assert.ok(reposicion.lineas.some(l => l.codigoCuenta === '1021' && l.debe === 850.00), 'ESC-PAG-4.07: Debe 1021 Reembolso fondo fijo S/ 850.00');
+    assert.ok(reposicion.lineas.some(l => l.codigoCuenta === '10411' && l.haber === 850.00), 'ESC-PAG-4.07: Haber 10411 Banco Cta Cte S/ 850.00');
+    console.log('✔ ESC-PAG-4.07 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-SPOT-5.02: Depósito de Autodetracción por Venta de Servicios (1071 / 1212)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-SPOT-5.02: Autodetracción Abonada en Cuenta BN Titular (1071 / 1212) ---');
+  {
+    const autodet = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'AUTODETRACCION',
+      monto: 480.00,
+      glosa: 'Autodetracción 12% por servicios de consultoría Factura F001-1200 constancia BN 778912',
+      anexoId: 'cli-003'
+    });
+    assert.equal(autodet.cuadrado, true, 'ESC-SPOT-5.02: Asiento autodetracción debe cuadrar');
+    assert.ok(autodet.lineas.some(l => l.codigoCuenta === '1071' && l.debe === 480.00), 'ESC-SPOT-5.02: Debe 1071 Cuenta Detracciones BN S/ 480.00');
+    assert.ok(autodet.lineas.some(l => l.codigoCuenta === '1212' && l.haber === 480.00), 'ESC-SPOT-5.02: Haber 1212 Facturas por cobrar S/ 480.00');
+    console.log('✔ ESC-SPOT-5.02 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-SPOT-5.03: Pago de Tributos SUNAT utilizando Fondos de Detracciones SPOT BN
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-SPOT-5.03: Pago de Tributos con Fondos SPOT BN (40111 / 1071) ---');
+  {
+    const pagoTribSPOT = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'PAGO_TRIBUTOS_DETRACCION',
+      monto: 1250.00,
+      cuentaContrapartidaCodigo: '40111',
+      glosa: 'Pago IGV período 2026-08 con fondos cuenta de detracciones Banco de la Nación'
+    });
+    assert.equal(pagoTribSPOT.cuadrado, true, 'ESC-SPOT-5.03: Asiento pago tributos con SPOT debe cuadrar');
+    assert.ok(pagoTribSPOT.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 1250.00), 'ESC-SPOT-5.03: Debe 40111 IGV cancelado S/ 1,250.00');
+    assert.ok(pagoTribSPOT.lineas.some(l => l.codigoCuenta === '1071' && l.haber === 1250.00), 'ESC-SPOT-5.03: Haber 1071 Fondos restringidos BN S/ 1,250.00');
+    console.log('✔ ESC-SPOT-5.03 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-SPOT-5.04: Liberación / Extorno de Fondos de Detracciones a Cuenta Comercial
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-SPOT-5.04: Liberación de Fondos de Detracciones (10411 / 1071) ---');
+  {
+    const liberacion = await contabilizacionService.generarAsientoTesoreriaAutomatizada(empresaId, {
+      tipoOperacionTesoreria: 'LIBERACION_DETRACCION',
+      monto: 10000.00,
+      cuentaFinancieraCodigo: '10411',
+      glosa: 'Liberación de fondos de cuenta de detracciones según Res. Intendencia SUNAT 012-2026'
+    });
+    assert.equal(liberacion.cuadrado, true, 'ESC-SPOT-5.04: Asiento liberación fondos SPOT debe cuadrar');
+    assert.ok(liberacion.lineas.some(l => l.codigoCuenta === '10411' && l.debe === 10000.00), 'ESC-SPOT-5.04: Debe 10411 Banco Cta Cte operativa S/ 10,000.00');
+    assert.ok(liberacion.lineas.some(l => l.codigoCuenta === '1071' && l.haber === 10000.00), 'ESC-SPOT-5.04: Haber 1071 Fondos restringidos BN S/ 10,000.00');
+    console.log('✔ ESC-SPOT-5.04 superado exitosamente.\n');
+  }
+
   console.log('========================================================================');
   console.log('TODAS LAS PRUEBAS DE ASIENTO COMPLETO Y VALIDACIONES PASARON AL 100%');
   console.log('========================================================================');

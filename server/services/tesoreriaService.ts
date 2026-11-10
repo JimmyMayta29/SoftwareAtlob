@@ -225,6 +225,17 @@ export const tesoreriaService = {
       importe: number;
       glosa: string;
       detraccionId?: string;
+      subdiario?: string;
+      cuentaContrapartidaCodigo?: string;
+      tieneRetencion?: boolean;
+      montoRetencion?: number;
+      porcentajeRetencion?: number;
+      esCheque?: boolean;
+      esDepositoCheque?: boolean;
+      esAnticipo?: boolean;
+      diferenciaCambio?: number;
+      tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
+      montoOriginalDoc?: number;
       aplicaciones?: Array<{
         documentoId: string;
         importeAplicado: number;
@@ -320,27 +331,34 @@ export const tesoreriaService = {
 
     // 5. Generar Asiento Contable a través de ContabilizacionService y AsientoService
     let tipoOpContable: any = 'PAGO';
-    let subdiario: any = cuenta.tipo === 'CAJA' ? '03' : '05';
+    let subdiario: any = datos.subdiario || (datos.tipo === 'INGRESO' ? '03' : (datos.tipo === 'DEPOSITO_DETRACCION' ? '05' : '04'));
 
     if (datos.tipo === 'INGRESO') {
       tipoOpContable = 'COBRANZA';
-      subdiario = cuenta.tipo === 'CAJA' ? '03' : '05';
     } else if (datos.tipo === 'EGRESO') {
       tipoOpContable = 'PAGO';
-      subdiario = cuenta.tipo === 'CAJA' ? '03' : '05';
     } else if (datos.tipo === 'DEPOSITO_DETRACCION') {
       tipoOpContable = 'DETRACCION_DEPOSITO';
-      subdiario = '05';
     }
 
     const propuestaAsiento = await contabilizacionService.generar(empresaId, tipoOpContable, {
       total: Money.toNumber(importeTotal),
       glosa: datos.glosa || `${datos.tipo} en ${cuenta.banco} ${cuenta.numero}`,
       cuentaFinancieraCodigo: cuenta.cuentaContableCodigo,
+      cuentaContrapartidaCodigo: datos.cuentaContrapartidaCodigo,
       anexoId: datos.anexoId,
       moneda,
-      tipoCambio
-    });
+      tipoCambio,
+      tieneRetencion: datos.tieneRetencion,
+      montoRetencion: datos.montoRetencion,
+      porcentajeRetencion: datos.porcentajeRetencion,
+      esCheque: datos.esCheque,
+      esDepositoCheque: datos.esDepositoCheque,
+      esAnticipo: datos.esAnticipo,
+      diferenciaCambio: datos.diferenciaCambio,
+      tipoDiferencia: datos.tipoDiferencia,
+      montoOriginalDoc: datos.montoOriginalDoc
+    } as any);
 
     const asientoCreado = await asientoService.crearAsiento(empresaId, {
       periodoId: datos.periodoId || `per-${mesPeriodo}`,

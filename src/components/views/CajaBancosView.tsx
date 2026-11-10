@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Landmark, 
   ArrowDownLeft, 
@@ -16,7 +16,13 @@ import {
   FileText,
   Lock,
   XCircle,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Receipt,
+  Coins,
+  FileCheck,
+  RotateCcw,
+  SlidersHorizontal,
+  Wallet
 } from 'lucide-react';
 import { MovimientoCajaBanco } from '../../types';
 import { 
@@ -36,6 +42,7 @@ import { useToast } from '../../context/ToastContext';
 interface CajaBancosViewProps {
   empresaId?: string;
   periodo?: string;
+  subdiarioCodigo?: string;
   movimientos?: MovimientoCajaBanco[];
   onAddMovimiento?: (mov: MovimientoCajaBanco) => void;
 }
@@ -43,11 +50,14 @@ interface CajaBancosViewProps {
 export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
   empresaId = '00000000-0000-0000-0000-000000000001',
   periodo = '2026-09',
+  subdiarioCodigo,
   movimientos = [],
   onAddMovimiento
 }) => {
   const { success, error } = useToast();
-  const [activeSubTab, setActiveSubTab] = useState<'movimientos' | 'conciliacion'>('movimientos');
+  const [activeSubTab, setActiveSubTab] = useState<'digitacion' | 'movimientos' | 'conciliacion'>(
+    subdiarioCodigo ? 'digitacion' : 'movimientos'
+  );
   const [cuentaSeleccionadaId, setCuentaSeleccionadaId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
@@ -101,6 +111,272 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
   // Form Extracto State
   const [extractoCsvTexto, setExtractoCsvTexto] = useState<string>('');
   const [nombreArchivoExtracto, setNombreArchivoExtracto] = useState<string>('extracto_banco.csv');
+
+  // Contexto y Estado para Digitación Rápida de Tesorería por Subdiario
+  const codigoSubdiarioActivo = subdiarioCodigo || (ctaActiva?.tipo === 'CAJA' ? '03' : '04');
+  const [formModo, setFormModo] = useState<string>(
+    codigoSubdiarioActivo === '03'
+      ? 'COBRANZA_FACTURA'
+      : (codigoSubdiarioActivo === '05' ? 'DEPOSITO_DETRACCION' : 'PAGO_PROVEEDOR')
+  );
+  const [formMoneda, setFormMoneda] = useState<'PEN' | 'USD'>(ctaActiva?.moneda || 'PEN');
+  const [formTipoCambio, setFormTipoCambio] = useState<number>(3.75);
+  const [formTieneRetencion, setFormTieneRetencion] = useState<boolean>(false);
+  const [formPctRetencion, setFormPctRetencion] = useState<number>(3.0);
+  const [formMontoRetencion, setFormMontoRetencion] = useState<number>(0);
+  const [formTipoDiferencia, setFormTipoDiferencia] = useState<'GANANCIA' | 'PERDIDA' | 'NINGUNA'>('NINGUNA');
+  const [formDiferenciaCambio, setFormDiferenciaCambio] = useState<number>(0);
+  const [formTipoTributo, setFormTipoTributo] = useState<'IGV' | 'RENTA' | 'ESSALUD' | 'ONP'>('IGV');
+  const [formCuentaDestinoId, setFormCuentaDestinoId] = useState<string>('');
+
+  useEffect(() => {
+    if (ctaActiva?.moneda) {
+      setFormMoneda(ctaActiva.moneda);
+    }
+  }, [ctaActiva?.id]);
+
+  useEffect(() => {
+    if (subdiarioCodigo === '03') setFormModo('COBRANZA_FACTURA');
+    else if (subdiarioCodigo === '04') setFormModo('PAGO_PROVEEDOR');
+    else if (subdiarioCodigo === '05') setFormModo('DEPOSITO_DETRACCION');
+  }, [subdiarioCodigo]);
+
+  // Previsualización contable en tiempo real para Tesorería
+  const previsualizacion = useMemo(() => {
+    const lineas: Array<{
+      linea: number;
+      codigoCuenta: string;
+      denominacionCuenta: string;
+      debe: number;
+      haber: number;
+    }> = [];
+    let num = 1;
+    const monto = Number(formMonto || 0);
+
+    if (monto <= 0) {
+      return {
+        lineas: [],
+        totalDebe: 0,
+        totalHaber: 0,
+        cuadrado: false,
+        diferencia: 0
+      };
+    }
+
+    if (formModo === 'COBRANZA_FACTURA' || formModo === 'COBRO_EFECTIVO' || formModo === 'COBRO_CHEQUE' || formModo === 'ANTICIPO_CLIENTE' || formModo === 'COBRO_USD') {
+      const ctaFin = formModo === 'COBRO_EFECTIVO'
+        ? '1011'
+        : (formModo === 'COBRO_CHEQUE'
+          ? '1031'
+          : (formMoneda === 'USD' ? '10412' : '10411'));
+      const nomFin = formModo === 'COBRO_EFECTIVO'
+        ? 'Caja central - Efectivo'
+        : (formModo === 'COBRO_CHEQUE'
+          ? 'Efectivo en tránsito - Cheques en cartera'
+          : (formMoneda === 'USD'
+            ? 'Cuentas corrientes operativas - Moneda extranjera'
+            : 'Cuentas corrientes operativas - Moneda nacional'));
+
+      const ctaCobrar = formModo === 'ANTICIPO_CLIENTE' ? '1221' : '1212';
+      const nomCobrar = formModo === 'ANTICIPO_CLIENTE'
+        ? 'Anticipos de clientes'
+        : 'Facturas por cobrar - Emitidas en cartera';
+
+      if (formTipoDiferencia === 'GANANCIA' && formDiferenciaCambio > 0) {
+        const montoOrig = Number((monto - formDiferenciaCambio).toFixed(2));
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: monto, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: ctaCobrar, denominacionCuenta: nomCobrar, debe: 0, haber: montoOrig });
+        lineas.push({ linea: num++, codigoCuenta: '776', denominacionCuenta: 'Ganancia por diferencia de cambio', debe: 0, haber: formDiferenciaCambio });
+      } else if (formTipoDiferencia === 'PERDIDA' && formDiferenciaCambio > 0) {
+        const montoOrig = Number((monto + formDiferenciaCambio).toFixed(2));
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: monto, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: '676', denominacionCuenta: 'Pérdida por diferencia de cambio', debe: formDiferenciaCambio, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: ctaCobrar, denominacionCuenta: nomCobrar, debe: 0, haber: montoOrig });
+      } else {
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: monto, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: ctaCobrar, denominacionCuenta: nomCobrar, debe: 0, haber: monto });
+      }
+    } else if (formModo === 'DEPOSITO_CHEQUE') {
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '1031', denominacionCuenta: 'Efectivo en tránsito - Cheques en cartera', debe: 0, haber: monto });
+    } else if (formModo === 'APERTURA_CAJA_CHICA') {
+      lineas.push({ linea: num++, codigoCuenta: '1021', denominacionCuenta: 'Fondos fijos - Caja chica moneda nacional', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional', debe: 0, haber: monto });
+    } else if (formModo === 'PAGO_PROVEEDOR' || formModo === 'PAGO_RETENCION_CRE' || formModo === 'PAGO_CAJA_CHICA' || formModo === 'PAGO_USD') {
+      const ctaPasivo = '4212';
+      const ctaFin = formModo === 'PAGO_CAJA_CHICA'
+        ? '1021'
+        : (formMoneda === 'USD' ? '10412' : '10411');
+      const nomFin = formModo === 'PAGO_CAJA_CHICA'
+        ? 'Fondos fijos - Caja chica'
+        : (formMoneda === 'USD'
+          ? 'Cuentas corrientes operativas - Moneda extranjera'
+          : 'Cuentas corrientes operativas - Moneda nacional');
+
+      if ((formModo === 'PAGO_RETENCION_CRE' || formTieneRetencion) && formMontoRetencion > 0) {
+        const neto = Number((monto - formMontoRetencion).toFixed(2));
+        lineas.push({ linea: num++, codigoCuenta: ctaPasivo, denominacionCuenta: 'Facturas por pagar - Emitidas (Total)', debe: monto, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: '40114', denominacionCuenta: 'IGV - Régimen de retenciones por pagar (3%)', debe: 0, haber: formMontoRetencion });
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: 0, haber: neto });
+      } else if (formTipoDiferencia === 'PERDIDA' && formDiferenciaCambio > 0) {
+        const montoOrig = Number((monto - formDiferenciaCambio).toFixed(2));
+        lineas.push({ linea: num++, codigoCuenta: ctaPasivo, denominacionCuenta: 'Facturas por pagar - Emitidas', debe: montoOrig, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: '676', denominacionCuenta: 'Pérdida por diferencia de cambio', debe: formDiferenciaCambio, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: 0, haber: monto });
+      } else if (formTipoDiferencia === 'GANANCIA' && formDiferenciaCambio > 0) {
+        const montoOrig = Number((monto + formDiferenciaCambio).toFixed(2));
+        lineas.push({ linea: num++, codigoCuenta: ctaPasivo, denominacionCuenta: 'Facturas por pagar - Emitidas', debe: montoOrig, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: '776', denominacionCuenta: 'Ganancia por diferencia de cambio', debe: 0, haber: formDiferenciaCambio });
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: 0, haber: monto });
+      } else {
+        lineas.push({ linea: num++, codigoCuenta: ctaPasivo, denominacionCuenta: 'Facturas por pagar - Emitidas', debe: monto, haber: 0 });
+        lineas.push({ linea: num++, codigoCuenta: ctaFin, denominacionCuenta: nomFin, debe: 0, haber: monto });
+      }
+    } else if (formModo === 'PAGO_TRIBUTOS_1662') {
+      const ctaTrib = formTipoTributo === 'RENTA' ? '40171' : (formTipoTributo === 'ESSALUD' ? '4031' : (formTipoTributo === 'ONP' ? '4032' : '40111'));
+      const nomTrib = formTipoTributo === 'RENTA' ? 'Impuesto a la renta - 3ra categoría' : (formTipoTributo === 'ESSALUD' ? 'EsSalud por pagar' : (formTipoTributo === 'ONP' ? 'ONP por pagar' : 'IGV cuenta propia por pagar'));
+      lineas.push({ linea: num++, codigoCuenta: ctaTrib, denominacionCuenta: nomTrib, debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional', debe: 0, haber: monto });
+    } else if (formModo === 'TRANSFERENCIA_CUENTAS') {
+      lineas.push({ linea: num++, codigoCuenta: '10412', denominacionCuenta: 'Cuenta financiera destino (USD / Banco B)', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuenta financiera origen (PEN / Banco A)', debe: 0, haber: monto });
+    } else if (formModo === 'REEMBOLSO_CAJA_CHICA') {
+      lineas.push({ linea: num++, codigoCuenta: '1021', denominacionCuenta: 'Fondos fijos - Caja chica (Reposición)', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional', debe: 0, haber: monto });
+    } else if (formModo === 'DEPOSITO_DETRACCION') {
+      lineas.push({ linea: num++, codigoCuenta: '4213', denominacionCuenta: 'Detracciones por pagar Banco de la Nación', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas comerciales', debe: 0, haber: monto });
+    } else if (formModo === 'AUTODETRACCION') {
+      lineas.push({ linea: num++, codigoCuenta: '1071', denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '1212', denominacionCuenta: 'Facturas por cobrar clientes - SPOT autodetracción', debe: 0, haber: monto });
+    } else if (formModo === 'PAGO_TRIBUTOS_DETRACCION') {
+      lineas.push({ linea: num++, codigoCuenta: '40111', denominacionCuenta: 'IGV cuenta propia por pagar', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '1071', denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación', debe: 0, haber: monto });
+    } else if (formModo === 'LIBERACION_DETRACCION') {
+      lineas.push({ linea: num++, codigoCuenta: '10411', denominacionCuenta: 'Cuentas corrientes operativas comerciales', debe: monto, haber: 0 });
+      lineas.push({ linea: num++, codigoCuenta: '1071', denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación', debe: 0, haber: monto });
+    }
+
+    const totalDebe = Number(lineas.reduce((acc, l) => acc + l.debe, 0).toFixed(2));
+    const totalHaber = Number(lineas.reduce((acc, l) => acc + l.haber, 0).toFixed(2));
+    const dif = Number(Math.abs(totalDebe - totalHaber).toFixed(2));
+
+    return {
+      lineas,
+      totalDebe,
+      totalHaber,
+      cuadrado: totalDebe > 0 && dif === 0,
+      diferencia: dif
+    };
+  }, [formModo, formMonto, formMoneda, formTipoDiferencia, formDiferenciaCambio, formTieneRetencion, formMontoRetencion, formTipoTributo, ctaActiva]);
+
+  const handleRegistrarDigitacion = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!ctaActiva || formMonto <= 0 || !formGlosa) {
+      error('Complete el importe mayor a 0 y la glosa para registrar el movimiento.', 'Campos Requeridos');
+      return;
+    }
+
+    try {
+      let tipoMov: any = 'INGRESO';
+      let esCheque = false;
+      let esDepositoCheque = false;
+      let esAnticipo = false;
+      let cuentaContrapartida: string | undefined = undefined;
+
+      if (formModo === 'COBRANZA_FACTURA' || formModo === 'COBRO_USD') {
+        tipoMov = 'INGRESO';
+        cuentaContrapartida = '1212';
+      } else if (formModo === 'COBRO_EFECTIVO') {
+        tipoMov = 'INGRESO';
+        cuentaContrapartida = '1212';
+      } else if (formModo === 'COBRO_CHEQUE') {
+        tipoMov = 'INGRESO';
+        esCheque = true;
+        cuentaContrapartida = '1212';
+      } else if (formModo === 'DEPOSITO_CHEQUE') {
+        tipoMov = 'INGRESO';
+        esDepositoCheque = true;
+        cuentaContrapartida = '1031';
+      } else if (formModo === 'ANTICIPO_CLIENTE') {
+        tipoMov = 'INGRESO';
+        esAnticipo = true;
+        cuentaContrapartida = '1221';
+      } else if (formModo === 'APERTURA_CAJA_CHICA') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '1021';
+      } else if (formModo === 'PAGO_PROVEEDOR' || formModo === 'PAGO_USD') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '4212';
+      } else if (formModo === 'PAGO_RETENCION_CRE') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '4212';
+      } else if (formModo === 'PAGO_CAJA_CHICA') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '4212';
+      } else if (formModo === 'PAGO_TRIBUTOS_1662') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = formTipoTributo === 'RENTA' ? '40171' : (formTipoTributo === 'ESSALUD' ? '4031' : (formTipoTributo === 'ONP' ? '4032' : '40111'));
+      } else if (formModo === 'TRANSFERENCIA_CUENTAS') {
+        tipoMov = 'TRANSFERENCIA';
+      } else if (formModo === 'REEMBOLSO_CAJA_CHICA') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '1021';
+      } else if (formModo === 'DEPOSITO_DETRACCION') {
+        tipoMov = 'DEPOSITO_DETRACCION';
+        cuentaContrapartida = '4213';
+      } else if (formModo === 'AUTODETRACCION') {
+        tipoMov = 'INGRESO';
+        cuentaContrapartida = '1212';
+      } else if (formModo === 'PAGO_TRIBUTOS_DETRACCION') {
+        tipoMov = 'EGRESO';
+        cuentaContrapartida = '40111';
+      } else if (formModo === 'LIBERACION_DETRACCION') {
+        tipoMov = 'INGRESO';
+        cuentaContrapartida = '1071';
+      }
+
+      const aplicaciones = docSeleccionadoId && montoAplicar > 0
+        ? [{ documentoId: docSeleccionadoId, importeAplicado: Math.min(montoAplicar, formMonto) }]
+        : undefined;
+
+      await regMovMutation.mutateAsync({
+        periodoId: `per-${periodo}`,
+        cuentaFinancieraId: ctaActiva.id,
+        fecha: formFecha,
+        tipo: tipoMov,
+        subdiario: codigoSubdiarioActivo,
+        medioPago: formModo === 'COBRO_EFECTIVO' || formModo === 'PAGO_CAJA_CHICA' ? '008' : (formModo === 'COBRO_CHEQUE' || formModo === 'DEPOSITO_CHEQUE' ? '001' : '003'),
+        numeroOperacion: formOperacion || `OP-${Date.now().toString().slice(-6)}`,
+        anexoId: formAnexoId || undefined,
+        moneda: formMoneda,
+        tipoCambio: formTipoCambio,
+        importe: formMonto,
+        glosa: formGlosa,
+        cuentaContrapartidaCodigo: cuentaContrapartida,
+        tieneRetencion: formModo === 'PAGO_RETENCION_CRE' ? true : formTieneRetencion,
+        montoRetencion: formModo === 'PAGO_RETENCION_CRE' ? (formMontoRetencion || Number((formMonto * 0.03).toFixed(2))) : formMontoRetencion,
+        porcentajeRetencion: formPctRetencion,
+        esCheque,
+        esDepositoCheque,
+        esAnticipo,
+        diferenciaCambio: formDiferenciaCambio,
+        tipoDiferencia: formTipoDiferencia,
+        aplicaciones
+      });
+
+      setFormMonto(0);
+      setFormGlosa('');
+      setFormOperacion('');
+      setDocSeleccionadoId('');
+      setMontoAplicar(0);
+      setFormDiferenciaCambio(0);
+      setFormMontoRetencion(0);
+      success(`Movimiento contabilizado exitosamente en Subdiario ${codigoSubdiarioActivo} con partida doble cuadrada.`, 'Asiento Generado');
+    } catch (err: any) {
+      error('Error al registrar movimiento: ' + (err?.response?.data?.error || err.message), 'Fallo al Guardar');
+    }
+  };
 
   // Documentos pendientes filtrados por anexo seleccionado
   const docsDisponibles = formTipo === 'INGRESO'
@@ -221,6 +497,15 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
           {/* Sub-tabs switch */}
           <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
             <button
+              onClick={() => setActiveSubTab('digitacion')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                activeSubTab === 'digitacion' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              Digitación Rápida
+            </button>
+            <button
               onClick={() => setActiveSubTab('movimientos')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                 activeSubTab === 'movimientos' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -295,7 +580,404 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
         })}
       </div>
 
-      {/* SUB-TAB 1: MOVIMIENTOS */}
+      {/* SUB-TAB 0: DIGITACIÓN RÁPIDA DE TESORERÍA (SUBDIARIOS 03, 04, 05) */}
+      {activeSubTab === 'digitacion' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Columna Izquierda: Formulario de Digitación Estructurado */}
+          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Digitación Rápida de Tesorería — Subdiario {codigoSubdiarioActivo}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {codigoSubdiarioActivo === '03'
+                      ? 'Registro de Cobranzas, Ingresos a Caja y Recuperaciones'
+                      : (codigoSubdiarioActivo === '05'
+                        ? 'Cuentas Corrientes Bancarias, Operaciones SPOT y Detracciones BN'
+                        : 'Registro de Pagos a Proveedores, Honorarios y Salidas de Tesorería')}
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                SD: {codigoSubdiarioActivo}
+              </span>
+            </div>
+
+            {/* Selector de Modo Operacional según Subdiario */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Tipo de Operación / Modo Contable
+              </label>
+              <select
+                value={formModo}
+                onChange={(e) => setFormModo(e.target.value)}
+                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-slate-50 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition text-slate-900"
+              >
+                {codigoSubdiarioActivo === '03' && (
+                  <>
+                    <option value="COBRANZA_FACTURA">ESC-COB-3.01: Cobranza de Facturas / Boletas Comerciales (10411 / 1212)</option>
+                    <option value="COBRO_EFECTIVO">ESC-COB-3.02: Cobro en Efectivo a Caja Central (1011 / 1212)</option>
+                    <option value="COBRO_USD">ESC-COB-3.03: Cobro en Moneda Extranjera USD con Tipo de Cambio (10412 / 1212 / 776-676)</option>
+                    <option value="COBRO_CHEQUE">ESC-COB-3.04: Cobro con Cheque recibido en Cartera (1031 / 1212)</option>
+                    <option value="DEPOSITO_CHEQUE">ESC-COB-3.04B: Depósito Bancario de Cheque en Cartera (10411 / 1031)</option>
+                    <option value="ANTICIPO_CLIENTE">ESC-COB-3.05: Cobro de Anticipo de Clientes (10411 / 1221)</option>
+                    <option value="APERTURA_CAJA_CHICA">ESC-COB-3.06: Apertura y Constitución de Fondo Fijo Caja Chica (1021 / 10411)</option>
+                  </>
+                )}
+                {codigoSubdiarioActivo === '04' && (
+                  <>
+                    <option value="PAGO_PROVEEDOR">ESC-PAG-4.01: Pago a Proveedor con Transferencia Cta Cte (4212 / 10411)</option>
+                    <option value="PAGO_RETENCION_CRE">ESC-PAG-4.02: Pago con Retención Electrónica CRE 3% (4212 / 40114 / 10411)</option>
+                    <option value="PAGO_CAJA_CHICA">ESC-PAG-4.03: Pago de Compras Menores con Caja Chica (4212 / 1021)</option>
+                    <option value="PAGO_USD">ESC-PAG-4.04: Pago en Dólares USD con Tipo de Cambio (4212 / 10412 / 676-776)</option>
+                    <option value="PAGO_TRIBUTOS_1662">ESC-PAG-4.05: Pago de Tributos Guía Pago Fácil FV 1662 (40111-40171 / 10411)</option>
+                    <option value="TRANSFERENCIA_CUENTAS">ESC-PAG-4.06: Transferencia entre Cuentas Bancarias Propias (10412 / 10411)</option>
+                    <option value="REEMBOLSO_CAJA_CHICA">ESC-PAG-4.07: Rendición y Reembolso / Reposición de Caja Chica (1021 / 10411)</option>
+                  </>
+                )}
+                {codigoSubdiarioActivo === '05' && (
+                  <>
+                    <option value="DEPOSITO_DETRACCION">ESC-SPOT-5.01: Depósito de Detracción SPOT al Banco de la Nación Proveedor (4213 / 10411)</option>
+                    <option value="AUTODETRACCION">ESC-SPOT-5.02: Autodetracción Abonada en Cuenta BN del Titular (1071 / 1212)</option>
+                    <option value="PAGO_TRIBUTOS_DETRACCION">ESC-SPOT-5.03: Pago de Tributos con Fondos de Detracciones SPOT BN (40111 / 1071)</option>
+                    <option value="LIBERACION_DETRACCION">ESC-SPOT-5.04: Liberación y Traslado de Fondos SPOT a Cta Operativa (10411 / 1071)</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            {/* Cuenta Financiera y Fecha */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Cuenta Financiera / Fondo
+                </label>
+                <select
+                  value={cuentaSeleccionadaId || ctaActiva?.id}
+                  onChange={(e) => setCuentaSeleccionadaId(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  {cuentas.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.banco} ({c.moneda}) - Cta: {c.cuentaContableCodigo} (N° {c.numero})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Fecha de Operación
+                </label>
+                <input
+                  type="date"
+                  value={formFecha}
+                  onChange={(e) => setFormFecha(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Moneda, Tipo de Cambio y N° Operación */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Moneda</label>
+                <select
+                  value={formMoneda}
+                  onChange={(e) => setFormMoneda(e.target.value as any)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="PEN">Soles (PEN)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tipo de Cambio</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  value={formTipoCambio}
+                  onChange={(e) => setFormTipoCambio(Number(e.target.value))}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">N° Operación / Constancia</label>
+                <input
+                  type="text"
+                  placeholder="Ej. OP-98231 o Constancia SPOT"
+                  value={formOperacion}
+                  onChange={(e) => setFormOperacion(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Anexo y Documento Pendiente */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {codigoSubdiarioActivo === '03' ? 'Cliente / Anexo' : 'Proveedor / Entidad Anexo'}
+                </label>
+                <select
+                  value={formAnexoId}
+                  onChange={(e) => setFormAnexoId(e.target.value)}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">-- Sin anexo específico / Varios --</option>
+                  {anexos.map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {a.numeroDocumento} - {a.razonSocial}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Documento Pendiente Relacionado
+                </label>
+                <select
+                  value={docSeleccionadoId}
+                  onChange={(e) => {
+                    setDocSeleccionadoId(e.target.value);
+                    const d = docsDisponibles.find((x: any) => x.id === e.target.value);
+                    if (d) {
+                      setMontoAplicar(d.saldoPendiente || d.total);
+                      setFormMonto(d.saldoPendiente || d.total);
+                      setFormGlosa(`Cobro/Pago ${d.serie}-${d.numero} - ${d.razonSocial || ''}`);
+                    }
+                  }}
+                  className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">-- Selección libre / Sin documento previo --</option>
+                  {docsDisponibles.map((d: any) => (
+                    <option key={d.id} value={d.id}>
+                      {d.tipoComprobante} {d.serie}-{d.numero} (Saldo: {d.moneda === 'USD' ? '$' : 'S/'} {(d.saldoPendiente || d.total).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Importe y Parámetros Específicos */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Importe Principal ({formMoneda})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={formMonto || ''}
+                    onChange={(e) => setFormMonto(Number(e.target.value))}
+                    className="w-full text-sm font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Tributo si es pago de impuestos */}
+                {(formModo === 'PAGO_TRIBUTOS_1662' || formModo === 'PAGO_TRIBUTOS_DETRACCION') && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Tributo a Cancelar</label>
+                    <select
+                      value={formTipoTributo}
+                      onChange={(e) => setFormTipoTributo(e.target.value as any)}
+                      className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800"
+                    >
+                      <option value="IGV">IGV Cuenta Propia (Cta 40111)</option>
+                      <option value="RENTA">Impuesto a la Renta 3ra Cat (Cta 40171)</option>
+                      <option value="ESSALUD">Contribución EsSalud 9% (Cta 4031)</option>
+                      <option value="ONP">Sistema Nacional Pensiones ONP (Cta 4032)</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Retención si es pago con CRE */}
+                {formModo === 'PAGO_RETENCION_CRE' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Retención CRE (3%)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formMontoRetencion || Number((formMonto * 0.03).toFixed(2))}
+                        onChange={(e) => setFormMontoRetencion(Number(e.target.value))}
+                        className="w-full text-xs font-bold border border-slate-300 rounded-xl p-2.5 bg-white text-slate-900"
+                      />
+                      <span className="text-[11px] text-slate-500 whitespace-nowrap">Neto: S/ {(formMonto - (formMontoRetencion || Number((formMonto * 0.03).toFixed(2)))).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Diferencia de cambio si es USD */}
+                {(formModo === 'COBRO_USD' || formModo === 'PAGO_USD') && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Ajuste por Diferencia de Cambio</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={formTipoDiferencia}
+                        onChange={(e) => setFormTipoDiferencia(e.target.value as any)}
+                        className="text-xs border border-slate-300 rounded-xl p-2 bg-white text-slate-800"
+                      >
+                        <option value="NINGUNA">Sin diferencia</option>
+                        <option value="GANANCIA">Ganancia (776)</option>
+                        <option value="PERDIDA">Pérdida (676)</option>
+                      </select>
+                      {formTipoDiferencia !== 'NINGUNA' && (
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Monto dif."
+                          value={formDiferenciaCambio || ''}
+                          onChange={(e) => setFormDiferenciaCambio(Number(e.target.value))}
+                          className="w-28 text-xs font-bold border border-slate-300 rounded-xl p-2 bg-white text-slate-900"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Glosa */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Glosa Contable</label>
+              <input
+                type="text"
+                placeholder="Descripción concisa de la operación contable"
+                value={formGlosa}
+                onChange={(e) => setFormGlosa(e.target.value)}
+                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Columna Derecha: Panel de Previsualización Contable PCGE */}
+          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  Previsualización de Asiento PCGE
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 uppercase">
+                  Partida Doble
+                </span>
+              </div>
+
+              {/* Glosa Automática */}
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Glosa Automática</div>
+                <div className="text-xs text-slate-800 font-medium truncate mt-0.5">
+                  {formGlosa || `${formModo} - Operación ${formOperacion || 'SD' + codigoSubdiarioActivo}`}
+                </div>
+              </div>
+
+              {/* Grilla de Cuentas */}
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[10px] uppercase">
+                    <tr>
+                      <th className="p-2.5">Cuenta</th>
+                      <th className="p-2.5 text-right">Debe</th>
+                      <th className="p-2.5 text-right">Haber</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                    {previsualizacion.lineas.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="p-4 text-center text-slate-400 text-xs">
+                          Ingrese el importe y seleccione la operación para ver el asiento contable.
+                        </td>
+                      </tr>
+                    ) : (
+                      previsualizacion.lineas.map((l) => (
+                        <tr key={l.linea} className="hover:bg-slate-50/60">
+                          <td className="p-2.5">
+                            <span className="font-mono font-bold text-blue-700">{l.codigoCuenta}</span>
+                            <div className="text-[11px] text-slate-500 truncate max-w-[200px]">
+                              {l.denominacionCuenta}
+                            </div>
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">
+                            {l.debe > 0 ? l.debe.toFixed(2) : '-'}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">
+                            {l.haber > 0 ? l.haber.toFixed(2) : '-'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {previsualizacion.lineas.length > 0 && (
+                    <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-slate-900">
+                      <tr>
+                        <td className="p-2.5 text-[11px] uppercase">Totales</td>
+                        <td className="p-2.5 text-right font-mono text-xs">
+                          {previsualizacion.totalDebe.toFixed(2)}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-xs">
+                          {previsualizacion.totalHaber.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+
+              {/* Estado de Partida Doble */}
+              <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200">
+                <span className="text-xs font-bold text-slate-700">Partida Doble:</span>
+                {previsualizacion.cuadrado ? (
+                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    CUADRADO (Dif: S/ 0.00)
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold text-rose-600 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    DESCUADRADO (Dif: S/ {Math.abs(previsualizacion.diferencia).toFixed(2)})
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Acciones de Registro */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col gap-2 mt-4">
+              <button
+                type="button"
+                onClick={handleRegistrarDigitacion}
+                disabled={!previsualizacion.cuadrado || previsualizacion.lineas.length === 0}
+                className="w-full py-2.5 px-4 bg-[#2457D6] hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <FileCheck className="w-4 h-4" />
+                Registrar y Contabilizar (Ctrl+Enter)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormMonto(0);
+                  setFormGlosa('');
+                  setFormOperacion('');
+                  setDocSeleccionadoId('');
+                }}
+                className="w-full py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition text-center"
+              >
+                Limpiar Formulario (Ctrl+N)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {activeSubTab === 'movimientos' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           {/* Filters Bar */}

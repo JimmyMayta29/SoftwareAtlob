@@ -231,7 +231,13 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
         return <PlanillaPlameView />;
       case 'CAJA':
       case 'BANCO':
-        return <CajaBancosView />;
+        return (
+          <CajaBancosView
+            empresaId={empresaId}
+            periodo={periodo}
+            subdiarioCodigo={subdiarioActual.codigo}
+          />
+        );
       case 'APERTURA':
       case 'DIARIO':
       case 'PROVISIONES':

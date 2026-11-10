@@ -171,6 +171,45 @@ export interface VentaAutomatizadaInput {
   glosa?: string;
 }
 
+export interface TesoreriaAutomatizadaInput {
+  subdiario?: '03' | '04' | '05';
+  tipoOperacionTesoreria:
+    | 'COBRANZA'
+    | 'PAGO'
+    | 'TRANSFERENCIA'
+    | 'DEPOSITO_DETRACCION'
+    | 'AUTODETRACCION'
+    | 'PAGO_TRIBUTOS_DETRACCION'
+    | 'LIBERACION_DETRACCION'
+    | 'CAJA_CHICA_APERTURA'
+    | 'CAJA_CHICA_PAGO'
+    | 'CAJA_CHICA_REPOSICION';
+  monto: number;
+  montoMe?: number;
+  moneda?: 'PEN' | 'USD';
+  tipoCambio?: number;
+  glosa: string;
+  cuentaFinancieraCodigo?: string;
+  cuentaContrapartidaCodigo?: string;
+  anexoId?: string;
+  anexoNombre?: string;
+  docTipo?: string;
+  docSerie?: string;
+  docNumero?: string;
+  tieneRetencion?: boolean;
+  montoRetencion?: number;
+  porcentajeRetencion?: number;
+  diferenciaCambio?: number;
+  tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
+  montoOriginalDoc?: number;
+  esCheque?: boolean;
+  esDepositoCheque?: boolean;
+  esAnticipo?: boolean;
+  tipoTributo?: 'IGV' | 'RENTA' | 'ESSALUD' | 'ONP';
+  cuentaDestinoCodigo?: string;
+  montoDestino?: number;
+}
+
 export const contabilizacionService = {
   /**
    * Genera las líneas de asiento propuestas evaluando las reglas configuradas por empresa.
@@ -393,45 +432,51 @@ export const contabilizacionService = {
       }
 
       case 'COBRANZA': {
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '1041',
-          denominacionCuenta: 'Cuentas corrientes operativas',
-          debe: Money.toNumber(total),
-          haber: 0.00,
-          glosaLinea: datos.glosa || 'Cobranza en cuenta corriente'
-        });
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '1212',
-          denominacionCuenta: 'Facturas por cobrar - Emitidas en cartera',
-          debe: 0.00,
-          haber: Money.toNumber(total),
-          glosaLinea: `Cancelación de cuenta por cobrar`,
-          anexoId: datos.anexoId
-        });
-        break;
+        const datosCobranza: TesoreriaAutomatizadaInput = {
+          subdiario: '03',
+          tipoOperacionTesoreria: 'COBRANZA',
+          monto: Money.toNumber(total),
+          moneda: datos.moneda || 'PEN',
+          tipoCambio: datos.tipoCambio,
+          glosa: datos.glosa || 'Cobranza en cuenta corriente',
+          cuentaFinancieraCodigo: datos.cuentaFinancieraCodigo || '1041',
+          cuentaContrapartidaCodigo: (datos as any).cuentaContrapartidaCodigo || (datos as any).cuentaCobrarCodigo || '1212',
+          anexoId: datos.anexoId,
+          anexoNombre: datos.anexoRazonSocial,
+          docTipo: datos.docTipo,
+          docSerie: datos.docSerie,
+          docNumero: datos.docNumero,
+          esCheque: (datos as any).esCheque,
+          esDepositoCheque: (datos as any).esDepositoCheque,
+          esAnticipo: (datos as any).esAnticipo,
+          diferenciaCambio: datos.diferenciaCambio,
+          tipoDiferencia: datos.tipoDiferencia
+        };
+        return await this.generarAsientoTesoreriaAutomatizada(empresaId, datosCobranza);
       }
 
       case 'PAGO': {
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '4212',
-          denominacionCuenta: 'Facturas por pagar - Emitidas',
-          debe: Money.toNumber(total),
-          haber: 0.00,
-          glosaLinea: `Cancelación a proveedor`,
-          anexoId: datos.anexoId
-        });
-        lineas.push({
-          linea: lineaNum++,
-          codigoCuenta: '1041',
-          denominacionCuenta: 'Cuentas corrientes operativas',
-          debe: 0.00,
-          haber: Money.toNumber(total),
-          glosaLinea: datos.glosa || 'Pago con transferencia bancaria'
-        });
-        break;
+        const datosPago: TesoreriaAutomatizadaInput = {
+          subdiario: '04',
+          tipoOperacionTesoreria: 'PAGO',
+          monto: Money.toNumber(total),
+          moneda: datos.moneda || 'PEN',
+          tipoCambio: datos.tipoCambio,
+          glosa: datos.glosa || 'Pago con transferencia bancaria',
+          cuentaFinancieraCodigo: datos.cuentaFinancieraCodigo || '1041',
+          cuentaContrapartidaCodigo: (datos as any).cuentaContrapartidaCodigo || (datos as any).cuentaPagarCodigo || '4212',
+          anexoId: datos.anexoId,
+          anexoNombre: datos.anexoRazonSocial,
+          docTipo: datos.docTipo,
+          docSerie: datos.docSerie,
+          docNumero: datos.docNumero,
+          tieneRetencion: (datos as any).tieneRetencion,
+          montoRetencion: (datos as any).montoRetencion,
+          porcentajeRetencion: (datos as any).porcentajeRetencion,
+          diferenciaCambio: datos.diferenciaCambio,
+          tipoDiferencia: datos.tipoDiferencia
+        };
+        return await this.generarAsientoTesoreriaAutomatizada(empresaId, datosPago);
       }
 
       case 'HONORARIO': {
@@ -1566,6 +1611,522 @@ export const contabilizacionService = {
       cuadrado: Money.isEqual(sumDebe, sumHaber),
       diferencia: Money.toNumber(dif),
       metodoInventario
+    };
+  },
+
+  /**
+   * Generación integral de asientos contables de Tesorería (Subdiarios 03, 04 y 05)
+   * Cobranzas, pagos, cheques en cartera, anticipos, retenciones CRE 3%, caja chica y detracciones SPOT
+   */
+  async generarAsientoTesoreriaAutomatizada(
+    empresaId: string,
+    input: TesoreriaAutomatizadaInput
+  ): Promise<ResultadoPrevisualizacion> {
+    const lineas: LineaAsientoPropuesta[] = [];
+    let lineaNum = 1;
+    const monto = Money.create(input.monto);
+    const esDolares = input.moneda === 'USD';
+    const tipoCambio = input.tipoCambio && input.tipoCambio > 0 ? input.tipoCambio : 1.0;
+
+    switch (input.tipoOperacionTesoreria) {
+      case 'COBRANZA': {
+        if (input.esDepositoCheque) {
+          // ESC-COB-3.04 (Fase Depósito): D: 10411 / H: 1031
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: input.cuentaFinancieraCodigo || '10411',
+            denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional',
+            debe: Money.toNumber(monto),
+            haber: 0.00,
+            glosaLinea: input.glosa || 'Depósito en cuenta corriente de cheque en cartera'
+          });
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '1031',
+            denominacionCuenta: 'Efectivo en tránsito - Cheques en cartera',
+            debe: 0.00,
+            haber: Money.toNumber(monto),
+            glosaLinea: 'Descargo de cheque en cartera por depósito bancario'
+          });
+        } else {
+          // Cobranza normal / cheque recibido / anticipo
+          const ctaFin = input.esCheque
+            ? '1031'
+            : (input.cuentaFinancieraCodigo || (esDolares ? '10412' : '10411'));
+          const nomCtaFin = ctaFin === '1031'
+            ? 'Efectivo en tránsito - Cheques en cartera'
+            : (ctaFin === '1011'
+              ? 'Caja central - Efectivo'
+              : (ctaFin === '10412'
+                ? 'Cuentas corrientes operativas - Moneda extranjera'
+                : 'Cuentas corrientes operativas - Moneda nacional'));
+
+          const ctaCobrar = input.esAnticipo
+            ? '1221'
+            : (input.cuentaContrapartidaCodigo || '1212');
+          const nomCtaCobrar = ctaCobrar === '1221'
+            ? 'Anticipos de clientes'
+            : (ctaCobrar === '12122'
+              ? 'Facturas por cobrar - SPOT Detracciones Banco de la Nación'
+              : 'Facturas por cobrar - Emitidas en cartera');
+
+          const difCambio = input.diferenciaCambio ? Money.create(input.diferenciaCambio) : Money.create(0);
+          const tipoDif = input.tipoDiferencia || 'NINGUNA';
+
+          if (tipoDif === 'GANANCIA' && !difCambio.isZero()) {
+            // Sube TC: Debe Banco (monto total cobrado), Haber 1212 (monto original), Haber 776 (ganancia)
+            const montoOriginal = Money.sub(monto, difCambio);
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: Money.toNumber(monto),
+              haber: 0.00,
+              glosaLinea: input.glosa || 'Cobranza en moneda extranjera al TC cobro'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaCobrar,
+              denominacionCuenta: nomCtaCobrar,
+              debe: 0.00,
+              haber: Money.toNumber(montoOriginal),
+              glosaLinea: 'Cancelación de factura al tipo de cambio original',
+              anexoId: input.anexoId
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: '776',
+              denominacionCuenta: 'Ganancia por diferencia de cambio',
+              debe: 0.00,
+              haber: Money.toNumber(difCambio),
+              glosaLinea: 'Ganancia por tipo de cambio en cobranza de clientes'
+            });
+          } else if (tipoDif === 'PERDIDA' && !difCambio.isZero()) {
+            // Baja TC: Debe Banco (monto cobrado), Debe 676 (pérdida), Haber 1212 (monto original)
+            const montoOriginal = Money.add(monto, difCambio);
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: Money.toNumber(monto),
+              haber: 0.00,
+              glosaLinea: input.glosa || 'Cobranza en moneda extranjera al TC cobro'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: '676',
+              denominacionCuenta: 'Pérdida por diferencia de cambio',
+              debe: Money.toNumber(difCambio),
+              haber: 0.00,
+              glosaLinea: 'Pérdida por tipo de cambio en cobranza de clientes'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaCobrar,
+              denominacionCuenta: nomCtaCobrar,
+              debe: 0.00,
+              haber: Money.toNumber(montoOriginal),
+              glosaLinea: 'Cancelación de factura al tipo de cambio original',
+              anexoId: input.anexoId
+            });
+          } else {
+            // Ordinario
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: Money.toNumber(monto),
+              haber: 0.00,
+              glosaLinea: input.glosa || 'Cobranza de cliente'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaCobrar,
+              denominacionCuenta: nomCtaCobrar,
+              debe: 0.00,
+              haber: Money.toNumber(monto),
+              glosaLinea: input.esAnticipo ? 'Registro de anticipo recibido de cliente' : 'Cancelación de factura por cobrar',
+              anexoId: input.anexoId
+            });
+          }
+        }
+        break;
+      }
+
+      case 'PAGO': {
+        const ctaPasivo = input.cuentaContrapartidaCodigo || '4212';
+        const nomCtaPasivo = ctaPasivo === '4213'
+          ? 'Cuentas por pagar comerciales - Detracciones Banco de la Nación'
+          : (ctaPasivo === '424'
+            ? 'Honorarios por pagar (Cuarta categoría)'
+            : (ctaPasivo === '40111'
+              ? 'Gobierno nacional - IGV cuenta propia'
+              : (ctaPasivo === '40171'
+                ? 'Impuesto a la renta de tercera categoría'
+                : (ctaPasivo === '4031'
+                  ? 'Instituciones públicas - ESSALUD por pagar'
+                  : (ctaPasivo === '4032'
+                    ? 'Instituciones públicas - ONP por pagar'
+                    : 'Cuentas por pagar comerciales - Emitidas')))));
+
+        const ctaFin = input.cuentaFinancieraCodigo || (esDolares ? '10412' : '10411');
+        const nomCtaFin = ctaFin === '1011'
+          ? 'Caja central - Efectivo'
+          : (ctaFin === '1021'
+            ? 'Fondos fijos - Caja chica'
+            : (ctaFin === '10412'
+              ? 'Cuentas corrientes operativas - Moneda extranjera'
+              : 'Cuentas corrientes operativas - Moneda nacional'));
+
+        // ESC-PAG-4.02: Pago con Emisión de Comprobante de Retención Electrónica CRE Tipo 20
+        if (input.tieneRetencion && input.montoRetencion && input.montoRetencion > 0) {
+          const retencion = Money.create(input.montoRetencion);
+          const neto = Money.sub(monto, retencion);
+
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: ctaPasivo,
+            denominacionCuenta: nomCtaPasivo,
+            debe: Money.toNumber(monto),
+            haber: 0.00,
+            glosaLinea: input.glosa || 'Cancelación total factura sujeta a retención del IGV 3%',
+            anexoId: input.anexoId
+          });
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '40114',
+            denominacionCuenta: 'IGV - Régimen de retenciones por pagar (3%)',
+            debe: 0.00,
+            haber: Money.toNumber(retencion),
+            glosaLinea: 'Retención de IGV 3% al pago emitida mediante CRE'
+          });
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: ctaFin,
+            denominacionCuenta: nomCtaFin,
+            debe: 0.00,
+            haber: Money.toNumber(neto),
+            glosaLinea: 'Desembolso bancario neto (97%) deducida la retención CRE'
+          });
+        } else {
+          // Diferencia de cambio en pagos
+          const difCambio = input.diferenciaCambio ? Money.create(input.diferenciaCambio) : Money.create(0);
+          const tipoDif = input.tipoDiferencia || 'NINGUNA';
+
+          if (tipoDif === 'PERDIDA' && !difCambio.isZero()) {
+            // Sube TC: Debe 4212 (original), Debe 676 (pérdida), Haber Banco (monto pagado)
+            const montoOriginal = Money.sub(monto, difCambio);
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaPasivo,
+              denominacionCuenta: nomCtaPasivo,
+              debe: Money.toNumber(montoOriginal),
+              haber: 0.00,
+              glosaLinea: 'Cancelación de pasivo al tipo de cambio original',
+              anexoId: input.anexoId
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: '676',
+              denominacionCuenta: 'Pérdida por diferencia de cambio',
+              debe: Money.toNumber(difCambio),
+              haber: 0.00,
+              glosaLinea: 'Pérdida por tipo de cambio en pago a proveedores'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: 0.00,
+              haber: Money.toNumber(monto),
+              glosaLinea: input.glosa || 'Desembolso bancario al tipo de cambio del pago'
+            });
+          } else if (tipoDif === 'GANANCIA' && !difCambio.isZero()) {
+            // Baja TC: Debe 4212 (original), Haber 776 (ganancia), Haber Banco (monto pagado)
+            const montoOriginal = Money.add(monto, difCambio);
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaPasivo,
+              denominacionCuenta: nomCtaPasivo,
+              debe: Money.toNumber(montoOriginal),
+              haber: 0.00,
+              glosaLinea: 'Cancelación de pasivo al tipo de cambio original',
+              anexoId: input.anexoId
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: '776',
+              denominacionCuenta: 'Ganancia por diferencia de cambio',
+              debe: 0.00,
+              haber: Money.toNumber(difCambio),
+              glosaLinea: 'Ganancia por tipo de cambio en pago a proveedores'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: 0.00,
+              haber: Money.toNumber(monto),
+              glosaLinea: input.glosa || 'Desembolso bancario al tipo de cambio del pago'
+            });
+          } else {
+            // Ordinario
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaPasivo,
+              denominacionCuenta: nomCtaPasivo,
+              debe: Money.toNumber(monto),
+              haber: 0.00,
+              glosaLinea: input.glosa || 'Cancelación de obligación',
+              anexoId: input.anexoId
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: 0.00,
+              haber: Money.toNumber(monto),
+              glosaLinea: input.glosa || 'Desembolso financiero'
+            });
+          }
+        }
+        break;
+      }
+
+      case 'CAJA_CHICA_APERTURA': {
+        // ESC-COB-3.06: D: 1021 / H: 10411
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1021',
+          denominacionCuenta: 'Fondos fijos - Caja chica moneda nacional',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Constitución y apertura de fondo fijo de caja chica'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaFinancieraCodigo || '10411',
+          denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Emisión de cheque / transferencia para constitución de fondo fijo'
+        });
+        break;
+      }
+
+      case 'CAJA_CHICA_PAGO': {
+        // ESC-PAG-4.03: D: 4212 / H: 1021
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaContrapartidaCodigo || '4212',
+          denominacionCuenta: 'Cuentas por pagar comerciales - Emitidas (Gastos menores)',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Cancelación de compras menores con cargo a caja chica',
+          anexoId: input.anexoId
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1021',
+          denominacionCuenta: 'Fondos fijos - Caja chica moneda nacional',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Descargo de comprobante autorizado de caja chica'
+        });
+        break;
+      }
+
+      case 'CAJA_CHICA_REPOSICION': {
+        // ESC-PAG-4.07: D: 1021 / H: 10411
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1021',
+          denominacionCuenta: 'Fondos fijos - Caja chica moneda nacional (Reposición)',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Reposición de fondos por rendición de gastos menores'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaFinancieraCodigo || '10411',
+          denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Cheque / transferencia bancaria de reposición de caja chica'
+        });
+        break;
+      }
+
+      case 'DEPOSITO_DETRACCION': {
+        // ESC-SPOT-5.01: D: 4213 / H: 10411
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '4213',
+          denominacionCuenta: 'Cuentas por pagar comerciales - Detracciones Banco de la Nación',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Depósito de detracción SPOT a cuenta de proveedor en Banco de la Nación',
+          anexoId: input.anexoId
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaFinancieraCodigo || '10411',
+          denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Débito bancario comercial por pago de detracción SPOT'
+        });
+        break;
+      }
+
+      case 'AUTODETRACCION': {
+        // ESC-SPOT-5.02: D: 1071 / H: 1212 o 12122
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1071',
+          denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación (Detracciones)',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Depósito de autodetracción en cuenta propia Banco de la Nación'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaContrapartidaCodigo || '1212',
+          denominacionCuenta: 'Facturas por cobrar - Emitidas en cartera (SPOT autodetracción)',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Aplicación de autodetracción a cuenta por cobrar comercial',
+          anexoId: input.anexoId
+        });
+        break;
+      }
+
+      case 'PAGO_TRIBUTOS_DETRACCION': {
+        // ESC-SPOT-5.03: D: 40111 / H: 1071
+        const ctaTributo = input.cuentaContrapartidaCodigo || '40111';
+        const nomTributo = ctaTributo === '40171'
+          ? 'Impuesto a la renta - Tercera categoría por pagar'
+          : (ctaTributo === '4031'
+            ? 'Instituciones públicas - ESSALUD por pagar'
+            : (ctaTributo === '4032'
+              ? 'Instituciones públicas - ONP por pagar'
+              : 'Gobierno nacional - IGV cuenta propia'));
+
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaTributo,
+          denominacionCuenta: nomTributo,
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Pago de deuda tributaria SUNAT con cargo a cuenta de detracciones'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1071',
+          denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación (Detracciones)',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Débito en cuenta Banco de la Nación para pago de tributo SUNAT'
+        });
+        break;
+      }
+
+      case 'LIBERACION_DETRACCION': {
+        // ESC-SPOT-5.04: D: 10411 / H: 1071
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: input.cuentaFinancieraCodigo || '10411',
+          denominacionCuenta: 'Cuentas corrientes operativas - Moneda nacional',
+          debe: Money.toNumber(monto),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Ingreso por liberación de fondos de detracciones autorizada por SUNAT'
+        });
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: '1071',
+          denominacionCuenta: 'Fondos sujetos a restricción - Banco de la Nación (Detracciones)',
+          debe: 0.00,
+          haber: Money.toNumber(monto),
+          glosaLinea: 'Descargo de cuenta Banco de la Nación por liberación de fondos'
+        });
+        break;
+      }
+
+      case 'TRANSFERENCIA': {
+        // ESC-PAG-4.06: D: Cta Destino / H: Cta Origen
+        const ctaOrigen = input.cuentaFinancieraCodigo || '10411';
+        const ctaDestino = input.cuentaDestinoCodigo || '10412';
+        const montoOrigen = monto;
+        const montoDestino = input.montoDestino ? Money.create(input.montoDestino) : monto;
+        const difCambio = input.diferenciaCambio ? Money.create(input.diferenciaCambio) : Money.create(0);
+
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaDestino,
+          denominacionCuenta: 'Cuenta financiera destino',
+          debe: Money.toNumber(montoDestino),
+          haber: 0.00,
+          glosaLinea: input.glosa || 'Transferencia entre cuentas - Ingreso a destino'
+        });
+
+        if (input.tipoDiferencia === 'PERDIDA' && !difCambio.isZero()) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '676',
+            denominacionCuenta: 'Pérdida por diferencia de cambio',
+            debe: Money.toNumber(difCambio),
+            haber: 0.00,
+            glosaLinea: 'Ajuste por diferencia de cambio en transferencia bancaria'
+          });
+        }
+
+        lineas.push({
+          linea: lineaNum++,
+          codigoCuenta: ctaOrigen,
+          denominacionCuenta: 'Cuenta financiera origen',
+          debe: 0.00,
+          haber: Money.toNumber(montoOrigen),
+          glosaLinea: input.glosa || 'Transferencia entre cuentas - Salida de origen'
+        });
+
+        if (input.tipoDiferencia === 'GANANCIA' && !difCambio.isZero()) {
+          lineas.push({
+            linea: lineaNum++,
+            codigoCuenta: '776',
+            denominacionCuenta: 'Ganancia por diferencia de cambio',
+            debe: 0.00,
+            haber: Money.toNumber(difCambio),
+            glosaLinea: 'Ajuste por diferencia de cambio en transferencia bancaria'
+          });
+        }
+        break;
+      }
+    }
+
+    // Calcular totales y verificar cuadre
+    let sumDebe = Money.create(0);
+    let sumHaber = Money.create(0);
+
+    for (const l of lineas) {
+      if (esDolares && !input.diferenciaCambio) {
+        l.debeMe = l.debe;
+        l.haberMe = l.haber;
+        l.debe = Money.toNumber(Money.mul(l.debe, tipoCambio));
+        l.haber = Money.toNumber(Money.mul(l.haber, tipoCambio));
+      }
+      sumDebe = Money.add(sumDebe, l.debe);
+      sumHaber = Money.add(sumHaber, l.haber);
+    }
+
+    const dif = Money.sub(sumDebe, sumHaber);
+
+    return {
+      glosaGeneral: input.glosa || `Movimiento de tesorería ${input.tipoOperacionTesoreria}`,
+      lineas,
+      totalDebe: Money.toNumber(sumDebe),
+      totalHaber: Money.toNumber(sumHaber),
+      cuadrado: Money.isEqual(sumDebe, sumHaber),
+      diferencia: Money.toNumber(dif)
     };
   }
 

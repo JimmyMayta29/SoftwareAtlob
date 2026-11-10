@@ -33,11 +33,21 @@ export const movimientoTesoreriaSchema = z.object({
   importe: z.number().positive(),
   glosa: z.string().min(1),
   detraccionId: z.string().optional(),
+  subdiario: z.string().optional(),
+  cuentaContrapartidaCodigo: z.string().optional(),
+  tieneRetencion: z.boolean().optional(),
+  montoRetencion: z.number().optional(),
+  porcentajeRetencion: z.number().optional(),
+  esCheque: z.boolean().optional(),
+  esDepositoCheque: z.boolean().optional(),
+  esAnticipo: z.boolean().optional(),
+  diferenciaCambio: z.number().optional(),
+  tipoDiferencia: z.enum(['GANANCIA', 'PERDIDA', 'NINGUNA']).optional(),
   aplicaciones: z.array(z.object({
     documentoId: z.string(),
     importeAplicado: z.number().positive()
   })).optional()
-});
+}).passthrough();
 
 export const transferenciaSchema = z.object({
   periodoId: z.string().min(1),
