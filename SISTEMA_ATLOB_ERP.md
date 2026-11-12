@@ -3,22 +3,22 @@
 **Sistema Contable, Tributario y de Planillas (Perú — PCGE 2026 / SUNAT / SIRE / PLE / PLAME)**  
 **Fecha de auditoría técnica:** 11 de Noviembre de 2026  
 **Versión de paquete (`package.json`):** `0.0.0` (`contabilidad-estudio`)  
-**Rama y commit base evaluado:** `main` (`a0f7da4`, 09 de Noviembre de 2026)  
+**Rama y commit base evaluado:** `chore/limpieza-y-mejoras` (`9cc42f0` tras D6, 11 de Noviembre de 2026; corte de código `a0f7da4`, línea base `pre-limpieza` en `e402bef`)  
 **Propósito del documento:** Entregar a revisores técnicos y contadores externos una radiografía exacta, verificada en el código fuente y con métricas reproducibles, separando estrictamente lo implementado y probado en memoria/estático de lo pendiente de certificación sobre PostgreSQL real.
 
 ---
 
 ## 1. Resumen Ejecutivo y Dictamen de Madurez
 
-**ATLOB ERP** es una plataforma contable multiempresa diseñada para estudios contables peruanos con arquitectura cliente-servidor (React + Express + PostgreSQL) empaquetada también como aplicación de escritorio local para Windows mediante Electron (`pe.atlob.erp`). Desde la revisión documental previa del 04 de Noviembre de 2026 se han incorporado **34 commits** hasta `a0f7da4`, destacando la aplicación de escritorio Windows con asistente de conexión local y cifrado DPAPI, el aislamiento por fila (RLS) y claves foráneas compuestas en catálogo, el Plan Contable General Empresarial (PCGE 2026) completo, el módulo de Análisis de Cuentas con marcas de auditoría, el catálogo dinámico de Subdiarios (`00`–`11`), la digitalización integral de comprobantes (Compras RCE, Ventas RVIE, Tesorería, Honorarios y Planillas), las tasas IGV por vigencia según Ley 32219, la corrección de hashes CRLF/LF en migraciones y la verificación automática de matriz de trazabilidad.
+**ATLOB ERP** es una plataforma contable multiempresa diseñada para estudios contables peruanos con arquitectura cliente-servidor (React + Express + PostgreSQL) empaquetada también como aplicación de escritorio local para Windows mediante Electron (`pe.atlob.erp`). Desde la revisión documental previa del 04 de Noviembre de 2026 se han incorporado **34 commits** hasta `a0f7da4`, destacando la aplicación de escritorio Windows con asistente de conexión local y cifrado DPAPI, el aislamiento por fila (RLS) y claves foráneas compuestas en catálogo, el Plan Contable General Empresarial (PCGE 2026) completo, el módulo de Análisis de Cuentas con marcas de auditoría, el catálogo dinámico de Subdiarios (`00`–`11`), la digitalización integral de comprobantes (Compras RCE, Ventas RVIE, Tesorería, Honorarios y Planillas), las tasas IGV por vigencia según Ley 32219, la corrección de hashes CRLF/LF en migraciones y la verificación automática de matriz de trazabilidad. En la rama `chore/limpieza-y-mejoras` (desde `pre-limpieza` en `e402bef`, cuyo único cambio sobre `a0f7da4` fue la actualización anterior de este informe) se ejecutó además la limpieza segura de código huérfano hacia `_cuarentena/` y la sincronización documental de Fase 3 hasta `9cc42f0`.
 
 ### Estado verificable al 11 de Noviembre de 2026
 
 | Dimensión | Resultado Verificado | Alcance y Salvedades Exactas |
 | :--- | :--- | :--- |
 | **Compilación de tipos (`npm run lint`)** | **Aprobado (`0` errores)** | Ejecutado `tsc --noEmit` sobre el repositorio actual el 11/11/2026. |
-| **Empaquetado Frontend (`npm run build`)** | **Aprobado (`15.95s`)** | `vite v8.3.5`, `2,101` módulos transformados; bundle principal `dist/assets/index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip). |
-| **Batería automatizada (`npm test`)** | **36 / 36 suites OK (`3,390` aserciones en `194.94s`)** | Ejecutado con `NODE_ENV=test` y `DATABASE_URL=''` (motor en memoria, `pg-mem`, análisis estático y subprocesos Node). Incluye verificación de matriz de asientos y CRLF/LF. |
+| **Empaquetado Frontend (`npm run build`)** | **Aprobado (`5.76s`)** | `vite v8.3.5`, `2,101` módulos transformados; bundle principal `dist/assets/index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip). |
+| **Batería automatizada (`npm test`)** | **36 / 36 suites OK (`3,390` aserciones en `125.43s`)** | Ejecutado con `NODE_ENV=test` y `DATABASE_URL=''` (motor en memoria, `pg-mem`, análisis estático y subprocesos Node). Incluye verificación de matriz de asientos y CRLF/LF. |
 | **Pruebas en PostgreSQL 18 real (`server/tests/real/*`)** | **No ejecutado en esta sesión** | Existen `6` suites TypeScript + inicializador Docker/bash y workflow CI (`.github/workflows/test-pg.yml`), pero requieren instancia PostgreSQL real (`atlob_test` / `contabilidad_app`) no conectada durante este reporte. |
 | **Persistencia SQL en servicios (`server/services/`)** | **Parcial (`24 / 53` con SQL; `18 / 53` solo en memoria)** | 24 servicios operan sobre PostgreSQL (muchos conservan respaldo `*_MEMORIA` en dev/test); **18 servicios siguen exclusivamente en memoria** y **11** son adaptadores/helpers sin estado propio. |
 | **Empaquetado Escritorio Windows (`desktop/`)** | **Implementado** | Electron `45.2.3` + `electron-builder` `26.18.0` (NSIS Setup + Portable x64), cifrado DPAPI `instalacion.bin`, puerto `127.0.0.1` efímero y verificador ASAR (`desktop:verify`). |
@@ -40,19 +40,20 @@
 
 | Capa / Directorio | Cantidad Medida | Composición Principal |
 | :--- | :---: | :--- |
-| **`src/` (`.ts` / `.tsx`)** | **166** | `84` vistas (`src/components/views/*.tsx`), `12` modales (`src/components/modals/*.tsx`), `20` clientes API (`src/api/`), `9` hooks (`src/hooks/`), motor estándar de reportes (`src/services/reports/formato_estandar/formatoEstandarEngine.ts`), utilitario de redondeo USD (`src/utils/redondeoUsd.ts`) y catálogo visual de menú (`src/types/menu.ts`). |
-| **`server/` (`.ts`)** | **164** | `53` servicios (`server/services/`), `27` archivos de rutas (`server/routes/`, 26 módulos montados bajo `/api`), `12` controladores (`server/controllers/`), `3` middlewares (`server/middlewares/`), `3` repositorios (`server/repositories/`), `40` suites/utilidades en `server/tests/` y `6` suites PostgreSQL real en `server/tests/real/`. |
+| **`src/` (total / `.ts`+`.tsx`)** | **169** (`159` `.ts`/`.tsx`) | `78` vistas (`src/components/views/*.tsx`), `12` modales (`src/components/modals/*.tsx`), `20` archivos en `src/api/` (`19` clientes + `session.test.ts`), `9` hooks (`src/hooks/`), motor estándar de reportes (`src/services/reports/formato_estandar/formatoEstandarEngine.ts`), utilitario de redondeo USD (`src/utils/redondeoUsd.ts`), catálogo visual de menú (`src/types/menu.ts`), `9` imágenes en `src/assets/brand/` y `src/index.css`. |
+| **`server/` (total / `.ts`)** | **191** (`161` `.ts`) | `53` servicios (`server/services/`), `27` archivos de rutas (`server/routes/`, 26 módulos montados bajo `/api`), `12` controladores (`server/controllers/`), `3` middlewares (`server/middlewares/`), `3` repositorios (`server/repositories/`), `40` suites/utilidades en `server/tests/`, `6` suites PostgreSQL real + `postgres_test_init.sh` en `server/tests/real/`, `28` archivos `.sql` y `server/data/pcge_base_v2.json`. |
 | **`server/db/`** | **35** | `21` migraciones SQL registradas en `MIGRATION_FILES`, `7` scripts SQL `fk_empresa_01..07.sql` y `7` módulos `.ts` (`migrate.ts`, `migration-files.ts`, `seguridadRls.ts`, etc.). |
-| **`server/storage/`** | Declarativo | `registroDatosEmpresa.ts` con **81 entradas** de tablas en `REGISTRO_DATOS_EMPRESA` y **7 carpetas** en `REGISTRO_ARCHIVOS_EMPRESA`. |
-| **`desktop/`** | **12** (+ subdirs) | `main.cjs`, `desktop-config.cjs`, `desktop-config.test.cjs`, `config-preload.cjs`, `config-renderer.js`, `config.html`, `config.css`, `electron-builder.yml`, `after-pack.cjs`, `package-files.mjs`, `prepare.ts`, `verify-package.ts` (además de `assets/`, `build/` y `generated/`). |
+| **`server/storage/`** | Declarativo | `registroDatosEmpresa.ts` con **81 entradas** de tablas en `REGISTRO_DATOS_EMPRESA` (`61` `empresa`, `13` `control`, `7` `compartido`) y **7 carpetas** en `REGISTRO_ARCHIVOS_EMPRESA` (`5` con `exportar: true`, `2` con `exportar: false`). |
+| **`desktop/`** | **18** *(excl. `generated/`)* | `12` archivos en raíz de `desktop/` (`main.cjs`, `desktop-config.cjs`, `desktop-config.test.cjs`, `config-preload.cjs`, `config-renderer.js`, `config.html`, `config.css`, `electron-builder.yml`, `after-pack.cjs`, `package-files.mjs`, `prepare.ts`, `verify-package.ts`), `2` en `desktop/assets/` y `4` en `desktop/build/`. |
 | **`scripts/`** | **3** | `descargar-normas.ts`, `inicializar-escritorio.ps1`, `verificar-matriz.ts`. |
-| **Raíz y CI** | — | `server.ts`, `Iniciar-Escritorio.bat`, `docker-compose.test.yml`, `.github/workflows/test-pg.yml`, `AGENTS.md`, `SISTEMA_ATLOB_ERP.md`. |
+| **`_cuarentena/`** | **16** | `11` artefactos huérfanos aislados en Fase 2 (`6` vistas, `1` HTML de referencia, `1` servicio frontend, `3` módulos/catálogos de servidor) + `5` archivos `README.md` (excluidos de `tsconfig.json`, `vite.config.ts` y pruebas). |
+| **Raíz y CI** | — | `server.ts`, `Iniciar-Escritorio.bat`, `docker-compose.test.yml`, `.github/workflows/test-pg.yml`, `AGENTS.md`, `SISTEMA_ATLOB_ERP.md`, `.env.example`. |
 
-### 2.3 Scripts Disponibles en `package.json` (`26` scripts)
+### 2.3 Scripts Disponibles en `package.json` (`25` scripts)
 
 - **Ejecución y desarrollo:** `dev`, `start`, `build`, `preview`, `clean`, `lint`.
 - **Escritorio Windows:** `desktop:dev`, `dist:win`, `desktop:verify`.
-- **Pruebas:** `test` (`tsx server/tests/run_all_tests.ts`), `test:all`, `test:fase2`..`test:fase9`, `test:secretos-frontend`, `test:sonda-sunat`, `test:pg`, `test:pg:docker`, `test:coverage`, `test:infra`.
+- **Pruebas:** `test` (`tsx server/tests/run_all_tests.ts`), `test:fase2`, `test:fase3`, `test:fase4`, `test:fase5`, `test:fase6`, `test:secretos-frontend`, `test:sonda-sunat`, `test:fase7`, `test:fase8`, `test:fase9`, `test:pg`, `test:pg:docker`, `test:coverage`, `test:infra`.
 - **Datos PCGE:** `cargar:pcge`.
 - **Brecha frente al plan (`PLAN_IMPLEMENTACION.md`):** El plan maestro y `AGENTS.md` exigen ejecutar la certificación real desde `npm run verify`, script que **todavía no existe** en `package.json`.
 
@@ -120,13 +121,13 @@ El sistema adopta la **Arquitectura B** definida en `docs/engineering/PLAN_IMPLE
 ### 4.2 Aislamiento RLS, Contexto Transaccional y Claves Foráneas Compuestas
 
 - **Contexto por transacción (`server/config/database.ts`):** Utiliza `AsyncLocalStorage` (`conContextoUsuario`, `conContextoEmpresa`) y fija variables locales de transacción mediante `SELECT set_config('app.current_empresa_id', $1, true), set_config('app.empresa_id', $1, true)` y `app.current_user_id` / `app.usuario_id`, bloqueando cambios incompatibles dentro de una misma ejecución (`CONTEXTO_EMPRESA_INCOMPATIBLE`). En `NODE_ENV=production`, `initializeDatabase()` y `db.query()` abortan si `DATABASE_URL` o el pool no están disponibles (`DATABASE_URL_REQUERIDA`, `DATABASE_NO_DISPONIBLE`).
-- **Políticas Row-Level Security (`server/db/seguridadRls.ts`):** Define `ETAPAS_RLS` (`5.1` Crítica, `5.2a`, `5.2b`, `5.2c` Alta y `5.3` Baja) aplicando `CREATE POLICY aislamiento_atlob ... USING (...) WITH CHECK (...)` más `ENABLE ROW LEVEL SECURITY` y `FORCE ROW LEVEL SECURITY` (incluso para tablas hijas como `planilla_lineas` vía `EXISTS` hacia `planillas`).  
+- **Políticas Row-Level Security (`server/db/seguridadRls.ts`):** Define `ETAPAS_RLS` (`5.1`: 9 tablas Críticas, `5.2a`: 7, `5.2b`: 10, `5.2c`: 11 Alta y `5.3`: 4 Baja; `41` tablas en total), sumadas a `23` tablas con `ENABLE ROW LEVEL SECURITY` directo en SQL (`10` con `FORCE ROW LEVEL SECURITY`) = **`64` tablas distintas con RLS** (`17` sin RLS en el catálogo de `81`), aplicando `CREATE POLICY aislamiento_atlob ... USING (...) WITH CHECK (...)` (incluso para tablas hijas como `planilla_lineas` vía `EXISTS` hacia `planillas`).  
   > **Dato operativo importante:** `seguridadRls.ts:50` documenta explícitamente que las etapas RLS **se ejecutan fuera del migrador automático de arranque** mediante transacciones explícitas del operador y pruebas dedicadas (`test_pg_seguridad.ts`, `test_pg_rls_planillas.ts`).
 - **Claves foráneas compuestas (`fk_empresa_01..07.sql`):** Refuerzan integridad referencial compuesta por `(empresa_id, id)` en relaciones padre-hija dentro de la base, evaluadas en `server/tests/real/test_pg_fk_empresa.ts` sobre 75 relaciones del catálogo (según commit `c61de07`).
 
 ### 4.3 Lista Declarativa Única (`server/storage/registroDatosEmpresa.ts`)
 
-- Registra **81 entradas de tablas** clasificadas por ámbito (`compartido`, `control`, `empresa`) y política de exportación/respaldo (`exportar: true/false`), incorporando las tablas más recientes (`marcas_analisis_cuenta`, `consolidaciones_mensuales`, `planilla_*`, `subdiarios`, `licencia`, `estudio_configuracion`), además de **7 carpetas** en `REGISTRO_ARCHIVOS_EMPRESA`.
+- Registra **81 entradas de tablas** clasificadas por ámbito (`61` `empresa`, `13` `control`, `7` `compartido`) y política de exportación/respaldo (`exportar: true/false`), incorporando las tablas más recientes (`marcas_analisis_cuenta`, `consolidaciones_mensuales`, `planilla_*`, `subdiarios`, `licencia`, `estudio_configuracion`), además de **7 carpetas** en `REGISTRO_ARCHIVOS_EMPRESA` (`5` exportables: `adjuntos`, `xml`, `cdr`, `pdf`, `txt`; `2` excluidas: `temporales`, `respaldos`).
 
 ### 4.4 Matriz Real de Persistencia de los 53 Servicios (`server/services/`)
 
@@ -135,7 +136,7 @@ La siguiente clasificación proviene de la inspección directa del código fuent
 | Categoría de Persistencia | Cantidad | Archivos Exactos (`server/services/`) | Observación Técnica Real |
 | :--- | :---: | :--- | :--- |
 | **Con rama PostgreSQL (`isPostgresConnected` / `db.query` / `db.getClient`)** | **24** | `analisisCuentaService.ts`, `anexoService.ts`, `asientoService.ts`, `auditoriaChainService.ts`, `authJwtService.ts`, `compraService.ts`, `consolidacionMensualService.ts`, `cronogramaVencimientosService.ts`, `detraccionService.ts`, `librosEEFFService.ts`, `licenciaService.ts`, `liquidacionIGVService.ts`, `notaCreditoDebitoService.ts`, `pcgeService.ts`, `periodoService.ts`, `saldosService.ts`, `setupService.ts`, `sireService.ts`, `subdiarioService.ts`, `sunatJobsService.ts`, `tesoreriaService.ts`, `tipoCambioService.ts`, `usuarioEstudioService.ts`, `ventaService.ts` | Varios mantienen arreglos `*_MEMORIA` como respaldo en `development`/`test` cuando no existe PostgreSQL; en producción el servidor exige PostgreSQL, pero la coexistencia de rutas en memoria requiere auditoría continua para evitar caídas o lecturas parciales. |
-| **Exclusivamente en memoria (`*_MEMORIA` / `Map` sin consultas PG)** | **18** | `activosFijosService.ts`, `auditoriaTributariaService.ts`, `backupEmpresaService.ts`, `cajaChicaService.ts`, `cierreAnualService.ts`, `conciliacionService.ts`, `conciliadorSireService.ts`, `daotService.ts`, `djRentaAnualService.ts`, `empresaDemoService.ts`, `historialGeneracionesService.ts`, `honorariosService.ts`, `importacionService.ts`, `kardexService.ts`, `planillaService.ts`, `pleExportService.ts`, `prorrataIgvService.ts`, `xmlImportService.ts` | **Brecha principal de Fase B:** ante un reinicio del servidor o en despliegue PostgreSQL puro, sus datos se pierden o no persisten en tablas reales (pese a existir tablas homónimas en las migraciones). `backupEmpresaService.ts` solo respalda/restaura arreglos en memoria actualmente. |
+| **Exclusivamente en memoria (`*_MEMORIA` / `Map` sin consultas PG propias)** | **18** | `activosFijosService.ts`, `auditoriaTributariaService.ts`, `backupEmpresaService.ts`, `cajaChicaService.ts`, `cierreAnualService.ts`, `conciliacionService.ts`, `conciliadorSireService.ts`, `daotService.ts`, `djRentaAnualService.ts`, `empresaDemoService.ts`, `historialGeneracionesService.ts`, `honorariosService.ts`, `importacionService.ts`, `kardexService.ts`, `planillaService.ts`, `pleExportService.ts`, `prorrataIgvService.ts`, `xmlImportService.ts` | **Brecha principal de Fase B:** ante un reinicio del servidor o en despliegue PostgreSQL puro, sus datos operativos se pierden o no persisten en tablas reales (`8` leen o registran parámetros/empresas/auditoría mediante `empresaRepository`, `parametroRepository` o `auditoriaRepository`, pero sus datos de negocio viven en `*_MEMORIA`). `backupEmpresaService.ts` solo respalda/restaura arreglos `*_MEMORIA`. |
 | **Adaptadores, validadores o helpers sin almacén de estado** | **11** | `aperturaCierreService.ts`, `archivoValidadorService.ts`, `consultaValidezCpeService.ts`, `contabilizacionService.ts`, `cryptoService.ts`, `migrationService.ts`, `redondeoUsdService.ts`, `sireLayoutService.ts`, `sunatConsultaRucService.ts`, `sunatGateway.ts`, `totpService.ts` | Lógica pura, wrappers criptográficos o conectores HTTP/SUNAT sin estado persistente propio. |
 
 ---
@@ -144,21 +145,21 @@ La siguiente clasificación proviene de la inspección directa del código fuent
 
 ### 5.1 Taxonomía de Menú y Barra Superior (`src/types/menu.ts`)
 
-La barra superior fue rediseñada en tres franjas con logotipo e isotipo oficiales embebidos (`fd9c67d`, `a2efdd7`, `docs/engineering/MARCA.md`). `MENU_DATA` organiza **13 grupos** y **89 opciones hoja** (`80` con `estado: 'activo'` y `9` con `estado: 'proximamente'`):
+La barra superior fue rediseñada en tres franjas con logotipo e isotipo oficiales embebidos (`fd9c67d`, `a2efdd7`, `docs/engineering/MARCA.md`). `MENU_DATA` organiza **13 grupos** y **89 opciones hoja** (`80` con `estado: 'activo'` —`4` abren modales y `76` apuntan a vistas/acciones— y `9` con `estado: 'proximamente'`):
 
 | Grupo (`MENU_DATA`) | Activas | Próximamente | Detalle de Opciones No Activas (`proximamente`) |
 | :--- | :---: | :---: | :--- |
 | `archivo` | 7 | 0 | — |
 | `contabilidad` | 12 | 0 | — |
 | `compras-ventas` | 3 | 0 | — |
-| `facturacion` | 4 | 3 | 3 ítems de facturación electrónica en estado próximo |
+| `facturacion` | 4 | 3 | `guias-remision`, `resumen-bajas`, `series-certificado` |
 | `tributos` | 7 | 0 | — |
 | `planillas` | 7 | 0 | — |
 | `registros-electronicos` | 6 | 0 | — |
-| `tesoreria` | 10 | 1 | `Letras y pagarés` |
-| `inventarios-activos` | 0 | 4 | `Kardex`, `Existencias`, `Activos fijos`, `Depreciación mensual` (en UI; servicios aún en memoria) |
+| `tesoreria` | 10 | 1 | `letras-pagares` *(Letras y pagarés)* |
+| `inventarios-activos` | 0 | 4 | `kardex`, `existencias`, `activos-fijos`, `depreciacion-mensual` *(Kardex, Existencias, Activos fijos, Depreciación mensual)* |
 | `estados-financieros` | 5 | 0 | — |
-| `estudio` | 4 | 1 | `Portal del cliente` |
+| `estudio` | 4 | 1 | `portal-cliente` *(Portal del cliente)* |
 | `herramientas` | 12 | 0 | — |
 | `ayuda` | 3 | 0 | — |
 | **Total** | **80** | **9** | **89 opciones totales verificadas por `run_tests_menu_fase1.ts`** |
@@ -229,7 +230,7 @@ Verificada automáticamente en cada corrida de `npm test` mediante `scripts/veri
 
 ### 7.2 Normativa Tributaria Verificada y Supuestos Abiertos (`docs/NORMAS_VERIFICADAS.md`)
 
-- **Tasas de IGV con vigencia (`Ley 32219`, modificatoria de Arts. 1, 3 y 4 de la Ley 31556):** IGV reducido de **8%** para 2025 y 2026 (+ **2%** IPM = **10%** total) y de **12%** para 2027 (+ **2%** IPM = **14%** total; servicios de catering excluidos). Configurado como tabla editable de parámetros; si la fecha no coincide con la vigencia se muestra advertencia visible pero **se permite registrar**, dejando la calificación tributaria bajo criterio del operador/proveedor.
+- **Tasas de IGV con vigencia (`Ley 32219`, modificatoria de Arts. 1, 3 y 4 de la Ley 31556):** IGV reducido de **8%** para 2025 y 2026 (+ **2%** IPM = **10%** total) y de **12%** para 2027 (+ **2%** IPM = **14%** total; comprende a MYPE de restaurantes, hoteles y alojamientos turísticos; no menciona servicios de catering según [`docs/NORMAS_VERIFICADAS.md`](docs/NORMAS_VERIFICADAS.md)). Configurado como tabla editable de parámetros; si la fecha no coincide con la vigencia se muestra advertencia visible pero **se permite registrar**, dejando la calificación tributaria bajo criterio del operador/proveedor.
 - **Compatibilidad Detracción SPOT, Retención y Percepción:** Contrastada contra R.S. 037-2002/SUNAT (Art. 3 umbral S/ 700; Art. 5 inc. b/f/h) y Ley 29173 Art. 11 (inc. a.ii / e). El sistema **bloquea en interfaz y backend la combinación simultánea Retención + Percepción**, valida detracción contra el catálogo oficial SUNAT por código de bien/servicio y muestra advertencia en combinaciones sensibles.
 - **Puntos explícitos `SUPUESTO A VALIDAR` con contador:**
   1. **Prorrata del IGV (regularización en diciembre):** El Art. 23 del TUO LIGV está verificado, pero el Art. 6 num. 6 del Reglamento figura como `NO CONTRASTADA DIRECTAMENTE` en `docs/NORMAS_VERIFICADAS.md`, manteniéndose la liquidación/regularización anual de diciembre bajo etiqueta `SUPUESTO A VALIDAR`.
@@ -259,7 +260,7 @@ Verificada automáticamente en cada corrida de `npm test` mediante `scripts/veri
 ### 8.3 Respaldo y Restauración por Empresa (`backupEmpresaService.ts`)
 
 - Cifra archivos ZIP en memoria con **AES-256-GCM** (`IV` de 12 bytes + `AuthTag` de 16 bytes) y clave derivada vía PBKDF2 desde `BACKUP_ENCRYPTION_KEY`, adjuntando `manifest.json` con conteo de líneas y SHA-256 por archivo. Excluye explícitamente credenciales SUNAT y usuarios/roles conforme a `AGENTS.md`, restringido al rol `ADMINISTRADOR`.
-- **Limitación actual crítica:** A fecha 11/11/2026, `backupEmpresaService.ts` **sigue leyendo e inyectando exclusivamente los arreglos `*_MEMORIA` (`PG:False | MEM:True`)**; la exportación/restauración real contra PostgreSQL y archivos de disco, junto a la prueba destructiva de alteración, aislamiento y persistencia tras reinicio sobre PostgreSQL real, forman parte de la Fase **B2** aún pendiente de certificación.
+- **Limitación actual crítica:** A fecha 11/11/2026, `backupEmpresaService.ts` lee `empresa.json` vía `empresaRepository` y `auditoria.ndjson` vía `auditoriaChainService`, pero sus **20 colecciones operativas `.ndjson` siguen leyendo y reemplazando exclusivamente los arreglos `*_MEMORIA`** (`BACKUPS_MEMORIA`, retención máxima `10` por empresa); no respalda ni restaura aún las `61` tablas de ámbito `empresa` en PostgreSQL ni las `7` carpetas de disco (`REGISTRO_ARCHIVOS_EMPRESA`), quedando su migración real y prueba destructiva en la Fase **B2** (ver [`docs/BACKUP_BASE_DATOS.md`](docs/BACKUP_BASE_DATOS.md)).
 
 ### 8.4 Licencias Locales (`docs/engineering/LICENCIAS.md`, `licenciaService.ts`)
 
@@ -273,50 +274,50 @@ Verificada automáticamente en cada corrida de `npm test` mediante `scripts/veri
 ### 9.1 Compilación y Linter
 
 - `npm run lint` (`tsc --noEmit`): **Código de salida `0`**, sin errores de tipos.
-- `npm run build` (`vite build` v8.3.5): **Código de salida `0` en `15.95s`**, `2,101` módulos transformados; salida principal en `dist/index.html` (`1.52 kB`), `dist/assets/index-CeWeZGBl.css` (`105.47 kB`), `dist/assets/index-C_F132wg.js` (`2,434.40 kB`).
+- `npm run build` (`vite build` v8.3.5): **Código de salida `0` en `5.76s`**, `2,101` módulos transformados; salida principal en `dist/index.html` (`1.52 kB`), `dist/assets/index-CeWeZGBl.css` (`105.47 kB`), `dist/assets/index-C_F132wg.js` (`2,434.40 kB` | `528.10 kB` gzip).
 
 ### 9.2 Inventario Literal de las 36 Suites Ejecutadas en `npm test`
 
-> **Condiciones de ejecución:** `tsx server/tests/run_all_tests.ts` ejecutado el 11/11/2026 con `NODE_ENV='test'` y `DATABASE_URL=''` (motor en memoria / `pg-mem` / análisis estático / subprocesos). Total: **36 / 36 suites exitosas | 3,390 aserciones en 194.94s**.
+> **Condiciones de ejecución:** `tsx server/tests/run_all_tests.ts` ejecutado el 11/11/2026 (`9cc42f0`) con `NODE_ENV='test'` y `DATABASE_URL=''` (motor en memoria / `pg-mem` / análisis estático / subprocesos). Total: **36 / 36 suites exitosas | 3,390 aserciones en 125.43s**.
 
 | # | Suite | Archivo | Aserciones | Tiempo |
 | :---: | :--- | :--- | :---: | :---: |
-| 01 | Sesión del cliente y renovación concurrente | `src/api/session.test.ts` | 13 | 1.86s |
-| 02 | Autorización HTTP por empresa y rol | `server/tests/run_tests_acceso.ts` | 29 | 17.09s |
-| 03 | Configuración inicial y sesión administrativa | `server/tests/verificar_auth_setup.ts` | 54 | 13.49s |
-| 04 | Fases 1 y 2: Motor Contable & Partida Doble | `server/tests/run_tests.ts` | 28 | 3.20s |
-| 05 | Fase 3: Compras, Ventas, CXC/CXP & Tributos | `server/tests/run_tests_fase3.ts` | 27 | 2.19s |
-| 06 | Fase 4: Tesorería, Conciliación Bancaria, 4ta & Planilla | `server/tests/run_tests_fase4.ts` | 46 | 3.19s |
-| 07 | Fase 5: Libros Oficiales, Balance Comprobación & EEFF | `server/tests/run_tests_fase5.ts` | 42 | 3.78s |
-| 08 | Fase 6: Integración SUNAT/SIRE, XML UBL/CDR & PLE | `server/tests/run_tests_fase6.ts` | 80 | 4.07s |
-| 09 | Escaneo de secretos en el frontend | `server/tests/test_secretos_frontend.ts` | 4 | 3.54s |
-| 10 | Sonda SUNAT de auditoría y respaldo | `server/tests/test_sonda_sunat.ts` | 346 | 3.88s |
-| 11 | Fase 7: Seguridad, RBAC, RLS, Envelope Encryption & Auditoría | `server/tests/run_tests_fase7.ts` | 67 | 5.10s |
-| 12 | Fase 7B: Navegación por Empresa, Entorno Aislado & Selector Multi-Nivel | `server/tests/run_tests_fase7b.ts` | 34 | 3.26s |
-| 13 | Fase 7C-2: Reportes ESTANDAR (Hoja de Trabajo 10 Columnas & Libro Diario) | `server/tests/run_tests_fase7c2.ts` | 40 | 2.91s |
-| 14 | Fase 8: Calidad, PostgreSQL, Concurrencia & Property Testing | `server/tests/run_tests_fase8.ts` | 31 | 6.62s |
-| 15 | Fase 9: Automatización Tributaria Avanzada, PLAME & SIRE Cierre | `server/tests/run_tests_fase9.ts` | 43 | 2.53s |
-| 16 | Fase 10: Auditoría Preventiva, DAOT 3500 & Cierre Anual PCGE | `server/tests/run_tests_fase10.ts` | 115 | 2.99s |
-| 17 | Fase 11: Activos Fijos (Libro 7.1), Kardex (Libro 13.1) & Prorrata IGV | `server/tests/run_tests_fase11.ts` | 85 | 2.96s |
-| 18 | Fase 13: Comportamiento & Cobertura de Servicios Críticos | `server/tests/run_tests_fase13_cobertura.ts` | 74 | 1.94s |
-| 19 | Fase 13: Empresa Demo S.A.C. & Idempotencia | `server/tests/run_tests_fase13_demo.ts` | 20 | 2.85s |
-| 20 | Fase 13: Backup y Restauración por Empresa ESTANDAR | `server/tests/run_tests_fase13_backup.ts` | 47 | 2.82s |
-| 21 | Fase 13: Motor de Importación CSV/hoja de cálculo & Rollback | `server/tests/run_tests_fase13_importacion.ts` | 43 | 1.81s |
-| 22 | Fase 1: Taxonomía de Menú Propio y Separación 1:1 de Vistas | `server/tests/run_tests_menu_fase1.ts` | 374 | 0.45s |
-| 23 | Fase 4 (Tributos): PDT 621, Prorrata IGV, Renta Anual, DAOT, Cronograma y Parámetros | `server/tests/run_tests_fase4_tributos.ts` | 66 | 1.82s |
-| 24 | Fase 5 (Planillas): RMV, AFP vs ONP, 5ta Proyectada, Gratificaciones/CTS, Baja Mitad de Mes y PLAME/T-Registro | `server/tests/run_tests_fase5_planillas.ts` | 199 | 3.20s |
-| 25 | A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria | `server/tests/test_produccion_sin_db.ts` | 82 | 79.75s |
-| 26 | Optimización Visual Normativa: Reportes Uniformes y Vouchers de Escritorio | `server/tests/run_tests_reportes_y_vouchers_normativos.ts` | 174 | 2.27s |
-| 27 | Automatización de Asientos, Consolidación Mensual y Cinta de 7 Accesos | `server/tests/run_tests_automatizacion_asientos_y_cinta.ts` | 58 | 1.55s |
-| 28 | Identidad de Marca, Login Ágil & Seguridad | `server/tests/test_marca_y_login_seguridad.ts` | 59 | 2.93s |
-| 29 | Bloque C: Reportes Unificados, Sin Asteriscos y Paginación Real | `server/tests/test_bloque_c_reportes.ts` | 47 | 2.65s |
-| 30 | Bloque B: Plan Contable General Empresarial Completo, Correctoras y Jerarquía | `server/tests/test_bloque_b_plan_contable.ts` | 796 | 1.18s |
-| 31 | Bloque A: Subdiarios Personalizables y Registro por Subdiario | `server/tests/test_bloque_a_subdiarios.ts` | 30 | 1.39s |
-| 32 | Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia | `server/tests/test_bloque_f_hallazgos.ts` | 20 | 1.13s |
-| 33 | Bloque E: Análisis de Cuentas, Auditoría, Cuentas de Control y Antigüedad de Saldos | `server/tests/test_bloque_e_analisis_cuentas.ts` | 29 | 1.14s |
-| 34 | Asiento Completo, Reglas Tributarias y Subdiarios Dinámicos | `server/tests/test_asiento_completo_subdiarios.ts` | 184 | 1.92s |
-| 35 | Invariancia CRLF / LF y Hashes Históricos en Migraciones | `server/tests/test_migrate_crlf_lf.ts` | 4 | 0.59s |
-| 36 | Verificación de Integridad y Trazabilidad de la Matriz de Asientos | `scripts/verificar-matriz.ts` | 0 *(validador)* | 0.89s |
+| 01 | Sesión del cliente y renovación concurrente | `src/api/session.test.ts` | 13 | 1.09s |
+| 02 | Autorización HTTP por empresa y rol | `server/tests/run_tests_acceso.ts` | 29 | 3.16s |
+| 03 | Configuración inicial y sesión administrativa | `server/tests/verificar_auth_setup.ts` | 54 | 5.52s |
+| 04 | Fases 1 y 2: Motor Contable & Partida Doble | `server/tests/run_tests.ts` | 28 | 1.16s |
+| 05 | Fase 3: Compras, Ventas, CXC/CXP & Tributos | `server/tests/run_tests_fase3.ts` | 27 | 2.04s |
+| 06 | Fase 4: Tesorería, Conciliación Bancaria, 4ta & Planilla | `server/tests/run_tests_fase4.ts` | 46 | 1.94s |
+| 07 | Fase 5: Libros Oficiales, Balance Comprobación & EEFF | `server/tests/run_tests_fase5.ts` | 42 | 1.78s |
+| 08 | Fase 6: Integración SUNAT/SIRE, XML UBL/CDR & PLE | `server/tests/run_tests_fase6.ts` | 80 | 2.43s |
+| 09 | Escaneo de secretos en el frontend | `server/tests/test_secretos_frontend.ts` | 4 | 1.73s |
+| 10 | Sonda SUNAT de auditoría y respaldo | `server/tests/test_sonda_sunat.ts` | 346 | 1.92s |
+| 11 | Fase 7: Seguridad, RBAC, RLS, Envelope Encryption & Auditoría | `server/tests/run_tests_fase7.ts` | 67 | 2.45s |
+| 12 | Fase 7B: Navegación por Empresa, Entorno Aislado & Selector Multi-Nivel | `server/tests/run_tests_fase7b.ts` | 34 | 1.47s |
+| 13 | Fase 7C-2: Reportes ESTANDAR (Hoja de Trabajo 10 Columnas & Libro Diario) | `server/tests/run_tests_fase7c2.ts` | 40 | 1.41s |
+| 14 | Fase 8: Calidad, PostgreSQL, Concurrencia & Property Testing | `server/tests/run_tests_fase8.ts` | 31 | 3.16s |
+| 15 | Fase 9: Automatización Tributaria Avanzada, PLAME & SIRE Cierre | `server/tests/run_tests_fase9.ts` | 43 | 1.86s |
+| 16 | Fase 10: Auditoría Preventiva, DAOT 3500 & Cierre Anual PCGE | `server/tests/run_tests_fase10.ts` | 115 | 1.51s |
+| 17 | Fase 11: Activos Fijos (Libro 7.1), Kardex (Libro 13.1) & Prorrata IGV | `server/tests/run_tests_fase11.ts` | 85 | 1.33s |
+| 18 | Fase 13: Comportamiento & Cobertura de Servicios Críticos | `server/tests/run_tests_fase13_cobertura.ts` | 74 | 1.22s |
+| 19 | Fase 13: Empresa Demo S.A.C. & Idempotencia | `server/tests/run_tests_fase13_demo.ts` | 20 | 1.47s |
+| 20 | Fase 13: Backup y Restauración por Empresa ESTANDAR | `server/tests/run_tests_fase13_backup.ts` | 47 | 1.76s |
+| 21 | Fase 13: Motor de Importación CSV/hoja de cálculo & Rollback | `server/tests/run_tests_fase13_importacion.ts` | 43 | 1.27s |
+| 22 | Fase 1: Taxonomía de Menú Propio y Separación 1:1 de Vistas | `server/tests/run_tests_menu_fase1.ts` | 374 | 0.34s |
+| 23 | Fase 4 (Tributos): PDT 621, Prorrata IGV, Renta Anual, DAOT, Cronograma y Parámetros | `server/tests/run_tests_fase4_tributos.ts` | 66 | 1.24s |
+| 24 | Fase 5 (Planillas): RMV, AFP vs ONP, 5ta Proyectada, Gratificaciones/CTS, Baja Mitad de Mes y PLAME/T-Registro | `server/tests/run_tests_fase5_planillas.ts` | 199 | 1.97s |
+| 25 | A3: Fallo estricto NODE_ENV=production sin DATABASE_URL y bloqueo en memoria | `server/tests/test_produccion_sin_db.ts` | 82 | 64.87s |
+| 26 | Optimización Visual Normativa: Reportes Uniformes y Vouchers de Escritorio | `server/tests/run_tests_reportes_y_vouchers_normativos.ts` | 174 | 2.09s |
+| 27 | Automatización de Asientos, Consolidación Mensual y Cinta de 7 Accesos | `server/tests/run_tests_automatizacion_asientos_y_cinta.ts` | 58 | 1.47s |
+| 28 | Identidad de Marca, Login Ágil & Seguridad | `server/tests/test_marca_y_login_seguridad.ts` | 59 | 2.58s |
+| 29 | Bloque C: Reportes Unificados, Sin Asteriscos y Paginación Real | `server/tests/test_bloque_c_reportes.ts` | 47 | 2.90s |
+| 30 | Bloque B: Plan Contable General Empresarial Completo, Correctoras y Jerarquía | `server/tests/test_bloque_b_plan_contable.ts` | 796 | 1.00s |
+| 31 | Bloque A: Subdiarios Personalizables y Registro por Subdiario | `server/tests/test_bloque_a_subdiarios.ts` | 30 | 1.36s |
+| 32 | Bloque F: Hallazgos Puntuales de Operatividad y Resiliencia | `server/tests/test_bloque_f_hallazgos.ts` | 20 | 0.86s |
+| 33 | Bloque E: Análisis de Cuentas, Auditoría, Cuentas de Control y Antigüedad de Saldos | `server/tests/test_bloque_e_analisis_cuentas.ts` | 29 | 0.91s |
+| 34 | Asiento Completo, Reglas Tributarias y Subdiarios Dinámicos | `server/tests/test_asiento_completo_subdiarios.ts` | 184 | 1.12s |
+| 35 | Invariancia CRLF / LF y Hashes Históricos en Migraciones | `server/tests/test_migrate_crlf_lf.ts` | 4 | 0.37s |
+| 36 | Verificación de Integridad y Trazabilidad de la Matriz de Asientos | `scripts/verificar-matriz.ts` | 0 *(validador)* | 0.66s |
 
 ### 9.3 Suites Preparadas para PostgreSQL 18 Real (`server/tests/real/`)
 
@@ -338,10 +339,12 @@ Para que la revisión externa cuente con visibilidad completa sin puntos ciegos,
 
 1. **Persistencia pendiente en 18 servicios (`PG:False | MEM:True`) y ausencia de `npm run verify`:** Planillas, Honorarios, Kardex, Activos Fijos, Caja Chica, Conciliación Bancaria, Cierre Anual, PLE, Conciliador SIRE, DAOT, Renta Anual, Prorrata IGV, Auditoría Tributaria, Importación XML/CSV, Historial de Generaciones, Empresa Demo y Respaldos por Empresa continúan respaldados por arreglos en memoria (`*_MEMORIA`), mientras `package.json` carece aún del script `npm run verify` exigido por la Fase E del plan.
 2. **Inconsistencia activa de códigos de subdiario en reportes, Kardex y demo (ver Sección 6.3):** Desalineación entre `SUBDIARIOS_BASE_SISTEMA` (`00`–`11`), `NOMBRES_SUBDIARIOS` (`reportesEngine.ts`, `librosEEFFService.ts`), `consolidacionMensualService.ts` / `kardexService.ts` (`'07'`) y `empresaDemoService.ts:468` (`'04'`).
-3. **Deriva documental entre manuales internos del repositorio (`Doc-Drift`):**
-   - `docs/INICIO_ESCRITORIO.md` (línea 36) indica erróneamente que *"no se ha agregado Electron, Tauri ni un instalador MSI"*, describiendo un flujo previo por navegador pese a que `desktop/` ya empaqueta Electron 45.2.3 y `electron-builder`.
-   - `docs/engineering/SEGURIDAD.md` y `docs/engineering/ESCRITORIO_WINDOWS.md` citan una línea base histórica de **15 migraciones** y **78 tablas**, cuando el código actual posee **21 migraciones** y **81 entradas** en `REGISTRO_DATOS_EMPRESA`.
-   - `docs/_archivo/MEMORIA_TECNICA_V2.md` refleja un corte histórico anterior a los bloques A–F, PCGE 2026 y Desktop Electron.
+3. **Deriva documental entre manuales internos del repositorio (`Doc-Drift`) `[RESUELTA en Fase 3]`:**
+   - `docs/INICIO_ESCRITORIO.md` (`0b71f96`): eliminada la afirmación errónea sobre ausencia de Electron; documentados los dos caminos reales en Windows (instalador Electron Setup/Portable x64 y lanzador desde código fuente `Iniciar-Escritorio.bat` + `scripts/inicializar-escritorio.ps1`).
+   - `docs/engineering/SEGURIDAD.md` y `docs/engineering/ESCRITORIO_WINDOWS.md` (`0868bee`, `a185f23`): actualizados de 15 migraciones / 78 tablas a las métricas reales (`21` migraciones, `81` tablas, `64` tablas con RLS, `75` FKs compuestas, `18` servicios en memoria, `asarUnpack`, `after-pack.cjs` y lista actual de secretos).
+   - `docs/BACKUP_BASE_DATOS.md` (`02cf216`): añadida la sección *Alcance de cada tipo de respaldo* diferenciando el respaldo físico (`pg_dump`/WAL) del respaldo lógico en memoria por empresa (`backupEmpresaService.ts`).
+   - `.env.example` (`a185f23`): eliminada `GEMINI_API_KEY` sin uso y alineado con `server/config/env.ts`.
+   - `docs/_archivo/MEMORIA_TECNICA_V2.md` (`b9744af`) y `docs/_archivo/RESULTADOS_VERIFICACION.txt` (`145c5f3`): archivados con advertencia histórica y creados [`docs/README.md`](docs/README.md) (`9cc42f0`) más este informe actualizado.
 4. **Aplicación externa de RLS (`ETAPAS_RLS`) y falta de ejecución local de `test:pg`:** Las políticas `5.1`–`5.3` viven en `server/db/seguridadRls.ts` fuera de `runMigrations()`; el esquema de pruebas reales exige verificación explícita contra PostgreSQL 18 real y limpieza/regresión de backups en Fase B2.
 5. **Escenarios pendientes y supuestos tributarios a validar:** 9 escenarios en `MATRIZ_COMPLETITUD_ASIENTOS.md` están en estado `PARCIAL` (4) o `NO IMPLEMENTADO` (5); la regularización anual de diciembre en prorrata IGV (`Art. 6 num. 6 Reglamento LIGV`) y el asiento de método periódico (`consolidacionMensualService.ts:198`) requieren validación contable formal.
 
@@ -358,7 +361,7 @@ Seguimiento alineado con la secuencia obligatoria **A → B → B2 → C → D �
 | **P0 (Bloqueante)** | Unificar numeración de subdiarios (`00`–`11`) eliminando el mapa heredado `NOMBRES_SUBDIARIOS` (`reportesEngine.ts`, `librosEEFFService.ts`) y reasignando `'04'`/`'07'` en `empresaDemoService.ts`, `kardexService.ts` y `consolidacionMensualService.ts` vía `subdiarioService`. | Consistencia 100% entre UI, asientos y Libro Diario. |
 | **P1 (Alto)** | Crear e incorporar `npm run verify` en `package.json` unificando `lint`, `build`, `test`, `desktop:verify` (cuando aplique paquete) y pruebas `server/tests/real/*` contra PostgreSQL 18 real (**Fase E**). | Exit code `0` en entorno PostgreSQL limpio, fallando si falta DB real. |
 | **P1 (Alto)** | Completar validación contable de los `SUPUESTO A VALIDAR` (prorrata diciembre, método periódico `6111/20111`) y cerrar los 9 escenarios `PARCIAL`/`NO IMPLEMENTADO` en `MATRIZ_COMPLETITUD_ASIENTOS.md`. | Matriz `69 / 69` cubiertos y validados en PostgreSQL real. |
-| **P2 (Mantenimiento)** | Sincronizar documentos internos desactualizados (`docs/INICIO_ESCRITORIO.md`, `SEGURIDAD.md`, `ESCRITORIO_WINDOWS.md` hacia 21 migraciones / 81 tablas / Electron actual) y habilitar vistas hoy marcadas `'proximamente'` (`Kardex`, `Existencias`, `Activos fijos`, `Depreciación mensual`, `Letras y pagarés`). | Cero deriva documental y `9/9` ítems restantes completados. |
+| **P2 (Mantenimiento)** | **(Deriva documental resuelta en Fase 3):** Documentación operativa, ingeniería y `.env.example` sincronizados hasta `9cc42f0` ([`docs/README.md`](docs/README.md)). Permanece pendiente habilitar en código/PG las `9` vistas marcadas `'proximamente'` (`guias-remision`, `resumen-bajas`, `series-certificado`, `letras-pagares`, `kardex`, `existencias`, `activos-fijos`, `depreciacion-mensual`, `portal-cliente`). | Cero deriva documental verificado y `9/9` ítems UI restantes completados. |
 
 ---
 
@@ -367,15 +370,30 @@ Seguimiento alineado con la secuencia obligatoria **A → B → B2 → C → D �
 | Documento | Propósito | Vigencia al 11/11/2026 |
 | :--- | :--- | :--- |
 | [`SISTEMA_ATLOB_ERP.md`](SISTEMA_ATLOB_ERP.md) | Informe técnico integral vigente para revisión externa (este documento). | **Vigente (11/11/2026)** |
-| [`docs/engineering/PLAN_IMPLEMENTACION.md`](docs/engineering/PLAN_IMPLEMENTACION.md) | Plan maestro Arquitectura B y fases A → E. | Vigente (falta `npm run verify` en `package.json`) |
+| [`docs/README.md`](docs/README.md) | Índice maestro de documentación activa, ingeniería, archivo histórico y cuarentena. | **Vigente (11/11/2026)** |
+| [`AGENTS.md`](AGENTS.md) | Reglas operativas del proyecto, arquitectura B y política de marca neutral. | Vigente |
+| [`docs/engineering/INDEX.md`](docs/engineering/INDEX.md) / [`PLAN_IMPLEMENTACION.md`](docs/engineering/PLAN_IMPLEMENTACION.md) | Índice de ingeniería y plan maestro Arquitectura B (fases A → E). | Vigente (falta `npm run verify` en `package.json`) |
 | [`docs/MATRIZ_COMPLETITUD_ASIENTOS.md`](docs/MATRIZ_COMPLETITUD_ASIENTOS.md) | Matriz de 69 escenarios contables y pruebas ligadas. | Vigente (validada por Suite 36) |
 | [`docs/NORMAS_VERIFICADAS.md`](docs/NORMAS_VERIFICADAS.md) | Fuentes oficiales Ley 32219, R.S. 037-2002, Ley 29173 y TUO LIGV. | Vigente |
 | [`docs/CATALOGO_CUENTAS_ASIENTOS.md`](docs/CATALOGO_CUENTAS_ASIENTOS.md) / [`CATALOGO_CUENTAS_PARA_CONTADOR.md`](docs/CATALOGO_CUENTAS_PARA_CONTADOR.md) | Catálogo de cuentas usadas en asientos y guía para revisión contable. | Vigente |
+| [`docs/MATRIZ_TRAZABILIDAD.csv`](docs/MATRIZ_TRAZABILIDAD.csv) | Trazabilidad tabular entre módulos, requisitos y pruebas. | Vigente |
 | [`docs/engineering/MARCA.md`](docs/engineering/MARCA.md) | Identidad visual oficial ATLOB ERP y hashes SHA-256 de recursos. | Vigente |
 | [`docs/engineering/LICENCIAS.md`](docs/engineering/LICENCIAS.md) | Modelo de licencia local (`EVALUACION` max 3 usuarios) y evolución Ed25519. | Vigente |
 | [`docs/engineering/CARGA_PCGE_STAGING.md`](docs/engineering/CARGA_PCGE_STAGING.md) | Carga verificable del PCGE 2026 en `staging.pcge_importacion`. | Vigente |
 | [`docs/engineering/REDONDEO_USD.md`](docs/engineering/REDONDEO_USD.md) | Política oficial de conversión y ajuste de centavos multimoneda. | Vigente |
-| [`docs/BACKUP_BASE_DATOS.md`](docs/BACKUP_BASE_DATOS.md) | Política de respaldo físico PostgreSQL (`pg_dump` / WAL). | Vigente (infraestructura) |
-| [`docs/engineering/SEGURIDAD.md`](docs/engineering/SEGURIDAD.md) y [`ESCRITORIO_WINDOWS.md`](docs/engineering/ESCRITORIO_WINDOWS.md) | Arquitectura de seguridad y escritorio Windows. | **Parcialmente desactualizados** (citan 15 migraciones / 78 tablas frente a 21 / 81 actuales) |
-| [`docs/INICIO_ESCRITORIO.md`](docs/INICIO_ESCRITORIO.md) | Guía histórica del lanzador `Iniciar-Escritorio.bat`. | **Obsoleto respecto a Electron** (niega existencia de Electron ya implementado) |
-| [`docs/_archivo/MEMORIA_TECNICA_V2.md`](docs/_archivo/MEMORIA_TECNICA_V2.md) | Memoria técnica anterior de arquitectura. | **Histórico / desactualizado** |
+| [`docs/BACKUP_BASE_DATOS.md`](docs/BACKUP_BASE_DATOS.md) | Política de respaldo físico PostgreSQL (`pg_dump`/WAL) y alcance del respaldo por empresa. | **Vigente (actualizado en Fase 3)** |
+| [`docs/engineering/SEGURIDAD.md`](docs/engineering/SEGURIDAD.md) y [`ESCRITORIO_WINDOWS.md`](docs/engineering/ESCRITORIO_WINDOWS.md) | Arquitectura de seguridad, secretos, RLS y empaquetado Electron Windows. | **Vigente (actualizados en Fase 3 a 21 migraciones / 81 tablas)** |
+| [`docs/INICIO_ESCRITORIO.md`](docs/INICIO_ESCRITORIO.md) | Guía de los dos caminos reales de ejecución local en Windows (Electron y `.bat`/`.ps1`). | **Vigente (actualizado en Fase 3)** |
+| [`.env.example`](.env.example) | Plantilla de variables de entorno alineada con `server/config/env.ts` (sin `GEMINI_API_KEY`). | **Vigente (actualizado en Fase 3)** |
+| [`docs/_archivo/MEMORIA_TECNICA_V2.md`](docs/_archivo/MEMORIA_TECNICA_V2.md) y [`RESULTADOS_VERIFICACION.txt`](docs/_archivo/RESULTADOS_VERIFICACION.txt) | Memoria técnica previa a bloques A–F/Electron y captura histórica del 04/10/2026. | **Histórico (archivado)** |
+| [`docs/_archivo/MOVIMIENTOS_FASE2.md`](docs/_archivo/MOVIMIENTOS_FASE2.md) y [`_cuarentena/README.md`](_cuarentena/README.md) | Trazabilidad reversible de archivos aislados y decisiones de limpieza (Fase 2 y 3). | **Registro de auditoría / Cuarentena** |
+
+---
+
+## 13. Limpieza
+
+Durante las Fases 2 y 3 sobre la rama `chore/limpieza-y-mejoras` (desde `pre-limpieza` en `e402bef`) se ejecutó un saneamiento reversible sin pérdida de funcionalidad (`2,101` módulos en Vite con el mismo bundle `index-C_F132wg.js` y `36/36` suites / `3,390` aserciones estables):
+
+- **Aislamiento reversible (`_cuarentena/`):** `11` artefactos no enrutados o huérfanos (`6` vistas, `1` HTML de referencia, `1` servicio frontend, `1` middleware sin montaje y `2` catálogos legacy en desuso) quedaron fuera de `tsconfig.json`, `vite.config.ts` y las suites bajo la política *"nada se elimina sin aprobación del dueño del proyecto"*.
+- **Archivo histórico y cierre documental (`docs/_archivo/`, `docs/README.md`):** Movidos `MEMORIA_TECNICA_V2.md` y `RESULTADOS_VERIFICACION.txt` a `docs/_archivo/`, retirado `test:all` y `GEMINI_API_KEY` sin uso, y sincronizados los manuales operativos e índice maestro ([`docs/README.md`](docs/README.md)).
+- **Bitácora completa de commits y rutas origen/destino:** [`docs/_archivo/MOVIMIENTOS_FASE2.md`](docs/_archivo/MOVIMIENTOS_FASE2.md).
