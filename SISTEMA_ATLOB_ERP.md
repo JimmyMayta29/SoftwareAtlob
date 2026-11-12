@@ -341,7 +341,7 @@ Para que la revisión externa cuente con visibilidad completa sin puntos ciegos,
 3. **Deriva documental entre manuales internos del repositorio (`Doc-Drift`):**
    - `docs/INICIO_ESCRITORIO.md` (línea 36) indica erróneamente que *"no se ha agregado Electron, Tauri ni un instalador MSI"*, describiendo un flujo previo por navegador pese a que `desktop/` ya empaqueta Electron 45.2.3 y `electron-builder`.
    - `docs/engineering/SEGURIDAD.md` y `docs/engineering/ESCRITORIO_WINDOWS.md` citan una línea base histórica de **15 migraciones** y **78 tablas**, cuando el código actual posee **21 migraciones** y **81 entradas** en `REGISTRO_DATOS_EMPRESA`.
-   - `docs/MEMORIA_TECNICA_V2.md` refleja un corte histórico anterior a los bloques A–F, PCGE 2026 y Desktop Electron.
+   - `docs/_archivo/MEMORIA_TECNICA_V2.md` refleja un corte histórico anterior a los bloques A–F, PCGE 2026 y Desktop Electron.
 4. **Aplicación externa de RLS (`ETAPAS_RLS`) y falta de ejecución local de `test:pg`:** Las políticas `5.1`–`5.3` viven en `server/db/seguridadRls.ts` fuera de `runMigrations()`; el esquema de pruebas reales exige verificación explícita contra PostgreSQL 18 real y limpieza/regresión de backups en Fase B2.
 5. **Escenarios pendientes y supuestos tributarios a validar:** 9 escenarios en `MATRIZ_COMPLETITUD_ASIENTOS.md` están en estado `PARCIAL` (4) o `NO IMPLEMENTADO` (5); la regularización anual de diciembre en prorrata IGV (`Art. 6 num. 6 Reglamento LIGV`) y el asiento de método periódico (`consolidacionMensualService.ts:198`) requieren validación contable formal.
 
@@ -378,4 +378,4 @@ Seguimiento alineado con la secuencia obligatoria **A → B → B2 → C → D �
 | [`docs/BACKUP_BASE_DATOS.md`](docs/BACKUP_BASE_DATOS.md) | Política de respaldo físico PostgreSQL (`pg_dump` / WAL). | Vigente (infraestructura) |
 | [`docs/engineering/SEGURIDAD.md`](docs/engineering/SEGURIDAD.md) y [`ESCRITORIO_WINDOWS.md`](docs/engineering/ESCRITORIO_WINDOWS.md) | Arquitectura de seguridad y escritorio Windows. | **Parcialmente desactualizados** (citan 15 migraciones / 78 tablas frente a 21 / 81 actuales) |
 | [`docs/INICIO_ESCRITORIO.md`](docs/INICIO_ESCRITORIO.md) | Guía histórica del lanzador `Iniciar-Escritorio.bat`. | **Obsoleto respecto a Electron** (niega existencia de Electron ya implementado) |
-| [`docs/MEMORIA_TECNICA_V2.md`](docs/MEMORIA_TECNICA_V2.md) | Memoria técnica anterior de arquitectura. | **Histórico / desactualizado** |
+| [`docs/_archivo/MEMORIA_TECNICA_V2.md`](docs/_archivo/MEMORIA_TECNICA_V2.md) | Memoria técnica anterior de arquitectura. | **Histórico / desactualizado** |
