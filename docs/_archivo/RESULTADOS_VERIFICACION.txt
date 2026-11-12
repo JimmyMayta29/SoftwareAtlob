@@ -1,3 +1,5 @@
+ARCHIVADO HISTÓRICO (2026-11-11): captura original del 2026-10-04T10:33:45Z (12 suites, 426 pruebas), anterior a los bloques A-F, PCGE 2026 y Desktop Electron.
+
 ================================================================================
 REPORTE OFICIAL DE RESULTADOS DE VERIFICACIÓN TÉCNICA — AUDITORÍA POST FASES 7-12
 FECHA Y HORA: 2026-10-04T10:33:45Z

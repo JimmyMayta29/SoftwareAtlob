@@ -14,3 +14,6 @@ scratch/
 test-results/
 *.dump
 *.bak
+docs/evidencia/lint.txt
+docs/evidencia/build.txt
+docs/evidencia/npm_test.txt
