@@ -932,7 +932,7 @@ export const planillaService = {
     // Régimen General = 1.0 por semestre; MYPE Pequeña = 0.5 por semestre; MYPE Micro = 0.0
     const factorRegimenGratif =
       trabajador.regimenLaboral === 'GENERAL' ? 1.0 :
-      trabajador.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
+        trabajador.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
 
     // Cálculo proporcional de meses completos en cada semestre según fechaIngreso (Ley N° 27735 Art. 2° y 3°)
     let mesesGratifJulio = 0;
@@ -1734,7 +1734,7 @@ export const planillaService = {
       // GENERAL = 100% (1.0), MYPE_PEQUENA = 50% (0.5, medio sueldo), MYPE_MICRO = 0% (0.0, no percibe gratificación)
       const factorRegimen =
         trab.regimenLaboral === 'GENERAL' ? 1.0 :
-        trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
+          trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
 
       const baseSegunRegimen = Money.round(remComputable.times(factorRegimen));
       const gratifPorMeses = baseSegunRegimen.dividedBy(6).times(mesesComp);
@@ -1934,7 +1934,7 @@ export const planillaService = {
       // GENERAL = 100% (1.0), MYPE_PEQUENA = 50% (0.5, 15 remuneraciones diarias por año), MYPE_MICRO = 0% (0.0)
       const factorRegimen =
         trab.regimenLaboral === 'GENERAL' ? 1.0 :
-        trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
+          trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
 
       // 1/6 de la gratificación percibida en el semestre anterior (Art. 18° TUO D.Leg. 650)
       // Para CTS Mayo corresponde Diciembre anterior; para CTS Noviembre corresponde Julio del mismo año
@@ -2112,7 +2112,7 @@ export const planillaService = {
     }
     const factorGratifCts =
       trab.regimenLaboral === 'GENERAL' ? 1.0 :
-      trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
+        trab.regimenLaboral === 'MYPE_PEQUENA' ? 0.5 : 0.0;
 
     const gratifTruncaMonto = Money.round(
       remComputable.times(factorGratifCts).dividedBy(6).times(gratifTruncaMeses)
