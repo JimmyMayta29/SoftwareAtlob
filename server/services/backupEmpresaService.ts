@@ -34,6 +34,52 @@ import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 export type OrigenBackup = 'MANUAL' | 'AUTO_ENTRADA' | 'PREVIO_CIERRE' | 'PREVIO_IMPORTACION' | 'PREVIO_RESET_DEMO';
 
+export interface AlcanceBackup {
+  modo: 'PARCIAL_MEMORIA' | 'COMPLETO';
+  incluye: string[];
+  no_incluye: string[];
+}
+
+export const ADVERTENCIA_BACKUP_PARCIAL =
+  'Respaldo lógico PARCIAL: solo exporta las colecciones cargadas actualmente en memoria (*_MEMORIA) y la auditoría de la empresa. NO reemplaza el respaldo físico de PostgreSQL (pg_dump) ni incluye archivos físicos, credenciales SUNAT ni usuarios/roles del estudio.';
+
+export const NO_INCLUYE_BACKUP_PARCIAL: readonly string[] = [
+  'Datos persistidos directamente en tablas PostgreSQL que no estén cargados en los 20 arreglos *_MEMORIA exportados (plan de cuentas personalizado, subdiarios, reglas de contabilización, tipos de cambio, análisis de cuentas y operaciones posteriores en PostgreSQL)',
+  'Módulos en memoria no volcados por este ZIP (activos fijos, caja chica, conciliación bancaria, extractos, honorarios, cierre anual, auditoría preventiva, historial SIRE/PLE y lotes CSV)',
+  'Archivos físicos por empresa en disco (REGISTRO_ARCHIVOS_EMPRESA: adjuntos, xml, cdr, pdf, txt, temporales, respaldos)',
+  'Credenciales SUNAT (credenciales_sunat, sunat_conexiones, sunat_tokens, sunat_empresa_keys)',
+  'Usuarios, roles, membresías, sesiones MFA y licencias del estudio (ámbito control)'
+];
+
+export function sanitizarSegmentoNombreArchivo(valor: string): string {
+  const limpio = valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+  return limpio || 'EMPRESA';
+}
+
+export function generarNombreArchivoDescargaBackup(params: {
+  ruc: string;
+  razonSocial?: string;
+  fecha?: Date;
+  alcance?: AlcanceBackup;
+  nombreArchivoFallback: string;
+}): string {
+  const esParcial = !params.alcance || params.alcance.modo !== 'COMPLETO' || params.alcance.no_incluye.length > 0;
+  if (!esParcial) {
+    return params.nombreArchivoFallback;
+  }
+  const fecha = params.fecha || new Date();
+  const fechaTag = fecha.toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
+  const empresaTag = params.razonSocial
+    ? `${sanitizarSegmentoNombreArchivo(params.ruc)}_${sanitizarSegmentoNombreArchivo(params.razonSocial)}`
+    : sanitizarSegmentoNombreArchivo(params.ruc);
+  return `ATLOB_respaldo_PARCIAL_${empresaTag}_${fechaTag}.zip`;
+}
+
 export interface ManifestBackup {
   ruc: string;
   razonSocial: string;
@@ -42,6 +88,8 @@ export interface ManifestBackup {
   fechaUtc: string;
   usuarioId: string;
   origen: OrigenBackup;
+  alcance?: AlcanceBackup;
+  advertencia?: string;
   archivos: Record<string, { lineas: number; sha256: string }>;
 }
 
@@ -51,6 +99,10 @@ export interface MetadatosBackupItem {
   ruc: string;
   ejercicio: number;
   nombreArchivo: string;
+  nombreArchivoDescarga?: string;
+  esParcial?: boolean;
+  alcance?: AlcanceBackup;
+  advertencia?: string;
   tamanoBytes: number;
   hashSha256: string;
   usuarioId: string;
@@ -212,7 +264,12 @@ export const backupEmpresaService = {
       zipInterno.addFile(filename, buffer);
     }
 
-    // 3. Crear manifest.json
+    // 3. Crear manifest.json con alcance explícito y advertencia retrocompatible
+    const alcance: AlcanceBackup = {
+      modo: 'PARCIAL_MEMORIA',
+      incluye: Object.keys(tablas),
+      no_incluye: [...NO_INCLUYE_BACKUP_PARCIAL]
+    };
     const manifest: ManifestBackup = {
       ruc,
       razonSocial: empresa.razonSocial,
@@ -221,6 +278,8 @@ export const backupEmpresaService = {
       fechaUtc: now.toISOString(),
       usuarioId: userId,
       origen,
+      alcance,
+      advertencia: ADVERTENCIA_BACKUP_PARCIAL,
       archivos: manifestArchivos
     };
     const manifestBuffer = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
@@ -233,6 +292,13 @@ export const backupEmpresaService = {
 
     const hashFinalSha256 = crypto.createHash('sha256').update(zipCifradoBuffer).digest('hex');
     const backupId = `bkp-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const nombreArchivoDescarga = generarNombreArchivoDescargaBackup({
+      ruc,
+      razonSocial: empresa.razonSocial,
+      fecha: now,
+      alcance,
+      nombreArchivoFallback: nombreArchivo
+    });
 
     const metadataItem: MetadatosBackupItem = {
       id: backupId,
@@ -240,6 +306,10 @@ export const backupEmpresaService = {
       ruc,
       ejercicio,
       nombreArchivo,
+      nombreArchivoDescarga,
+      esParcial: true,
+      alcance,
+      advertencia: ADVERTENCIA_BACKUP_PARCIAL,
       tamanoBytes: zipCifradoBuffer.length,
       hashSha256: hashFinalSha256,
       usuarioId: userId,
