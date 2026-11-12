@@ -26,6 +26,8 @@ import atlobLogo from './assets/brand/atlob_logo_horizontal.webp';
 import { useToast } from './context/ToastContext';
 import { useReportStyle } from './context/ReportStyleContext';
 import { tipoCambioApi, TipoCambioDTO } from './api/tipoCambioApi';
+import { limpiarCachePersistenciaSistema } from './api/sistemaApi';
+import { BannerPersistenciaTemporal } from './components/common/BannerPersistenciaTemporal';
 import { ModalTipoCambioManual } from './components/modals/ModalTipoCambioManual';
 import { calcularAlertaVencimientoUI } from './utils/cronogramaSunat';
 
@@ -372,6 +374,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
 
             {/* Contenido del módulo (separación estricta 1 a 1) */}
             <div className="flex-1 overflow-auto p-3">
+              <BannerPersistenciaTemporal vistaMenuId={activeModuleId} />
               {/* Archivo */}
               {activeModuleId === 'periodo-trabajo' && <PeriodosView empresaId={empresaId} />}
 
@@ -922,7 +925,12 @@ function AplicacionConSesion() {
 
   useEffect(() => {
     let vigente = true;
-    const expirar = () => { queryClient.clear(); setSesion(null); setEstado('login'); };
+    const expirar = () => {
+      queryClient.clear();
+      limpiarCachePersistenciaSistema();
+      setSesion(null);
+      setEstado('login');
+    };
     window.addEventListener('atlob_session_expired', expirar);
     void (async () => {
       try {
@@ -980,7 +988,10 @@ function AplicacionConSesion() {
 
   if (sesion) return (
     <EmpresaPeriodoProvider initialEmpresas={sesion.empresas} usuario={sesion.usuario} onCerrarSesion={async () => {
-      try { await authApi.logout(); } finally { limpiarSesion(); }
+      try { await authApi.logout(); } finally {
+        limpiarCachePersistenciaSistema();
+        limpiarSesion();
+      }
     }}>
       <DesktopWorkspaceContent empresasIniciales={sesion.empresas} conectado />
     </EmpresaPeriodoProvider>

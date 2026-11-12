@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
+import { BannerPersistenciaTemporal } from '../common/BannerPersistenciaTemporal';
 
 export type TipoMaestro = 
   | 'PROVEEDORES' 
@@ -240,6 +241,10 @@ export const ModalImportacionCsv: React.FC<ModalImportacionCsvProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        <div className="px-6 pt-3">
+          <BannerPersistenciaTemporal vistaMenuId="importar-csv" className="mb-0" />
         </div>
 
         {/* Pestañas Importar / Historial */}

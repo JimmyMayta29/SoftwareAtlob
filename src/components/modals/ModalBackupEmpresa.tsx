@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
+import { BannerPersistenciaTemporal } from '../common/BannerPersistenciaTemporal';
 
 interface ModalBackupEmpresaProps {
   isOpen: boolean;
@@ -210,6 +211,7 @@ export const ModalBackupEmpresa: React.FC<ModalBackupEmpresaProps> = ({
 
         {/* Tabla de Backups */}
         <div className="p-6 max-h-[60vh] overflow-y-auto">
+          <BannerPersistenciaTemporal vistaMenuId="respaldos" />
           {cargando ? (
             <div className="p-8 text-center text-slate-500 text-xs">Cargando copias de seguridad...</div>
           ) : backups.length === 0 ? (
