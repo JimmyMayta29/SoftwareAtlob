@@ -14,7 +14,7 @@ Los siguientes tipos de valores estuvieron disponibles en el historial anterior.
 | Clave de respaldo | `server/services/backupEmpresaService.ts` | Tratar respaldos históricos cifrados con clave fija como expuestos |
 | Contraseñas de bases descartables | `.github/workflows/test-pg.yml`, `docker-compose.test.yml` | Generación aleatoria de 32 bytes en cada ejecución |
 | Claves SOL y secretos SIRE de demostración | `src/data/empresasClientes.ts` y vistas antiguas | Eliminados del código y verificados con `test_secretos_frontend.ts` |
-| API de IA | `.env.example` histórico | Ejemplo mantenido vacío |
+| API de IA | `.env.example` histórico y `@google/genai` | Variable `GEMINI_API_KEY` eliminada de `.env.example` y dependencia retirada (`0` referencias en código) |
 
 Una migración de cifrado v1 a v2 requiere autorización explícita y respaldo previo verificado:
 1. Inventariar en solo lectura las filas cifradas en `credenciales_sunat`, `sunat_conexiones`, `sunat_tokens`, `sunat_empresa_keys` y `trabajadores` (`cuenta_banco_sueldo_cifrada`, `cci_sueldo_cifrado`).
