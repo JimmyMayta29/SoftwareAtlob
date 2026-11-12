@@ -12,6 +12,7 @@ const envSchema = z.object({
   PORT: z.preprocess(value => value === '8080' || value === 8080 ? 3000 : value, z.coerce.number().default(3000)),
   DATABASE_URL: z.string().default(''),
   JWT_EXPIRES_IN: z.string().default('7d'),
+  ATLOB_BLOQUEAR_MEMORIA: z.enum(['0', '1', 'true', 'false']).optional().default('0'),
 });
 
 export const NOMBRES_SECRETOS_SERVIDOR = [

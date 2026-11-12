@@ -28,7 +28,12 @@ import { analisisCuentaRoutes } from './analisisCuentaRoutes';
 import { requireAuth, requireEmpresaMembership } from '../middlewares/auth';
 import { empresaGuard } from '../middlewares/empresaGuard';
 import { db } from '../config/database';
-import { MODULOS_SOLO_MEMORIA, obtenerEstadoPersistencia } from '../config/persistencia';
+import {
+  MODULOS_SOLO_MEMORIA,
+  esPeticionEscrituraBloqueableMemoria,
+  estaBloqueoMemoriaActivo,
+  obtenerEstadoPersistencia
+} from '../config/persistencia';
 
 const router = Router();
 
@@ -60,6 +65,21 @@ router.use('/setup', setupRoutes);
 router.use(requireAuth);
 router.get('/sistema/persistencia', (_req, res) => {
   res.json(obtenerEstadoPersistencia());
+});
+router.use((req, res, next) => {
+  if (!estaBloqueoMemoriaActivo()) {
+    return next();
+  }
+  const modulo = esPeticionEscrituraBloqueableMemoria(req.method, req.path);
+  if (!modulo) {
+    return next();
+  }
+  return res.status(503).json({
+    success: false,
+    codigo: 'MODULO_SIN_PERSISTENCIA',
+    modulo: modulo.id,
+    error: `El módulo '${modulo.nombreVisible}' opera temporalmente en memoria y las escrituras están bloqueadas en producción (ATLOB_BLOQUEAR_MEMORIA=1).`
+  });
 });
 router.use('/', usuariosRoutes);
 router.use('/empresas/:empresaId', requireEmpresaMembership());
