@@ -53,8 +53,9 @@ export const backupEmpresaController = {
         return errorResponse(res, 'El archivo de respaldo solicitado no fue encontrado.', 404);
       }
 
+      const nombreDescarga = item.nombreArchivoDescarga || item.nombreArchivo;
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${item.nombreArchivo}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${nombreDescarga}"`);
       return res.send(item.archivoZipBuffer);
     } catch (err: any) {
       return errorResponse(res, sanitizarMensaje(err, 'Error al descargar respaldo'));
