@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import crypto, { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import AdmZip from 'adm-zip';
 import express from 'express';
 import { apiRoutes } from '../routes';
 import {
@@ -12,13 +13,21 @@ import {
   tieneConsultasPostgreSQL
 } from '../config/persistencia';
 import { authJwtService, sembrarUsuariosPrueba } from '../services/authJwtService';
+import { env } from '../config/env';
+import { totpService } from '../services/totpService';
 import { DATOS_EMPRESA_DEMO, EMPRESAS_STORE } from '../repositories/empresaRepository';
+import {
+  ADVERTENCIA_BACKUP_PARCIAL,
+  backupEmpresaService,
+  generarNombreArchivoDescargaBackup
+} from '../services/backupEmpresaService';
 import {
   MENSAJE_DATOS_TEMPORALES,
   esEntornoAvisoPersistencia,
   moduloTemporalParaVista
 } from '../../src/components/common/BannerPersistenciaTemporal';
 import type { EstadoPersistenciaSistema } from '../../src/api/sistemaApi';
+import { TEXTOS_RESPALDO_PARCIAL } from '../../src/components/modals/ModalBackupEmpresa';
 
 function validarSincroniaServiciosSimulados(
   servicios: Array<{ archivo: string; codigoFuente: string }>
@@ -268,6 +277,110 @@ async function main() {
     assert.match(appSource, /<BannerPersistenciaTemporal\s+vistaMenuId=\{activeModuleId\}/);
     assert.match(modalCsvSource, /<BannerPersistenciaTemporal\s+vistaMenuId="importar-csv"/);
     assert.match(modalBackupSource, /<BannerPersistenciaTemporal\s+vistaMenuId="respaldos"/);
+
+    // 4) M2: Alcance parcial y advertencia en manifest.json, retrocompatibilidad, descarga y confirmaciones UI
+    process.env.NODE_ENV = 'test';
+    process.env.ATLOB_BLOQUEAR_MEMORIA = '0';
+
+    const mfaSecretAdmin = totpService.encodeBase32(Buffer.from(env.MFA_SEED_SECRET, 'hex'));
+    const codigoTotpAdmin = totpService.generarTokenParaContador(mfaSecretAdmin, Math.floor(Date.now() / 30000));
+    const admin = await authJwtService.login('admin@atlob.pe', passwordFixture, codigoTotpAdmin);
+    const resGen = await callApi('/empresas/emp-01/backups/generar', {
+      method: 'POST',
+      token: admin.accessToken,
+      body: { origen: 'MANUAL' }
+    });
+    assert.equal(resGen.status, 201, 'ADMINISTRADOR debe poder generar respaldo en modo test');
+    const jsonGen = (await resGen.json()) as {
+      success: boolean;
+      data: {
+        id: string;
+        nombreArchivo: string;
+        nombreArchivoDescarga: string;
+        esParcial: boolean;
+        alcance: { modo: string; incluye: string[]; no_incluye: string[] };
+        advertencia: string;
+      };
+    };
+    assert.equal(jsonGen.success, true);
+    assert.equal(jsonGen.data.esParcial, true);
+    assert.match(jsonGen.data.nombreArchivoDescarga, /^ATLOB_respaldo_PARCIAL_.*\.zip$/);
+    assert.equal(jsonGen.data.alcance.modo, 'PARCIAL_MEMORIA');
+    assert.ok(jsonGen.data.alcance.incluye.includes('asientos.ndjson'));
+    assert.ok(jsonGen.data.alcance.no_incluye.length >= 4);
+    assert.equal(jsonGen.data.advertencia, ADVERTENCIA_BACKUP_PARCIAL);
+
+    // Verifica Content-Disposition en descarga
+    const resDown = await callApi(`/empresas/emp-01/backups/${jsonGen.data.id}/descargar`, {
+      token: admin.accessToken
+    });
+    assert.equal(resDown.status, 200);
+    const disp = resDown.headers.get('content-disposition') || '';
+    assert.match(disp, /filename="ATLOB_respaldo_PARCIAL_.*\.zip"/);
+
+    // Nombre normal solo si cubre todo (alcance completo sin exclusiones)
+    const nombreCompleto = generarNombreArchivoDescargaBackup({
+      ruc: '20000000001',
+      razonSocial: 'Empresa Demo S.A.C.',
+      alcance: { modo: 'COMPLETO', incluye: ['todo'], no_incluye: [] },
+      nombreArchivoFallback: '20000000001_2026_COMPLETO.zip'
+    });
+    assert.equal(nombreCompleto, '20000000001_2026_COMPLETO.zip');
+
+    // Verificar manifest.json interno descifrado
+    const itemDescarga = backupEmpresaService.obtenerBackupParaDescarga('emp-01', jsonGen.data.id);
+    assert.ok(itemDescarga?.archivoZipBuffer);
+    const verifNuevo = backupEmpresaService.verificarIntegridadBackup(itemDescarga.archivoZipBuffer);
+    assert.equal(verifNuevo.valida, true);
+    assert.equal(verifNuevo.manifest.alcance?.modo, 'PARCIAL_MEMORIA');
+    assert.ok(verifNuevo.manifest.alcance?.incluye.includes('empresa.json'));
+    assert.ok((verifNuevo.manifest.alcance?.no_incluye.length || 0) >= 4);
+    assert.equal(verifNuevo.manifest.advertencia, ADVERTENCIA_BACKUP_PARCIAL);
+
+    // Retrocompatibilidad: restaurar un ZIP antiguo SIN alcance ni advertencia en manifest.json
+    const zipAntiguo = new AdmZip();
+    const empresaJsonBuf = Buffer.from(JSON.stringify({ id: 'emp-01', ruc: DATOS_EMPRESA_DEMO.ruc }), 'utf8');
+    const manifestAntiguo = {
+      ruc: DATOS_EMPRESA_DEMO.ruc,
+      razonSocial: DATOS_EMPRESA_DEMO.razonSocial,
+      ejercicio: 2026,
+      esquemaVersion: '2.0.0-fase13',
+      fechaUtc: new Date().toISOString(),
+      usuarioId: 'usr-admin-01',
+      origen: 'MANUAL',
+      archivos: {
+        'empresa.json': {
+          lineas: 1,
+          sha256: crypto.createHash('sha256').update(empresaJsonBuf).digest('hex')
+        }
+      }
+    };
+    zipAntiguo.addFile('empresa.json', empresaJsonBuf);
+    zipAntiguo.addFile('manifest.json', Buffer.from(JSON.stringify(manifestAntiguo, null, 2), 'utf8'));
+    const zipAntiguoCifrado = backupEmpresaService.cifrarBufferAesGcm(
+      zipAntiguo.toBuffer(),
+      backupEmpresaService.derivarClave()
+    );
+    const verifAntiguo = backupEmpresaService.verificarIntegridadBackup(zipAntiguoCifrado);
+    assert.equal(verifAntiguo.valida, true, 'ZIP antiguo sin alcance ni advertencia debe validar');
+    assert.equal(verifAntiguo.manifest.alcance, undefined);
+    const restauracionAntigua = await backupEmpresaService.restaurarBackup(
+      'emp-01',
+      zipAntiguoCifrado,
+      DATOS_EMPRESA_DEMO.ruc,
+      admin.usuario.id
+    );
+    assert.equal(restauracionAntigua.exito, true, 'ZIP antiguo debe restaurar de forma retrocompatible');
+
+    // M2.2: Confirmación explícita previa en UI antes de exportar y restaurar + referencia a docs/BACKUP_BASE_DATOS.md
+    assert.equal(TEXTOS_RESPALDO_PARCIAL.referenciaDocs, 'docs/BACKUP_BASE_DATOS.md');
+    assert.ok(TEXTOS_RESPALDO_PARCIAL.noIncluye.length >= 4);
+    assert.match(modalBackupSource, /Confirmar exportación de respaldo parcial/);
+    assert.match(modalBackupSource, /¿Confirmar Restauración de Copia de Seguridad Parcial\?/);
+    assert.match(modalBackupSource, /aceptoAlcanceExportar/);
+    assert.match(modalBackupSource, /aceptoAlcanceRestaurar/);
+    assert.match(modalBackupSource, /confirmacionRuc:\s*rucConfirmacion\.trim\(\)/);
+    assert.match(modalBackupSource, /TEXTOS_RESPALDO_PARCIAL\.referenciaDocs/);
   } finally {
     process.env.NODE_ENV = nodeEnvOriginal;
     if (bloqueoOriginal === undefined) delete process.env.ATLOB_BLOQUEAR_MEMORIA;
@@ -277,7 +390,7 @@ async function main() {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  console.log('✅ Suite 37 (M1) completada con éxito.');
+  console.log('✅ Suite 37 (M1 + M2) completada con éxito.');
 }
 
 main().catch((err) => {
