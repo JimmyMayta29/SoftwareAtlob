@@ -103,5 +103,26 @@
 #### B. Otros elementos conservados por decisión explícita en Fase 2
 
 - **9 vistas sin ítem de menú conservadas sin cambios:** `ActivosKardexView.tsx`, `ProcesosCierreView.tsx`, `TesoreriaAvanzadaView.tsx` (citadas en la protegida `docs/MATRIZ_COMPLETITUD_ASIENTOS.md` y validadas en disco por Suite 36), `FacturacionElectronicaView.tsx` (protegida por Regla 7), `CajaChicaView.tsx`, `AuditoriaView.tsx`, `ReportesFinancierosView.tsx`, `ReportesSunatEspecialesView.tsx` y `ReglasContabilizacionView.tsx`.
-- **Documentación aplazada a Fase 3 (no movida ni reescrita aquí):** `docs/INICIO_ESCRITORIO.md`, `docs/BACKUP_BASE_DATOS.md`, `docs/engineering/SEGURIDAD.md`, `docs/engineering/ESCRITORIO_WINDOWS.md`, así como la creación de `docs/INDEX.md` (o `docs/README.md`) y la actualización de `SISTEMA_ATLOB_ERP.md`.
-- **Históricos / artefactos conservados sin mover en Fase 2:** `docs/MATRIZ_TRAZABILIDAD.csv`, `docs/RESULTADOS_VERIFICACION.txt`, `docs/evidencia/*`, `docs/evidencia/normas/ley_29173.pdf`, `docs/evidencia/normas/reglamento_igv_cap5.htm`, `metadata.json`, `bun.lock`, `.aistudio/artifacts/...`.
+- **Documentación actualizada en Fase 3 (ver Sección 4):** `docs/INICIO_ESCRITORIO.md`, `docs/BACKUP_BASE_DATOS.md`, `docs/engineering/SEGURIDAD.md`, `docs/engineering/ESCRITORIO_WINDOWS.md`, `.env.example`, `docs/README.md` y `SISTEMA_ATLOB_ERP.md`.
+- **Históricos / artefactos conservados sin mover en Fase 2:** `docs/MATRIZ_TRAZABILIDAD.csv`, `docs/evidencia/*`, `docs/evidencia/normas/ley_29173.pdf`, `docs/evidencia/normas/reglamento_igv_cap5.htm`, `metadata.json`, `bun.lock`, `.aistudio/artifacts/...`. (`docs/RESULTADOS_VERIFICACION.txt` fue archivado en `docs/_archivo/` durante D4.)
+
+---
+
+## 4. Cierre de Fase 3 — Sincronización Documental (D0–D9)
+
+En Fase 3 se mantuvo sin alteraciones el código fuente (`.ts`/`.tsx`/`.cjs`/`.ps1`) y se conservaron íntegros todos los archivos protegidos; las notas pendientes de los apartados **3.1** (`GEMINI_API_KEY` en `.env.example`) y **3.3** (`test:all` en `SISTEMA_ATLOB_ERP.md`) quedaron cerradas en D5 y D7.
+
+### 4.1 Commits e Invariantes de Fase 3 (`0868bee..HEAD`)
+
+| Bloque | Commit | Alcance y Archivos Editados | Lint / Build (`vite`) | `npm test` |
+| :---: | :---: | :--- | :---: | :---: |
+| **D0** | *(incluido en D9)* | Creación de `docs/_archivo/MEDICIONES_FASE3.md` con conteos y comandos reproducibles sobre `379a6ec`. | — | — |
+| **D1** | `0868bee` | `docs/engineering/SEGURIDAD.md` y `docs/engineering/ESCRITORIO_WINDOWS.md`: actualizados a `21` migraciones, `81` tablas (`64` RLS, `75` FKs compuestas), `18` servicios solo en memoria, `config.html`, `verifyOnly` en `sistema_contable`, HTTP `403`, `asarUnpack` y `after-pack.cjs`. | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`154.44s`) |
+| **D2** | `0b71f96` | `docs/INICIO_ESCRITORIO.md`: eliminada afirmación obsoleta sobre ausencia de Electron; documentados los dos caminos reales (Electron `45.2.3` Setup/Portable x64 y `Iniciar-Escritorio.bat` + `scripts/inicializar-escritorio.ps1`). | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`182.62s`) |
+| **D3** | `02cf216` | `docs/BACKUP_BASE_DATOS.md`: añadida sección *Alcance de cada tipo de respaldo* diferenciando `pg_dump`/WAL del respaldo lógico por empresa en `backupEmpresaService.ts` (excluye credenciales/roles y actualmente lee/restaura solo `*_MEMORIA` en sus `20` colecciones operativas). | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`153.32s`) |
+| **D4** | `145c5f3` | Archivó `docs/RESULTADOS_VERIFICACION.txt` en `docs/_archivo/` (actualizó `docs/_archivo/README.md`), mantuvo `docs/MATRIZ_TRAZABILIDAD.csv`, y añadió `docs/evidencia/lint.txt`, `build.txt` y `npm_test.txt` a `.gitignore` (`git rm --cached`). | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`135.05s`) |
+| **D5** | `a185f23` | `.env.example` y `docs/engineering/SEGURIDAD.md`: retirada `GEMINI_API_KEY` sin referencias en el repo y alineado `.env.example` con `server/config/env.ts`. | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`164.04s`) |
+| **D6** | `9cc42f0` | Creado índice maestro [`docs/README.md`](../README.md) (activos, ingeniería, archivo histórico y política de cuarentena). | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`125.43s`) |
+| **D7** | `16ac3cd` | Regenerado [`SISTEMA_ATLOB_ERP.md`](../../SISTEMA_ATLOB_ERP.md) con mediciones reales de D0, `25` scripts (sin `test:all`), Ley 32219 conforme a `NORMAS_VERIFICADAS.md`, Sección 10 con deriva resuelta en Fase 3, índice Sección 12 y Sección 13 *Limpieza*. | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` (`127.27s`) |
+| **D8** | *(sin cambios requeridos)* | Escaneo temporal en memoria (`node --input-type=module -`) sobre `28` archivos `.md` y `75` enlaces relativos (`77` tras añadir D9): **`0` enlaces rotos** (`BROKEN=0`). | — | — |
+| **D9** | *(este commit)* | Consolidación de `MEDICIONES_FASE3.md`, `MOVIMIENTOS_FASE2.md` y `docs/_archivo/README.md`, verificación final completa y tag `post-limpieza`. | `0` err · `2,101` mód · `index-C_F132wg.js` (`2,434.40 kB` / `528.10 kB` gzip) | `36/36` · `3,390` |
