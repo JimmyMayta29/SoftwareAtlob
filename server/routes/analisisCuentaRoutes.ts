@@ -16,7 +16,8 @@ analisisCuentaRoutes.get('/movimientos', async (req: Request, res: Response) => 
   try {
     const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
     const periodo = (req.query.periodo as string) || '2026-09';
-    const codigoCuenta = req.query.codigoCuenta as string | undefined;
+    const codigoCuenta = (req.query.codigoCuenta as string) || (req.query.cuentaDesde as string);
+    const cuentaHasta = req.query.cuentaHasta as string | undefined;
     const anexo = req.query.anexo as string | undefined;
 
     if (!empresaId) {
@@ -27,7 +28,8 @@ analisisCuentaRoutes.get('/movimientos', async (req: Request, res: Response) => 
       empresaId,
       periodo,
       codigoCuenta,
-      anexo
+      anexo,
+      cuentaHasta
     );
 
     res.json({ success: true, data: resultado });
@@ -44,13 +46,14 @@ analisisCuentaRoutes.get('/antiguedad', async (req: Request, res: Response) => {
   try {
     const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
     const periodo = (req.query.periodo as string) || '2026-09';
-    const cuenta = (req.query.cuenta as string) || '1212';
+    const cuenta = (req.query.cuenta as string) || (req.query.cuentaDesde as string) || '1212';
+    const cuentaHasta = req.query.cuentaHasta as string | undefined;
 
     if (!empresaId) {
       return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
     }
 
-    const resultado = await analisisCuentaService.obtenerAntiguedadSaldos(empresaId, periodo, cuenta);
+    const resultado = await analisisCuentaService.obtenerAntiguedadSaldos(empresaId, periodo, cuenta, cuentaHasta);
     res.json({ success: true, data: resultado });
   } catch (err: any) {
     res.status(500).json({ success: false, error: sanitizarMensaje(err) });

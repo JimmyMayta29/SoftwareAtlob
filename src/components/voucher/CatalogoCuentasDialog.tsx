@@ -7,6 +7,8 @@ interface CatalogoCuentasDialogProps {
   onClose: () => void;
   onSelectCuenta: (cuenta: CuentaPCGE) => void;
   initialQuery?: string;
+  filtroPrefijo?: string;
+  permitirMayor?: boolean;
 }
 
 export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
@@ -14,6 +16,8 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
   onClose,
   onSelectCuenta,
   initialQuery = '',
+  filtroPrefijo = '',
+  permitirMayor = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -31,9 +35,12 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
   }, [isOpen, initialQuery]);
 
   const cuentasFiltradas = PLAN_CONTABLE_PCGE.filter((c) => {
+    if (filtroPrefijo && !c.codigo.startsWith(filtroPrefijo) && !searchTerm.trim()) {
+      return false;
+    }
     if (!searchTerm.trim()) return true;
     const q = searchTerm.toLowerCase().trim();
-    return c.codigo.toLowerCase().includes(q) || (c.denominacion || '').toLowerCase().includes(q);
+    return c.codigo.toLowerCase().includes(q) || (c.denominacion || c.nombre || '').toLowerCase().includes(q);
   }).slice(0, 100);
 
   useEffect(() => {
@@ -43,8 +50,8 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
   if (!isOpen) return null;
 
   const handleSelect = (cuenta: CuentaPCGE) => {
-    if (!cuenta.permiteMovimiento) {
-      setErrorValidacion(`La cuenta ${cuenta.codigo} (${cuenta.denominacion}) es cuenta de mayor no imputable. Debe seleccionar una subcuenta analítica de último nivel.`);
+    if (!permitirMayor && !cuenta.permiteMovimiento) {
+      setErrorValidacion(`La cuenta ${cuenta.codigo} (${cuenta.denominacion || cuenta.nombre}) es cuenta de mayor no imputable. Debe seleccionar una subcuenta analítica de último nivel.`);
       return;
     }
     setErrorValidacion(null);

@@ -214,7 +214,49 @@ async function runTestsBloqueE() {
     console.log(`   ✔ Benchmark exitoso: 50,000 líneas procesadas y totalizadas en ${duracionMs.toFixed(2)} ms.`);
   }
 
-  console.log('✅ TODAS LAS 7 ASUNCIONES Y COMPROBACIONES DEL BLOQUE E FUERON SUPERADAS.');
+  // Test 8: Validación de Rangos de Cuentas (12 a 16, 42 a 46) y Períodos 00 y 13
+  console.log('8. Verificando lógica de filtrado por rangos contables y períodos 00 (Apertura) y 13 (Cierre)...');
+  {
+    const cuentasEjemplo = [
+      '1011', '1041', '1211', '1212', '1311', '1411', '1611', '1682', '1711',
+      '4011', '4111', '4212', '4311', '4411', '4611', '4699', '5011'
+    ];
+
+    const filtrarRango = (cuentas: string[], desde: string, hasta?: string) => {
+      return cuentas.filter(c => {
+        if (!hasta || hasta === desde) return c.startsWith(desde);
+        return c >= desde && (c <= hasta || c.startsWith(hasta));
+      });
+    };
+
+    // Rango 12 a 16 (Cartera completa de cuentas por cobrar)
+    const rango12_16 = filtrarRango(cuentasEjemplo, '12', '16');
+    assert(rango12_16.includes('1211'), 'Incluye 1211');
+    assert(rango12_16.includes('1411'), 'Incluye 1411');
+    assert(rango12_16.includes('1682'), 'Incluye 1682');
+    assert(!rango12_16.includes('1041'), 'Excluye 1041');
+    assert(!rango12_16.includes('1711'), 'Excluye 1711');
+
+    // Rango 42 a 46 (Pasivos y obligaciones comerciales y diversas)
+    const rango42_46 = filtrarRango(cuentasEjemplo, '42', '46');
+    assert(rango42_46.includes('4212'), 'Incluye 4212');
+    assert(rango42_46.includes('4411'), 'Incluye 4411');
+    assert(rango42_46.includes('4699'), 'Incluye 4699');
+    assert(!rango42_46.includes('4011'), 'Excluye 4011');
+    assert(!rango42_46.includes('5011'), 'Excluye 5011');
+
+    // Comprobación de los 14 períodos (0 a 13) en periodoService
+    const { periodoService } = await import('../services/periodoService');
+    const periodos = await periodoService.listar('emp-test-rango', 2026);
+    assert.strictEqual(periodos.length, 14, 'Deben existir exactamente 14 períodos contables (0 a 13)');
+    assert.strictEqual(periodos[0].mes, 0, 'Primer período debe ser mes 0 (Apertura)');
+    assert.strictEqual(periodos[0].codigoPeriodo, '2026-00', 'Código del primer período debe ser 2026-00');
+    assert.strictEqual(periodos[13].mes, 13, 'Último período debe ser mes 13 (Cierre Anual)');
+    assert.strictEqual(periodos[13].codigoPeriodo, '2026-13', 'Código del último período debe ser 2026-13');
+    console.log('   ✔ Filtrado por rangos (12-16, 42-46) y los 14 períodos (00 Apertura, 13 Cierre) verificados con éxito.');
+  }
+
+  console.log('✅ TODAS LAS 8 ASUNCIONES Y COMPROBACIONES DEL BLOQUE E FUERON SUPERADAS.');
 }
 
 runTestsBloqueE().catch((err) => {

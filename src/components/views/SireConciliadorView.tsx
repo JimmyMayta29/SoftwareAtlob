@@ -40,6 +40,7 @@ import {
 } from '../../hooks/useSire';
 import { generarSireRceTxt } from '../../services/sireTxtGenerator';
 import { useToast } from '../../context/ToastContext';
+import { SelectorCuentaContable } from '../common/SelectorCuentaContable';
 
 interface SireConciliadorViewProps {
   compras: Comprobante[];
@@ -848,13 +849,11 @@ export const SireConciliadorView: React.FC<SireConciliadorViewProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Cuenta PCGE:</label>
-                    <input
-                      type="text"
+                    <SelectorCuentaContable
+                      label="Cuenta PCGE:"
                       value={nuevaRegla.cuentaContableDefault}
-                      onChange={(e) => setNuevaRegla({ ...nuevaRegla, cuentaContableDefault: e.target.value })}
-                      placeholder="60111"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-slate-800 focus:outline-none focus:border-blue-500"
+                      onChange={(c) => setNuevaRegla({ ...nuevaRegla, cuentaContableDefault: c })}
+                      placeholder="60111..."
                     />
                   </div>
                   <div>

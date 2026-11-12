@@ -14,10 +14,26 @@ export interface PeriodoModel {
 }
 
 export const PERIODOS_MEMORIA: PeriodoModel[] = [
-  { id: 'per-2026-09', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 9, codigoPeriodo: '2026-09', estado: 'ABIERTO' },
+  { id: 'per-2026-00', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 0, codigoPeriodo: '2026-00', estado: 'ABIERTO' },
   { id: 'per-2026-08', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 8, codigoPeriodo: '2026-08', estado: 'CERRADO' },
-  { id: 'per-2026-10', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 10, codigoPeriodo: '2026-10', estado: 'ABIERTO' }
+  { id: 'per-2026-09', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 9, codigoPeriodo: '2026-09', estado: 'ABIERTO' },
+  { id: 'per-2026-10', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 10, codigoPeriodo: '2026-10', estado: 'ABIERTO' },
+  { id: 'per-2026-13', empresaId: 'emp-01', ejercicioId: 'eje-2026', anio: 2026, mes: 13, codigoPeriodo: '2026-13', estado: 'ABIERTO' }
 ];
+
+function crearPeriodoDefault(empresaId: string, anio: number, mes: number): PeriodoModel {
+  const pad = mes < 10 ? `0${mes}` : `${mes}`;
+  const codigoPeriodo = `${anio}-${pad}`;
+  return {
+    id: `per-${empresaId}-${codigoPeriodo}`,
+    empresaId,
+    ejercicioId: `eje-${anio}`,
+    anio,
+    mes,
+    codigoPeriodo,
+    estado: 'ABIERTO'
+  };
+}
 
 export const periodoService = {
   async listar(empresaId: string, anio = 2026): Promise<PeriodoModel[]> {
@@ -30,11 +46,63 @@ export const periodoService = {
         WHERE empresa_id = $1 AND anio = $2
         ORDER BY mes ASC
       `, [empresaId, anio]);
-      if (res.rows.length > 0) return res.rows;
+
+      if (res.rows.length > 0) {
+        if (res.rows.length >= 14) return res.rows;
+
+        // Si faltan meses (por ejemplo mes 00 de Apertura o mes 13 de Cierre Anual), completarlos
+        const ejercicioId = res.rows[0].ejercicioId;
+        const mesesExistentes = new Set(res.rows.map((r: any) => Number(r.mes)));
+        const filas = [...res.rows];
+
+        for (let m = 0; m <= 13; m++) {
+          if (!mesesExistentes.has(m)) {
+            const pad = m < 10 ? `0${m}` : `${m}`;
+            const cod = `${anio}-${pad}`;
+            try {
+              const insertado = await db.query(`
+                INSERT INTO periodos (empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado)
+                VALUES ($1, $2, $3, $4, $5, 'ABIERTO')
+                ON CONFLICT (empresa_id, codigo_periodo) DO NOTHING
+                RETURNING id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
+                          anio, mes, codigo_periodo as "codigoPeriodo", estado,
+                          fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
+              `, [empresaId, ejercicioId, anio, m, cod]);
+              if (insertado.rows.length > 0) {
+                filas.push(insertado.rows[0]);
+              } else {
+                filas.push(crearPeriodoDefault(empresaId, anio, m));
+              }
+            } catch {
+              filas.push(crearPeriodoDefault(empresaId, anio, m));
+            }
+          }
+        }
+        return filas.sort((a, b) => a.mes - b.mes);
+      }
     }
-    const filtered = PERIODOS_MEMORIA.filter(p => p.empresaId === empresaId && (!anio || p.anio === anio));
-    if (filtered.length > 0) return filtered;
-    return PERIODOS_MEMORIA.filter(p => p.empresaId === empresaId);
+
+    let existentes = PERIODOS_MEMORIA.filter(p => p.empresaId === empresaId && (!anio || p.anio === anio));
+    if (existentes.length === 0) {
+      const year = anio || 2026;
+      for (let m = 0; m <= 13; m++) {
+        const item = crearPeriodoDefault(empresaId, year, m);
+        PERIODOS_MEMORIA.push(item);
+        existentes.push(item);
+      }
+      return existentes.sort((a, b) => a.mes - b.mes);
+    }
+
+    // Asegurar que existan del mes 0 al 13
+    const year = anio || existentes[0].anio || 2026;
+    for (let m = 0; m <= 13; m++) {
+      if (!existentes.some(p => p.mes === m)) {
+        const item = crearPeriodoDefault(empresaId, year, m);
+        PERIODOS_MEMORIA.push(item);
+        existentes.push(item);
+      }
+    }
+    return existentes.sort((a, b) => a.mes - b.mes);
   },
 
   async obtenerPorCodigo(empresaId: string, codigoPeriodo: string): Promise<PeriodoModel | null> {
@@ -49,7 +117,18 @@ export const periodoService = {
       `, [empresaId, codigoPeriodo]);
       if (res.rows.length > 0) return res.rows[0];
     }
-    return PERIODOS_MEMORIA.find(p => p.empresaId === empresaId && p.codigoPeriodo === codigoPeriodo) || null;
+
+    let p = PERIODOS_MEMORIA.find(p => p.empresaId === empresaId && p.codigoPeriodo === codigoPeriodo);
+    if (!p && codigoPeriodo.includes('-')) {
+      const parts = codigoPeriodo.split('-');
+      const anio = parseInt(parts[0], 10);
+      const mes = parseInt(parts[1], 10);
+      if (!isNaN(anio) && !isNaN(mes) && mes >= 0 && mes <= 13) {
+        p = crearPeriodoDefault(empresaId, anio, mes);
+        PERIODOS_MEMORIA.push(p);
+      }
+    }
+    return p || null;
   },
 
   async cerrar(periodoId: string, userId: string, empresaId: string) {

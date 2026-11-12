@@ -44,6 +44,7 @@ import {
   construirDefinicionVoucherContableEstandar,
 } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { EMPRESAS_CLIENTES_DEMO } from '../../data/empresasClientes';
+import { SelectorCuentaContable } from '../common/SelectorCuentaContable';
 
 interface AnalisisCuentasViewProps {
   empresaId?: string;
@@ -52,14 +53,15 @@ interface AnalisisCuentasViewProps {
   usuarioRol?: string;
 }
 
-const CUENTAS_RAPIDAS = [
-  { codigo: '1212', label: '1212 Facturas x Cobrar' },
-  { codigo: '4212', label: '4212 Facturas x Pagar' },
-  { codigo: '1041', label: '1041 Cuentas Corrientes' },
-  { codigo: '141', label: '141 Personal y Accionistas' },
-  { codigo: '161', label: '161 Cuentas x Cobrar Div.' },
-  { codigo: '461', label: '461 Cuentas x Pagar Div.' },
-  { codigo: '40111', label: '40111 IGV Cuenta Propia' },
+const PRESETS_CUENTAS_RANGO = [
+  { label: 'Toda Cta 12', desde: '12', hasta: '12' },
+  { label: 'Cartera 12 a 16', desde: '12', hasta: '16' },
+  { label: 'Toda Cta 42', desde: '42', hasta: '42' },
+  { label: 'Obligaciones 42 a 46', desde: '42', hasta: '46' },
+  { label: '10 Caja y Bancos', desde: '10', hasta: '10' },
+  { label: '14 Personal', desde: '14', hasta: '14' },
+  { label: '40 Tributos', desde: '40', hasta: '40' },
+  { label: '60 a 69 Gastos', desde: '60', hasta: '69' },
 ];
 
 export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
@@ -75,7 +77,8 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
 
   // Filtros
   const [periodoActual, setPeriodoActual] = useState(periodo);
-  const [cuentaFiltro, setCuentaFiltro] = useState('1212');
+  const [cuentaFiltro, setCuentaFiltro] = useState('12');
+  const [cuentaHasta, setCuentaHasta] = useState('');
   const [anexoFiltro, setAnexoFiltro] = useState('');
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroCancelacion, setFiltroCancelacion] = useState<'TODOS' | 'PENDIENTES' | 'SALDADOS'>('TODOS');
@@ -121,14 +124,16 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
           empresaId,
           periodoActual,
           cuentaFiltro,
-          anexoFiltro
+          anexoFiltro,
+          cuentaHasta || undefined
         );
         setMovimientosData(res);
       } else if (tabActiva === 'antiguedad') {
         const res = await analisisCuentasApi.obtenerAntiguedad(
           empresaId,
           periodoActual,
-          cuentaFiltro || '1212'
+          cuentaFiltro || '12',
+          cuentaHasta || undefined
         );
         setAntiguedadData(res);
       } else if (tabActiva === 'evolucion') {
@@ -358,27 +363,31 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
         {/* PESTAÑA 1: MOVIMIENTOS POR CUENTA */}
         {tabActiva === 'movimientos' && (
           <div className="flex flex-col gap-3 h-full">
-            {/* Chips de Selección Rápida de Cuentas */}
+            {/* Chips de Selección Rápida de Cuentas y Rangos */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 mr-1">
-                Accesos directos:
+                Rangos Rápidos:
               </span>
-              {CUENTAS_RAPIDAS.map((c) => (
-                <button
-                  key={c.codigo}
-                  type="button"
-                  onClick={() => {
-                    setCuentaFiltro(c.codigo);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-all ${
-                    cuentaFiltro === c.codigo
-                      ? 'bg-indigo-900 text-white shadow-xs font-bold'
-                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {c.label}
-                </button>
-              ))}
+              {PRESETS_CUENTAS_RANGO.map((c) => {
+                const esActivo = cuentaFiltro === c.desde && cuentaHasta === (c.hasta === c.desde ? '' : c.hasta);
+                return (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => {
+                      setCuentaFiltro(c.desde);
+                      setCuentaHasta(c.hasta === c.desde ? '' : c.hasta);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer ${
+                      esActivo
+                        ? 'bg-indigo-900 text-white shadow-xs font-bold'
+                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Barra de Filtro de Cuenta, Cancelación y Búsqueda */}
@@ -387,13 +396,26 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
               className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-2.5"
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-700">Cuenta:</span>
+                <span className="text-xs font-bold text-slate-700">Desde Cta:</span>
                 <input
                   type="text"
                   value={cuentaFiltro}
                   onChange={(e) => setCuentaFiltro(e.target.value)}
-                  placeholder="Ej. 12, 1212, 4212"
+                  placeholder="Ej. 12"
+                  className="px-2.5 py-1 text-xs font-mono font-bold border border-slate-300 rounded-lg w-20 focus:border-indigo-600 focus:outline-none"
+                  title="Cuenta contable inicial (ej. 12 o 1212)"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-700">Hasta:</span>
+                <input
+                  type="text"
+                  value={cuentaHasta}
+                  onChange={(e) => setCuentaHasta(e.target.value)}
+                  placeholder="Ej. 16 (Opcional)"
                   className="px-2.5 py-1 text-xs font-mono font-bold border border-slate-300 rounded-lg w-28 focus:border-indigo-600 focus:outline-none"
+                  title="Cuenta contable final para rango (ej. 16 o 46). Dejar vacío si solo desea el prefijo de la cuenta inicial."
                 />
               </div>
 
@@ -404,7 +426,7 @@ export const AnalisisCuentasView: React.FC<AnalisisCuentasViewProps> = ({
                   value={anexoFiltro}
                   onChange={(e) => setAnexoFiltro(e.target.value)}
                   placeholder="RUC o Razón..."
-                  className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg w-36 focus:border-indigo-600 focus:outline-none"
+                  className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg w-32 focus:border-indigo-600 focus:outline-none"
                 />
               </div>
 

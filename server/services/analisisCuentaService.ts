@@ -38,6 +38,7 @@ export interface MovimientoAnalisisCuenta {
 export interface ResultadoMovimientosCuenta {
   periodo: string;
   cuentaFiltro?: string;
+  cuentaHasta?: string;
   saldoInicialPen: number;
   totalDebePen: number;
   totalHaberPen: number;
@@ -131,7 +132,8 @@ export class AnalisisCuentaService {
     empresaId: string,
     periodo: string,
     codigoCuenta?: string,
-    anexoFiltro?: string
+    anexoFiltro?: string,
+    cuentaHasta?: string
   ): Promise<ResultadoMovimientosCuenta> {
     const anio = parseInt(periodo.split('-')[0], 10);
 
@@ -156,9 +158,14 @@ export class AnalisisCuentaService {
         AND a.estado = 'CONTABILIZADO'
         AND p.anio = $2
         AND p.codigo_periodo < $3
-        AND ($4::text IS NULL OR pc.codigo LIKE $4 || '%')
+        AND (
+          ($4::text IS NULL AND $5::text IS NULL)
+          OR ($5::text IS NULL AND pc.codigo LIKE $4 || '%')
+          OR ($4::text IS NULL AND $5::text IS NOT NULL AND pc.codigo <= $5)
+          OR (pc.codigo >= $4 AND (pc.codigo <= $5 OR pc.codigo LIKE $5 || '%'))
+        )
       `,
-      [empresaId, anio, periodo, codigoCuenta || null]
+      [empresaId, anio, periodo, codigoCuenta || null, cuentaHasta || null]
     );
 
     const debeIni = parseFloat(saldoInicialRes.rows[0]?.debe_inicial || '0');
@@ -238,7 +245,12 @@ export class AnalisisCuentaService {
       WHERE a.empresa_id = $1
         AND a.estado = 'CONTABILIZADO'
         AND p.codigo_periodo = $2
-        AND ($3::text IS NULL OR pc.codigo LIKE $3 || '%')
+        AND (
+          ($3::text IS NULL AND $5::text IS NULL)
+          OR ($5::text IS NULL AND pc.codigo LIKE $3 || '%')
+          OR ($3::text IS NULL AND $5::text IS NOT NULL AND pc.codigo <= $5)
+          OR (pc.codigo >= $3 AND (pc.codigo <= $5 OR pc.codigo LIKE $5 || '%'))
+        )
         AND (
           $4::text IS NULL OR 
           an.numero_documento ILIKE '%' || $4 || '%' OR 
@@ -247,7 +259,7 @@ export class AnalisisCuentaService {
         )
       ORDER BY a.fecha ASC, a.numero ASC, ad.linea ASC
       `,
-      [empresaId, periodo, codigoCuenta || null, anexoFiltro || null]
+      [empresaId, periodo, codigoCuenta || null, anexoFiltro || null, cuentaHasta || null]
     );
 
     let runningPen = saldoInicialPen;
@@ -311,6 +323,7 @@ export class AnalisisCuentaService {
     return {
       periodo,
       cuentaFiltro: codigoCuenta,
+      cuentaHasta,
       saldoInicialPen,
       totalDebePen: sumDebePen,
       totalHaberPen: sumHaberPen,
@@ -330,7 +343,8 @@ export class AnalisisCuentaService {
   async obtenerAntiguedadSaldos(
     empresaId: string,
     periodo: string,
-    cuentaPrefijo: string = '1212'
+    cuentaPrefijo: string = '1212',
+    cuentaHasta?: string
   ): Promise<ResultadoAntiguedadSaldos> {
     const res = await db.query<{
       anexo_id: string;
@@ -364,12 +378,15 @@ export class AnalisisCuentaService {
       WHERE a.empresa_id = $1
         AND a.estado = 'CONTABILIZADO'
         AND p.codigo_periodo <= $2
-        AND pc.codigo LIKE $3 || '%'
+        AND (
+          ($4::text IS NULL AND pc.codigo LIKE $3 || '%')
+          OR ($4::text IS NOT NULL AND pc.codigo >= $3 AND (pc.codigo <= $4 OR pc.codigo LIKE $4 || '%'))
+        )
       GROUP BY an.id, an.numero_documento, an.razon_social, ad.doc_tipo, ad.doc_serie, ad.doc_numero
       HAVING SUM(ad.debe) <> SUM(ad.haber)
       ORDER BY an.razon_social ASC, MIN(a.fecha) ASC
       `,
-      [empresaId, periodo, cuentaPrefijo]
+      [empresaId, periodo, cuentaPrefijo, cuentaHasta || null]
     );
 
     const [anioStr, mesStr] = periodo.split('-');

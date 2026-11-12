@@ -25,6 +25,7 @@ import {
 } from '../../hooks/useTesoreriaPlanilla';
 import { useAnexosList } from '../../hooks/useOperaciones';
 import { useToast } from '../../context/ToastContext';
+import { SelectorCuentaContable } from '../common/SelectorCuentaContable';
 
 interface HonorariosViewProps {
   honorarios?: ReciboHonorario[];
@@ -418,20 +419,13 @@ export const HonorariosView: React.FC<HonorariosViewProps> = ({
 
             {/* Cuenta de Gasto PCGE */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Cuenta Contable de Gasto (PCGE 2020)
-              </label>
-              <select
+              <SelectorCuentaContable
                 value={cuentaGasto}
-                onChange={(e) => setCuentaGasto(e.target.value)}
-                className="w-full text-xs font-medium border border-slate-300 rounded-xl p-2.5 bg-white text-slate-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="63211">63211 - Asesoría y consultoría administrativa</option>
-                <option value="63221">63221 - Asesoría legal y tributaria</option>
-                <option value="63231">63231 - Auditoría contable y financiera</option>
-                <option value="63241">63241 - Capacitación y entrenamiento técnico</option>
-                <option value="63291">63291 - Otros servicios de asesoría y consultoría</option>
-              </select>
+                onChange={(c) => setCuentaGasto(c)}
+                filtroPrefijo="6"
+                label="Cuenta Contable de Gasto (PCGE)"
+                placeholder="Ej. 63211 o Asesoría..."
+              />
             </div>
 
             {/* Importe y Suspensión */}

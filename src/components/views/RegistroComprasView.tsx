@@ -43,6 +43,7 @@ import { operacionesApi } from '../../api/operacionesApi';
 import { generarSireRceTxt, exportarComprobantesCsv } from '../../services/sireTxtGenerator';
 import { VisorDocumentoSunatModal } from '../modals/VisorDocumentoSunatModal';
 import { useReportStyle } from '../../context/ReportStyleContext';
+import { SelectorCuentaContable } from '../common/SelectorCuentaContable';
 import { construirDefinicionRegistroComprasEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { CATALOGO_OFICIAL_DETRACCIONES_SUNAT, buscarDetraccionPorCodigo } from '../../data/detraccionesCatalogo';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
@@ -1721,21 +1722,12 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-[#F7F9FC] border border-[#E3E8EF] rounded-xl text-xs">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">Cuenta Contable de Gasto/Costo (PCGE)</label>
-                    <select
+                    <SelectorCuentaContable
                       value={formCuentaCompra}
-                      onChange={(e) => setFormCuentaCompra(e.target.value)}
-                      className="w-full text-xs font-semibold p-2 border border-slate-300 rounded-xl bg-white"
-                    >
-                      <option value="6011">6011 - Mercaderías manufacturadas</option>
-                      <option value="6021">6021 - Materias primas</option>
-                      <option value="6031">6031 - Materiales auxiliares y suministros</option>
-                      <option value="6311">6311 - Transporte de mercaderías y fletes</option>
-                      <option value="6321">6321 - Asesoría y consultoría administrativa</option>
-                      <option value="6361">6361 - Energía eléctrica</option>
-                      <option value="6363">6363 - Agua potable</option>
-                      <option value="6364">6364 - Teléfono e Internet</option>
-                      <option value="659">659 - Otros gastos de gestión</option>
-                    </select>
+                      onChange={(codigo) => setFormCuentaCompra(codigo)}
+                      filtroPrefijo="6"
+                      placeholder="Escriba código o presione [F2]..."
+                    />
                   </div>
 
                   <div>
@@ -1786,18 +1778,19 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                                 className="w-full p-1.5 font-mono font-bold text-right border border-slate-300 rounded-lg bg-white"
                               />
                             </td>
-                            <td className="p-2">
-                              <input
-                                type="text"
+                            <td className="p-2 min-w-[140px]">
+                              <SelectorCuentaContable
                                 value={item.cuentaCodigo}
-                                onChange={(e) => {
-                                  const val = e.target.value;
+                                onChange={(cod, denom) => {
                                   const copy = [...lineasDesglose];
-                                  copy[idx].cuentaCodigo = val;
+                                  copy[idx].cuentaCodigo = cod;
+                                  if (denom) copy[idx].denominacion = denom;
                                   setLineasDesglose(copy);
                                 }}
-                                placeholder="6011"
-                                className="w-full p-1.5 font-mono font-bold border border-slate-300 rounded-lg bg-white"
+                                filtroPrefijo="6"
+                                placeholder="6011..."
+                                tamano="compacto"
+                                mostrarDenominacion={false}
                               />
                             </td>
                             <td className="p-2">
@@ -1810,7 +1803,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
                                   copy[idx].denominacion = val;
                                   setLineasDesglose(copy);
                                 }}
-                                placeholder="Descripción del gasto"
+                                placeholder="Descripción del gasto / cuenta"
                                 className="w-full p-1.5 border border-slate-300 rounded-lg bg-white"
                               />
                             </td>

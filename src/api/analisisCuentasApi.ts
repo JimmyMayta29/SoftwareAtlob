@@ -37,6 +37,7 @@ export interface MovimientoAnalisisCuenta {
 export interface ResultadoMovimientosCuenta {
   periodo: string;
   cuentaFiltro?: string;
+  cuentaHasta?: string;
   saldoInicialPen: number;
   totalDebePen: number;
   totalHaberPen: number;
@@ -122,12 +123,13 @@ export const analisisCuentasApi = {
     empresaId: string,
     periodo: string,
     codigoCuenta?: string,
-    anexo?: string
+    anexo?: string,
+    cuentaHasta?: string
   ): Promise<ResultadoMovimientosCuenta> => {
     const res = await apiClient.get<{ success: boolean; data: ResultadoMovimientosCuenta }>(
       `/empresas/${empresaId}/analisis-cuentas/movimientos`,
       {
-        params: { periodo, codigoCuenta, anexo },
+        params: { periodo, codigoCuenta, anexo, cuentaHasta },
       }
     );
     return res.data.data;
@@ -136,12 +138,13 @@ export const analisisCuentasApi = {
   obtenerAntiguedad: async (
     empresaId: string,
     periodo: string,
-    cuenta?: string
+    cuenta?: string,
+    cuentaHasta?: string
   ): Promise<ResultadoAntiguedadSaldos> => {
     const res = await apiClient.get<{ success: boolean; data: ResultadoAntiguedadSaldos }>(
       `/empresas/${empresaId}/analisis-cuentas/antiguedad`,
       {
-        params: { periodo, cuenta },
+        params: { periodo, cuenta, cuentaHasta },
       }
     );
     return res.data.data;

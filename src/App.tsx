@@ -122,6 +122,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
   const {
     empresaActiva,
     periodo,
+    setPeriodo,
     entrarAEmpresa,
     isPeriodoCerrado,
     setIsSearchModalOpen,
@@ -324,6 +325,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
         empresaNombre={empresaActual.razonSocial}
         empresaRuc={empresaActual.ruc}
         periodoNombre={periodo}
+        onCambiarPeriodo={setPeriodo}
         ambienteSunat={empresaActual.ambienteSunat || 'BETA'}
         perfilSeleccionado={conectado ? usuario.nombre : perfil}
         rolAutenticado={conectado ? rolActual : undefined}

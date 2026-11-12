@@ -11,7 +11,8 @@ import {
   ChevronRight,
   LogOut,
   ShieldCheck,
-  Check
+  Check,
+  Calendar
 } from 'lucide-react';
 import { MENU_DATA, MenuGroup, MenuItem, tienePermisoMenu } from '../../types/menu';
 import atlobIsotipo from '../../assets/brand/atlob_isotipo.webp';
@@ -21,6 +22,7 @@ export interface TopBarProps {
   empresaNombre?: string;
   empresaRuc?: string;
   periodoNombre?: string;
+  onCambiarPeriodo?: (nuevoPeriodo: string) => void;
   ambienteSunat?: 'BETA' | 'BETA_TEST' | 'PRODUCCION';
   perfilSeleccionado: string;
   rolAutenticado?: string;
@@ -77,6 +79,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   empresaNombre = 'COMERCIALIZADORA ANDINA S.A.C.',
   empresaRuc = '20601234567',
   periodoNombre = '2026-03',
+  onCambiarPeriodo,
   ambienteSunat = 'BETA',
   perfilSeleccionado,
   rolAutenticado,
@@ -88,9 +91,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
   const [focusedItemIndex, setFocusedItemIndex] = useState<number>(-1);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isPeriodoMenuOpen, setIsPeriodoMenuOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const periodoMenuRef = useRef<HTMLDivElement>(null);
   const menuButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const rolActual = obtenerCodigoRolDesdePerfil(rolAutenticado ?? perfilSeleccionado);
@@ -99,11 +104,35 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const grupoActivoId = obtenerGrupoActivoId(activeModuleId) || 'contabilidad';
 
+  const anioActual = React.useMemo(() => {
+    if (periodoNombre && periodoNombre.includes('-')) {
+      const parsed = parseInt(periodoNombre.split('-')[0], 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 2026;
+  }, [periodoNombre]);
+
+  const listaPeriodosRapidos = React.useMemo(() => {
+    const periodos = [];
+    const nombresMeses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
+    for (let m = 0; m <= 13; m++) {
+      const pad = m < 10 ? `0${m}` : `${m}`;
+      const cod = `${anioActual}-${pad}`;
+      let label = `${cod} · `;
+      if (m === 0) label += 'Apertura';
+      else if (m === 13) label += 'Cierre Anual';
+      else label += nombresMeses[m - 1];
+      periodos.push({ codigo: cod, mes: m, label });
+    }
+    return periodos;
+  }, [anioActual]);
+
   const closeAllMenus = useCallback(() => {
     setActiveMenuId(null);
     setActiveSubmenuId(null);
     setFocusedItemIndex(-1);
     setIsUserMenuOpen(false);
+    setIsPeriodoMenuOpen(false);
   }, []);
 
   useEffect(() => {
@@ -333,9 +362,65 @@ export const TopBar: React.FC<TopBarProps> = ({
             >
               {empresaNombre}
             </h1>
-            <span className="text-[12px] font-normal text-[#5B6675] leading-tight mt-0.5 truncate">
-              RUC {empresaRuc} · Período {periodoNombre}
-            </span>
+            <div className="flex items-center gap-1.5 text-[12px] font-normal text-[#5B6675] leading-tight mt-0.5">
+              <span>RUC {empresaRuc}</span>
+              <span className="text-slate-300">·</span>
+              <div className="relative" ref={periodoMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsPeriodoMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-blue-700 hover:text-blue-900 bg-blue-50/80 hover:bg-blue-100 transition border border-blue-200/80 cursor-pointer"
+                  title="Clic para cambiar el período contable activo (Mes 00 Apertura, 01 al 12, Mes 13 Cierre)"
+                >
+                  <Calendar className="w-3 h-3 text-blue-600" />
+                  <span>Período {periodoNombre}</span>
+                  <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                </button>
+
+                {isPeriodoMenuOpen && (
+                  <div className="absolute left-0 mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2 text-xs">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
+                      Períodos del Ejercicio {anioActual}
+                    </div>
+                    <div className="max-h-60 overflow-y-auto space-y-0.5">
+                      {listaPeriodosRapidos.map((p) => {
+                        const esSeleccionado = p.codigo === periodoNombre;
+                        return (
+                          <button
+                            key={p.codigo}
+                            type="button"
+                            onClick={() => {
+                              onCambiarPeriodo?.(p.codigo);
+                              setIsPeriodoMenuOpen(false);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center justify-between text-xs transition cursor-pointer ${
+                              esSeleccionado
+                                ? 'bg-blue-600 text-white font-bold'
+                                : 'text-slate-700 hover:bg-slate-100 font-medium'
+                            }`}
+                          >
+                            <span>{p.label}</span>
+                            {esSeleccionado && <Check className="w-3.5 h-3.5 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="pt-1.5 mt-1 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPeriodoMenuOpen(false);
+                          onAction('Archivo › Período de trabajo', 'periodo-trabajo');
+                        }}
+                        className="w-full text-left px-2 py-1.5 text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                      >
+                        Administrar e ingresar por tablero...
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

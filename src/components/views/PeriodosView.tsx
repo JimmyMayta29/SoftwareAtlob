@@ -7,17 +7,39 @@ import {
   CheckCircle2, 
   ShieldAlert, 
   RefreshCw,
-  Clock
+  Clock,
+  ArrowRightCircle,
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { usePeriodosList, useCerrarPeriodo, useReabrirPeriodo } from '../../hooks/useAsientos';
 import { useToast } from '../../context/ToastContext';
+import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
+
+const NOMBRES_PERIODOS: Record<number, { etiqueta: string; detalle: string; esEspecial?: boolean }> = {
+  0: { etiqueta: '00 · Apertura', detalle: 'Asiento Inicial y Saldos de Apertura', esEspecial: true },
+  1: { etiqueta: '01 · Enero', detalle: 'Operaciones de Enero' },
+  2: { etiqueta: '02 · Febrero', detalle: 'Operaciones de Febrero' },
+  3: { etiqueta: '03 · Marzo', detalle: 'Operaciones de Marzo' },
+  4: { etiqueta: '04 · Abril', detalle: 'Operaciones de Abril' },
+  5: { etiqueta: '05 · Mayo', detalle: 'Operaciones de Mayo' },
+  6: { etiqueta: '06 · Junio', detalle: 'Operaciones de Junio' },
+  7: { etiqueta: '07 · Julio', detalle: 'Operaciones de Julio' },
+  8: { etiqueta: '08 · Agosto', detalle: 'Operaciones de Agosto' },
+  9: { etiqueta: '09 · Setiembre', detalle: 'Operaciones de Setiembre' },
+  10: { etiqueta: '10 · Octubre', detalle: 'Operaciones de Octubre' },
+  11: { etiqueta: '11 · Noviembre', detalle: 'Operaciones de Noviembre' },
+  12: { etiqueta: '12 · Diciembre', detalle: 'Operaciones de Diciembre' },
+  13: { etiqueta: '13 · Cierre Anual', detalle: 'Regularización, Cuentas 8 y Cierre PCGE', esEspecial: true }
+};
 
 interface PeriodosViewProps {
   empresaId: string;
 }
 
 export const PeriodosView: React.FC<PeriodosViewProps> = ({ empresaId }) => {
-  const { success, error } = useToast();
+  const { success, error, info } = useToast();
+  const { periodo: periodoActivo, setPeriodo } = useEmpresaPeriodo();
   const [anio, setAnio] = useState<number>(2026);
   const [isReabrirModalOpen, setIsReabrirModalOpen] = useState(false);
   const [periodoAReabrirId, setPeriodoAReabrirId] = useState<string | null>(null);
@@ -31,6 +53,11 @@ export const PeriodosView: React.FC<PeriodosViewProps> = ({ empresaId }) => {
   const { data: periodos = [], isLoading, refetch } = usePeriodosList(empresaId, anio);
   const cerrarMutation = useCerrarPeriodo(empresaId);
   const reabrirMutation = useReabrirPeriodo(empresaId);
+
+  const handleSeleccionarPeriodo = (codigoPeriodo: string, etiqueta: string) => {
+    setPeriodo(codigoPeriodo);
+    success(`Período de trabajo establecido en ${codigoPeriodo} (${etiqueta}). Todas las vistas consultarán este período.`, 'Período de Trabajo Activo');
+  };
 
   const handleSolicitarCerrar = (periodoId: string) => {
     setModalCerrar({ open: true, periodoId });
@@ -110,76 +137,116 @@ export const PeriodosView: React.FC<PeriodosViewProps> = ({ empresaId }) => {
         ) : (
           periodos.map((p: any) => {
             const isCerrado = p.estado === 'CERRADO';
+            const esActivo = p.codigoPeriodo === periodoActivo;
+            const infoPeriodo = NOMBRES_PERIODOS[p.mes] || { etiqueta: `Mes ${p.mes}`, detalle: 'Operaciones del mes' };
+
             return (
               <div
                 key={p.id}
-                className={`p-4 rounded-2xl border transition-all ${
-                  isCerrado
+                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                  esActivo
+                    ? 'bg-blue-50/60 border-blue-500 shadow-sm ring-1 ring-blue-500/30'
+                    : isCerrado
                     ? 'bg-slate-50 border-slate-200 opacity-90'
-                    : 'bg-white border-blue-100 shadow-xs hover:border-blue-300'
+                    : 'bg-white border-slate-200 shadow-xs hover:border-blue-300'
                 }`}
               >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-bold text-slate-900 text-sm">{p.mes}</span>
-                  <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      isCerrado
-                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    }`}
-                  >
-                    {isCerrado ? (
-                      <>
-                        <Lock className="w-3 h-3" />
-                        CERRADO
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-3 h-3" />
-                        ABIERTO
-                      </>
-                    )}
-                  </span>
-                </div>
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-slate-900 text-sm">{infoPeriodo.etiqueta}</span>
+                        {esActivo && (
+                          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-xs">
+                            <Check className="w-2.5 h-2.5" /> EN USO
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1" title={infoPeriodo.detalle}>
+                        {infoPeriodo.detalle}
+                      </p>
+                    </div>
 
-                <div className="space-y-1.5 text-xs text-slate-500 mb-4">
-                  <div className="flex justify-between">
-                    <span>Asientos Contables:</span>
-                    <span className="font-bold text-slate-800">{p.totalAsientos ?? 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Borradores pendientes:</span>
-                    <span className={`font-bold ${(p.asientosBorrador ?? 0) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
-                      {p.asientosBorrador ?? 0}
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                        isCerrado
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {isCerrado ? (
+                        <>
+                          <Lock className="w-3 h-3" />
+                          CERRADO
+                        </>
+                      ) : (
+                        <>
+                          <Unlock className="w-3 h-3" />
+                          ABIERTO
+                        </>
+                      )}
                     </span>
                   </div>
-                  {isCerrado && p.cerradoAt && (
-                    <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-200">
-                      Cerrado el: {new Date(p.cerradoAt).toLocaleDateString()}
+
+                  <div className="space-y-1 text-xs text-slate-500 my-3">
+                    <div className="flex justify-between">
+                      <span>Código:</span>
+                      <span className="font-mono font-bold text-slate-800">{p.codigoPeriodo}</span>
                     </div>
-                  )}
+                    <div className="flex justify-between">
+                      <span>Asientos Contables:</span>
+                      <span className="font-bold text-slate-800">{p.totalAsientos ?? 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Borradores pendientes:</span>
+                      <span className={`font-bold ${(p.asientosBorrador ?? 0) > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+                        {p.asientosBorrador ?? 0}
+                      </span>
+                    </div>
+                    {isCerrado && p.cerradoAt && (
+                      <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-200">
+                        Cerrado el: {new Date(p.cerradoAt).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
+                <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                  {esActivo ? (
+                    <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1 py-1">
+                      <Check className="w-3.5 h-3.5 text-blue-600" /> Período activo
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSeleccionarPeriodo(p.codigoPeriodo, infoPeriodo.etiqueta)}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                      title="Activar como período contable de trabajo"
+                    >
+                      <ArrowRightCircle className="w-3.5 h-3.5" />
+                      Ingresar
+                    </button>
+                  )}
+
                   {isCerrado ? (
                     <button
                       onClick={() => {
                         setPeriodoAReabrirId(p.id);
                         setIsReabrirModalOpen(true);
                       }}
-                      className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                     >
                       <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                      Reabrir Período
+                      Reabrir
                     </button>
                   ) : (
                     <button
                       onClick={() => handleSolicitarCerrar(p.id)}
                       disabled={cerrarMutation.isPending}
-                      className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-semibold flex items-center gap-1 transition cursor-pointer shadow-xs"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      Cerrar Período
+                      Cerrar
                     </button>
                   )}
                 </div>
