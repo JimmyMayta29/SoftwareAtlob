@@ -28,6 +28,7 @@ import { analisisCuentaRoutes } from './analisisCuentaRoutes';
 import { requireAuth, requireEmpresaMembership } from '../middlewares/auth';
 import { empresaGuard } from '../middlewares/empresaGuard';
 import { db } from '../config/database';
+import { MODULOS_SOLO_MEMORIA, obtenerEstadoPersistencia } from '../config/persistencia';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.get('/health', (req, res) => {
     database: isPostgres ? 'POSTGRESQL_CONNECTED' : (disponible ? 'IN_MEMORY_FALLBACK' : 'UNAVAILABLE'),
     environment: process.env.NODE_ENV || 'development',
     version: process.env.npm_package_version || '0.0.0',
+    persistenciaCompleta: MODULOS_SOLO_MEMORIA.length === 0,
     timestamp: new Date().toISOString()
   });
 });
@@ -56,6 +58,9 @@ router.get('/e/:empresaId/verificar-acceso', requireAuth, empresaGuard(), (req, 
 router.use('/auth', authRoutes);
 router.use('/setup', setupRoutes);
 router.use(requireAuth);
+router.get('/sistema/persistencia', (_req, res) => {
+  res.json(obtenerEstadoPersistencia());
+});
 router.use('/', usuariosRoutes);
 router.use('/empresas/:empresaId', requireEmpresaMembership());
 router.use('/empresas/:empresaId/plan-cuentas', pcgeRoutes);
