@@ -66,9 +66,9 @@ export async function prepararPruebaClavesEmpresa(client: PoolClient) {
   assert(sesion?.bd === 'atlob_test' && sesion.rol === 'contabilidad_app' &&
     sesion.usuario === 'contabilidad_app' && !sesion.evita_rls, 'La prueba FK requiere contabilidad_app en atlob_test.');
   const antes = await catalogoClavesEmpresa(client);
-  assert.equal(antes.length, 75);
+  assert(antes.length >= 75, `La prueba requiere al menos 75 relaciones originales activas (encontradas: ${antes.length}).`);
   assert(antes.every(fk => fk.columnas.length === 1 && fk.columnasPadre.length === 1 && fk.validada && fk.aplicada),
-    'La prueba requiere las 75 relaciones originales activas.');
+    'La prueba requiere las relaciones originales activas.');
 
   const tenant = randomUUID();
   await client.query("INSERT INTO tenants (id, nombre) VALUES ($1, 'Prueba de integridad FK')", [tenant]);

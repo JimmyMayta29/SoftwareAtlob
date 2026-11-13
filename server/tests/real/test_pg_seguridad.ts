@@ -190,7 +190,7 @@ async function ejecutar() {
       try {
         await client.query('SELECT pg_advisory_xact_lock(738291004)');
         const muestra = await prepararPruebaClavesEmpresa(client);
-        const modulos = ['01_contabilidad', '02_comprobantes', '03_cartera', '04_tesoreria', '05_planillas', '06_tributos', '07_sire'];
+        const modulos = ['01_contabilidad', '02_comprobantes', '03_cartera', '04_tesoreria', '05_planillas', '06_tributos', '07_sire', '08_kardex'];
         for (const modulo of modulos) {
           console.log(`FK módulo ${modulo}: aplicando en transacción de prueba.`);
           const archivo = new URL(`../../db/fk_empresa_${modulo}.sql`, import.meta.url);

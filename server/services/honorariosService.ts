@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { contabilizacionService } from './contabilizacionService';
@@ -57,6 +58,8 @@ export interface ReciboHonorarioModel {
 
 export const HONORARIOS_MEMORIA: ReciboHonorarioModel[] = [];
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const honorariosService = {
   async listarRecibos(empresaId: string, filtros?: {
     fechaDesde?: string;
@@ -64,6 +67,70 @@ export const honorariosService = {
     proveedorId?: string;
     estado?: string;
   }): Promise<ReciboHonorarioModel[]> {
+    if (db.isPostgresConnected()) {
+      try {
+        let sql = `
+          SELECT r.*, a.razon_social as prov_nombre, a.numero_documento as prov_ruc
+          FROM recibos_honorarios r
+          LEFT JOIN anexos a ON a.id = r.proveedor_id
+          WHERE r.empresa_id = $1
+        `;
+        const params: any[] = [empresaId];
+        let pIdx = 2;
+        if (filtros?.proveedorId) {
+          sql += ` AND r.proveedor_id = $${pIdx++}`;
+          params.push(filtros.proveedorId);
+        }
+        if (filtros?.estado && filtros.estado !== 'TODOS') {
+          sql += ` AND r.estado = $${pIdx++}`;
+          params.push(filtros.estado);
+        }
+        if (filtros?.fechaDesde) {
+          sql += ` AND r.fecha_emision >= $${pIdx++}`;
+          params.push(filtros.fechaDesde);
+        }
+        if (filtros?.fechaHasta) {
+          sql += ` AND r.fecha_emision <= $${pIdx++}`;
+          params.push(filtros.fechaHasta);
+        }
+        sql += ' ORDER BY r.fecha_emision DESC';
+        const res = await db.query(sql, params);
+        if (res.rows.length > 0) {
+          return res.rows.map(row => ({
+            id: String(row.id),
+            empresaId: String(row.empresa_id),
+            periodoId: String(row.periodo_id),
+            proveedorId: String(row.proveedor_id),
+            proveedorNombre: row.prov_nombre || undefined,
+            proveedorRuc: row.prov_ruc || undefined,
+            serie: String(row.serie),
+            numero: String(row.numero),
+            fechaEmision: row.fecha_emision instanceof Date ? row.fecha_emision.toISOString().slice(0, 10) : String(row.fecha_emision).slice(0, 10),
+            fechaPago: row.fecha_pago ? (row.fecha_pago instanceof Date ? row.fecha_pago.toISOString().slice(0, 10) : String(row.fecha_pago).slice(0, 10)) : undefined,
+            moneda: row.moneda as 'PEN' | 'USD',
+            tipoCambio: Number(row.tipo_cambio),
+            importeBruto: Number(row.importe_bruto),
+            aplicaRetencion: Boolean(row.aplica_retencion),
+            tasaRetencion: Number(row.tasa_retencion),
+            retencion: Number(row.retencion),
+            netoPagar: Number(row.neto_pagar),
+            suspensionCuarta: Boolean(row.suspension_cuarta),
+            numeroResolucionSuspension: row.numero_resolucion_suspension || undefined,
+            vigenciaSuspensionDesde: row.vigencia_suspension_desde ? (row.vigencia_suspension_desde instanceof Date ? row.vigencia_suspension_desde.toISOString().slice(0, 10) : String(row.vigencia_suspension_desde).slice(0, 10)) : undefined,
+            vigenciaSuspensionHasta: row.vigencia_suspension_hasta ? (row.vigencia_suspension_hasta instanceof Date ? row.vigencia_suspension_hasta.toISOString().slice(0, 10) : String(row.vigencia_suspension_hasta).slice(0, 10)) : undefined,
+            cuentaGasto: String(row.cuenta_gasto),
+            glosa: String(row.glosa),
+            estado: row.estado as any,
+            asientoId: row.asiento_id ? String(row.asiento_id) : undefined,
+            cuentaPorPagarId: row.cuenta_por_pagar_id ? String(row.cuenta_por_pagar_id) : undefined,
+            version: Number(row.version || 1)
+          }));
+        }
+      } catch {
+        // fallback a memoria
+      }
+    }
+
     let items = HONORARIOS_MEMORIA.filter(h => h.empresaId === empresaId);
 
     if (filtros?.proveedorId) items = items.filter(h => h.proveedorId === filtros.proveedorId);
@@ -148,12 +215,12 @@ export const honorariosService = {
 
     const asiento = await asientoService.crearAsiento(empresaId, {
       periodoId: datos.periodoId || `per-${mes}`,
-      subdiario: '06',
+      subdiario: '08',
       fecha: datos.fechaEmision,
       moneda: datos.moneda || 'PEN',
       tipoCambio: datos.tipoCambio || 1.0,
       glosa: datos.glosa || `Honorarios profesionales ${datos.serie}-${datos.numero}`,
-      origenModulo: 'HONORARIOS',
+      origenModulo: 'HONORARIO',
       lineas: propuesta.lineas.map(l => ({
         codigoCuenta: l.codigoCuenta,
         debe: l.debe,
@@ -163,8 +230,8 @@ export const honorariosService = {
       }))
     }, userId);
 
-    const reciboId = `rh-${Date.now()}`;
-    const cuentaPorPagarId = `cxp-rh-${Date.now()}`;
+    const reciboId = UUID_REGEX.test(empresaId) ? randomUUID() : `rh-${Date.now()}`;
+    const cuentaPorPagarId = UUID_REGEX.test(empresaId) ? randomUUID() : `cxp-rh-${Date.now()}`;
 
     // 4. Crear Cuenta por Pagar en Cartera (para permitir pago por Tesorería)
     const nuevaCxP: CuentaPorPagarModel = {
@@ -219,6 +286,66 @@ export const honorariosService = {
 
     HONORARIOS_MEMORIA.push(nuevoRecibo);
 
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+      try {
+        let periodoIdSql = datos.periodoId;
+        const pRes = await db.query(
+          'SELECT id FROM periodos WHERE empresa_id = $1 AND anio = $2 AND mes = $3 LIMIT 1',
+          [empresaId, Number(mes.split('-')[0]), Number(mes.split('-')[1])]
+        );
+        if (pRes.rows.length > 0) {
+          periodoIdSql = pRes.rows[0].id;
+        }
+
+        let proveedorIdSql = datos.proveedorId;
+        let anexoExiste = false;
+        if (UUID_REGEX.test(proveedorIdSql)) {
+          const aRes = await db.query('SELECT id FROM anexos WHERE id = $1 AND empresa_id = $2', [proveedorIdSql, empresaId]);
+          anexoExiste = aRes.rows.length > 0;
+        }
+        if (!anexoExiste) {
+          const rucDoc = datos.proveedorRuc || '10000000001';
+          const insAnexo = await db.query(`
+            INSERT INTO anexos (empresa_id, tipo_documento, numero_documento, razon_social, tipo_persona)
+            VALUES ($1, $2, $3, $4, 'NATURAL')
+            ON CONFLICT (empresa_id, tipo_documento, numero_documento) DO UPDATE SET razon_social = EXCLUDED.razon_social
+            RETURNING id
+          `, [empresaId, rucDoc.length === 8 ? '1' : '6', rucDoc, datos.proveedorNombre || `Proveedor ${rucDoc}`]);
+          proveedorIdSql = insAnexo.rows[0].id;
+        }
+
+        await db.query(`
+          INSERT INTO recibos_honorarios (
+            id, empresa_id, periodo_id, proveedor_id, serie, numero, fecha_emision, fecha_pago,
+            moneda, tipo_cambio, importe_bruto, aplica_retencion, tasa_retencion, retencion, neto_pagar,
+            suspension_cuarta, numero_resolucion_suspension, vigencia_suspension_desde, vigencia_suspension_hasta,
+            cuenta_gasto, glosa, estado, asiento_id, cuenta_por_pagar_id, version, created_by
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8,
+            $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19,
+            $20, $21, $22, $23, $24, $25, $26
+          )
+          ON CONFLICT (empresa_id, serie, numero, proveedor_id) DO UPDATE SET
+            importe_bruto = EXCLUDED.importe_bruto,
+            retencion = EXCLUDED.retencion,
+            neto_pagar = EXCLUDED.neto_pagar,
+            estado = EXCLUDED.estado,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          UUID_REGEX.test(reciboId) ? reciboId : randomUUID(),
+          empresaId, periodoIdSql, proveedorIdSql, datos.serie, datos.numero, datos.fechaEmision, datos.fechaPago || null,
+          datos.moneda || 'PEN', datos.tipoCambio || 1.0, Money.toNumber(bruto), aplicaRetencion, tasaRetencionDecimal * 100, Money.toNumber(retencion), Money.toNumber(neto),
+          tieneSuspensionValida, datos.numeroResolucionSuspension || null, datos.vigenciaSuspensionDesde || null, datos.vigenciaSuspensionHasta || null,
+          datos.cuentaGasto || '6321', nuevoRecibo.glosa, 'REGISTRADO',
+          asiento.id && UUID_REGEX.test(asiento.id) ? asiento.id : null,
+          null, 1, UUID_REGEX.test(userId) ? userId : null
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [honorariosService] Error persistiendo recibo en PostgreSQL:', err);
+      }
+    }
+
     await auditoriaRepository.registrar({
       empresaId,
       usuarioId: userId,
@@ -254,6 +381,18 @@ export const honorariosService = {
     }
 
     recibo.estado = 'ANULADO';
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(id)) {
+      try {
+        await db.query(`
+          UPDATE recibos_honorarios
+          SET estado = 'ANULADO', updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1 AND empresa_id = $2
+        `, [id, empresaId]);
+      } catch (err) {
+        console.warn('⚠️ [honorariosService] Error anulando recibo en PostgreSQL:', err);
+      }
+    }
 
     await auditoriaRepository.registrar({
       empresaId,

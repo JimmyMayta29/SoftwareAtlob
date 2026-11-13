@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { COMPRAS_MEMORIA } from './compraService';
 import { VENTAS_MEMORIA } from './ventaService';
@@ -62,6 +64,8 @@ export interface ResumenDaotEjecucion {
   nombreArchivoTxt: string;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const DAOT_EXCLUSIONES_MEMORIA: ExclusionDaotItem[] = [];
 
 export const daotService = {
@@ -100,8 +104,12 @@ export const daotService = {
         (e.comprobanteId || null) === (input.comprobanteId || null)
     );
 
+    const itemId = existenteIdx >= 0
+      ? DAOT_EXCLUSIONES_MEMORIA[existenteIdx].id
+      : (UUID_REGEX.test(empresaId) ? randomUUID() : `daot-excl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+
     const item: ExclusionDaotItem = {
-      id: existenteIdx >= 0 ? DAOT_EXCLUSIONES_MEMORIA[existenteIdx].id : `daot-excl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: itemId,
       empresaId,
       anio: input.anio,
       tipoOperacion: input.tipoOperacion || 'AMBOS',
@@ -117,6 +125,27 @@ export const daotService = {
       DAOT_EXCLUSIONES_MEMORIA[existenteIdx] = item;
     } else {
       DAOT_EXCLUSIONES_MEMORIA.push(item);
+    }
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+      void (async () => {
+        try {
+          const tipos = input.tipoOperacion === 'AMBOS' ? ['COMPRA', 'VENTA'] : [input.tipoOperacion || 'COMPRA'];
+          for (const tipo of tipos) {
+            await db.query(`
+              INSERT INTO daot_exclusiones (
+                id, empresa_id, anio, tipo_operacion, ruc_tercero, comprobante_id, motivo_exclusion, usuario_id
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, [
+              UUID_REGEX.test(item.id) ? item.id : randomUUID(),
+              empresaId, input.anio, tipo, rucLimpio, input.comprobanteId || null,
+              item.motivoExclusion, UUID_REGEX.test(usuarioId) ? usuarioId : null
+            ]);
+          }
+        } catch (err) {
+          console.warn('⚠️ [daotService] Error persistiendo exclusión en PostgreSQL:', err);
+        }
+      })();
     }
 
     void auditoriaChainService.registrar({
@@ -144,6 +173,14 @@ export const daotService = {
     if (idx === -1) return false;
     const eliminado = DAOT_EXCLUSIONES_MEMORIA[idx];
     DAOT_EXCLUSIONES_MEMORIA.splice(idx, 1);
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(exclusionId)) {
+      void (async () => {
+        try {
+          await db.query('DELETE FROM daot_exclusiones WHERE id = $1 AND empresa_id = $2', [exclusionId, empresaId]);
+        } catch {}
+      })();
+    }
 
     void auditoriaChainService.registrar({
       empresaId,

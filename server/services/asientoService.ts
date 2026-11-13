@@ -219,12 +219,48 @@ export const asientoService = {
     }
 
     if (db.isPostgresConnected()) {
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const persistir = async (client: PoolClient) => {
+        let resolvedPeriodoId = input.periodoId;
+        if (!UUID_REGEX.test(resolvedPeriodoId)) {
+          const codPeriodo = String(resolvedPeriodoId).replace(/^per-/, '');
+          const pCheck = await client.query(
+            `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2) LIMIT 1`,
+            [empresaId, codPeriodo]
+          );
+          if (pCheck.rows.length > 0) {
+            resolvedPeriodoId = pCheck.rows[0].id;
+          }
+        }
+
         // Verificar período abierto
-        const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [input.periodoId]);
+        const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [resolvedPeriodoId]);
         if (pRes.rows[0]?.estado === 'CERRADO') {
           throw new Error('PERIODO_CERRADO: No se puede crear asientos en un período contable cerrado.');
         }
+
+        let resolvedSubdiarioId = input.subdiarioId;
+        if (!UUID_REGEX.test(resolvedSubdiarioId)) {
+          const subCheck = await client.query(
+            `SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+            [empresaId, input.subdiarioId]
+          );
+          if (subCheck.rows.length > 0) {
+            resolvedSubdiarioId = subCheck.rows[0].id;
+          }
+        }
+
+        const resolvedUserId = UUID_REGEX.test(userId) ? userId : null;
+
+        const origenesValidos = ['MANUAL', 'COMPRA', 'VENTA', 'COBRANZA', 'PAGO', 'HONORARIO', 'PLANILLA', 'DESTINO', 'AJUSTE', 'CIERRE', 'APERTURA', 'RECURRENTE'];
+        let resolvedOrigen = (input.origen || 'MANUAL').toUpperCase();
+        if (resolvedOrigen === 'HONORARIOS') resolvedOrigen = 'HONORARIO';
+        if (resolvedOrigen === 'PLANILLAS') resolvedOrigen = 'PLANILLA';
+        if (resolvedOrigen === 'COMPRAS') resolvedOrigen = 'COMPRA';
+        if (resolvedOrigen === 'VENTAS') resolvedOrigen = 'VENTA';
+        if (resolvedOrigen === 'COBRANZAS') resolvedOrigen = 'COBRANZA';
+        if (resolvedOrigen === 'PAGOS') resolvedOrigen = 'PAGO';
+        if (!origenesValidos.includes(resolvedOrigen)) resolvedOrigen = 'MANUAL';
 
         const insertRes = await client.query(`
           INSERT INTO asientos (
@@ -234,8 +270,8 @@ export const asientoService = {
           ) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, 'BORRADOR', $8, $9, $10, $11, $12, $13, $14, $15)
           RETURNING *
         `, [
-          empresaId, input.periodoId, input.subdiarioId, input.fecha, input.glosa,
-          moneda, tipoCambio, input.origen || 'MANUAL', input.origenId || null, version, userId,
+          empresaId, resolvedPeriodoId, resolvedSubdiarioId, input.fecha, input.glosa,
+          moneda, tipoCambio, resolvedOrigen, input.origenId || null, version, resolvedUserId,
           input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1'
         ]);
 
@@ -243,6 +279,40 @@ export const asientoService = {
 
         // Insertar líneas de detalle
         for (const d of input.detalles) {
+          let resolvedCuentaId = d.cuentaId;
+          if (!UUID_REGEX.test(resolvedCuentaId)) {
+            const cod = String(resolvedCuentaId).replace(/^cta-/, '');
+            const ctaCheck = await client.query(
+              `SELECT id FROM plan_cuentas WHERE empresa_id = $1 AND (codigo = $2 OR codigo LIKE $3) ORDER BY length(codigo) DESC LIMIT 1`,
+              [empresaId, cod, `${cod}%`]
+            );
+            if (ctaCheck.rows.length > 0) {
+              resolvedCuentaId = ctaCheck.rows[0].id;
+            } else {
+              const newCtaId = crypto.randomUUID();
+              await client.query(`
+                INSERT INTO plan_cuentas (id, empresa_id, codigo, nombre, nivel, tipo_cuenta)
+                VALUES ($1, $2, $3, $4, 4, 'ACTIVO')
+                ON CONFLICT (empresa_id, codigo) DO NOTHING
+              `, [newCtaId, empresaId, cod, `CUENTA ${cod}`]);
+              const created = await client.query(
+                `SELECT id FROM plan_cuentas WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+                [empresaId, cod]
+              );
+              if (created.rows.length > 0) {
+                resolvedCuentaId = created.rows[0].id;
+              }
+            }
+          }
+          let resolvedAnexoId = d.anexoId;
+          if (resolvedAnexoId && !UUID_REGEX.test(resolvedAnexoId)) {
+            resolvedAnexoId = null;
+          }
+          let resolvedCentroCostoId = d.centroCostoId;
+          if (resolvedCentroCostoId && !UUID_REGEX.test(resolvedCentroCostoId)) {
+            resolvedCentroCostoId = null;
+          }
+
           await client.query(`
             INSERT INTO asiento_detalle (
               asiento_id, empresa_id, linea, cuenta_id, anexo_id, debe, haber,
@@ -251,8 +321,8 @@ export const asientoService = {
               anexo_num_doc, anexo_nombre, fecha_emision, correlativo_ple
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
           `, [
-            asientoCreado.id, empresaId, d.linea, d.cuentaId, d.anexoId || null,
-            d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, d.centroCostoId || null,
+            asientoCreado.id, empresaId, d.linea, resolvedCuentaId, resolvedAnexoId,
+            d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, resolvedCentroCostoId,
             d.docTipo || null, d.docSerie || null, d.docNumero || null,
             d.fechaVencimiento || null, d.glosaLinea || null,
             d.unidadOperacion || null, d.anexoTipoDoc || null,

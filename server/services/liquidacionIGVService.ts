@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { parametroRepository } from '../repositories/parametroRepository';
@@ -173,16 +174,149 @@ function validarPermisoOperativoTributos(rolUsuario?: string) {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function mapearFilaALiquidacion(row: any): LiquidacionIGVResultado {
+  const casillas = typeof row.casillas_json === 'string' ? JSON.parse(row.casillas_json) : (row.casillas_json || {});
+  const detalle = typeof row.detalle_calculo_json === 'string' ? JSON.parse(row.detalle_calculo_json) : (row.detalle_calculo_json || []);
+  const bg = Number(casillas.c100_ventasGravadasBase || 0);
+  const exp = Number(casillas.c106_exportacionesFacturadas || 0);
+  const bng = Number(casillas.c109_ventasNoGravadas || 0);
+  const descBase = Number(casillas.c102_descuentosDevolucionesBase || 0);
+  const descIgv = Number(casillas.c103_descuentosDevolucionesIgv || 0);
+  const debito = Number(row.debito_fiscal || 0);
+  const credGrav = Number(row.credito_fiscal_gravado || 0);
+  const credMixtoBruto = Number(row.credito_fiscal_mixto_bruto || 0);
+  const credMixtoAdmitido = Number(row.credito_fiscal_mixto_admitido || 0);
+  const igvNoAdmitido = Number(row.igv_no_admitido_gasto || 0);
+  const credTotal = Number(row.credito_fiscal_total || 0);
+  const comprasBaseComun = Number(casillas.c110_comprasDestinoComunBase || 0);
+  const comprasBaseGrav = Number(casillas.c107_comprasGravadasExclusivasBase || 0);
+  const comprasSinCred = Number(casillas.c120_comprasSinDerechoCreditoBase || 0);
+  const saldoAnt = Number(row.saldo_favor_anterior || 0);
+  const ret = Number(row.retenciones_igv || 0);
+  const perc = Number(row.percepciones_igv || 0);
+  const aPagar = Number(row.igv_a_pagar || 0);
+  const saldoSig = Number(row.saldo_favor_proximo_mes || 0);
+  const baseRenta = Number(row.base_imponible_renta || 0);
+  const rentaTasa = Number(row.tasa_renta_aplicada || 0.01);
+  const rentaPago = Number(row.pago_a_cuenta_renta || 0);
+
+  return {
+    id: String(row.id),
+    periodo: String(row.periodo),
+    empresaId: String(row.empresa_id),
+    regimenTributario: String(row.regimen_aplicado || 'MYPE_TRIBUTARIO'),
+    version: Number(row.version || 1),
+    esRectificatoria: Boolean(row.es_rectificatoria),
+    declaracionAnteriorId: row.declaracion_anterior_id ? String(row.declaracion_anterior_id) : null,
+    motivoRectificatoria: undefined,
+    estado: (row.estado || 'BORRADOR') as EstadoDeclaracionPdt621,
+    numeroOrden: row.numero_orden || null,
+    fechaPresentacion: row.fecha_presentacion ? (row.fecha_presentacion instanceof Date ? row.fecha_presentacion.toISOString().slice(0, 10) : String(row.fecha_presentacion).slice(0, 10)) : null,
+    asientoDeterminacionId: row.asiento_determinacion_id ? String(row.asiento_determinacion_id) : null,
+    ventasGravadas: bg - descBase,
+    debitoFiscalIgv: debito,
+    descuentosVentasBase: descBase,
+    descuentosVentasIgv: descIgv,
+    exportaciones: exp,
+    ventasNoGravadas: bng,
+    totalVentas: bg + exp + bng - descBase,
+    comprasGravadasCreditoTotal: comprasBaseGrav,
+    creditoFiscalDestinoGravado: credGrav,
+    comprasGravadasCreditoProrrata: comprasBaseComun,
+    igvComprasDestinoComunBruto: credMixtoBruto,
+    creditoFiscalDestinoComunAdmitido: credMixtoAdmitido,
+    igvNoAdmitidoGasto64111: igvNoAdmitido,
+    comprasSinCredito: comprasSinCred,
+    creditoFiscalIgv: credTotal,
+    usaProrrata: Boolean(row.usa_prorrata),
+    coeficienteProrrataAplicado: Number(row.porcentaje_prorrata || 100) / 100,
+    porcentajeProrrataAplicado: Number(row.porcentaje_prorrata || 100),
+    saldoAnteriorAFavor: saldoAnt,
+    retencionesAplicables: ret,
+    percepcionesAplicables: perc,
+    igvDeterminado: Number(casillas.c140_impuestoResultanteOSaldoMes || 0),
+    igvPorPagar: aPagar,
+    nuevoSaldoAFavor: saldoSig,
+    baseImponibleRenta: baseRenta,
+    tasaRentaAplicada: rentaTasa,
+    coeficienteRentaConfigurado: 0,
+    etiquetaRenta: `Régimen ${row.regimen_aplicado || 'MYPE'} (${(rentaTasa * 100).toFixed(2)}%)`,
+    saldoFavorRentaAnterior: Number(casillas.c303_saldoFavorRentaCompensado || 0),
+    pagoCuentaRenta: rentaPago,
+    totalTributosPorPagar: aPagar + rentaPago,
+    casillas,
+    detalleCalculo: Array.isArray(detalle) ? detalle : [],
+    requiereTratamientoManualProrrata: Boolean(row.usa_prorrata),
+    usuarioId: row.usuario_id ? String(row.usuario_id) : undefined,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+  };
+}
+
 export const liquidacionIGVService = {
   /**
    * Registra un comprobante de retención o percepción de IGV para el período
    */
   registrarRetencionPercepcion(item: Omit<ComprobanteRetencionPercepcionIgv, 'id'>): ComprobanteRetencionPercepcionIgv {
+    const nuevoId = UUID_REGEX.test(item.empresaId) ? randomUUID() : `rp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const nuevo: ComprobanteRetencionPercepcionIgv = {
       ...item,
-      id: `rp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      id: nuevoId
     };
     RETENCIONES_PERCEPCIONES_IGV_MEMORIA.push(nuevo);
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(item.empresaId)) {
+      void (async () => {
+        try {
+          let anexoId: string | null = null;
+          const anexoRes = await db.query(
+            'SELECT id FROM anexos WHERE empresa_id = $1 AND numero_documento = $2 LIMIT 1',
+            [item.empresaId, item.rucAgente]
+          );
+          if (anexoRes.rows.length > 0) {
+            anexoId = anexoRes.rows[0].id;
+          } else {
+            const ins = await db.query(`
+              INSERT INTO anexos (empresa_id, tipo_documento, numero_documento, razon_social, tipo_persona)
+              VALUES ($1, '6', $2, $3, 'JURIDICA')
+              ON CONFLICT (empresa_id, tipo_documento, numero_documento) DO UPDATE SET razon_social = EXCLUDED.razon_social
+              RETURNING id
+            `, [item.empresaId, item.rucAgente, item.razonSocialAgente || `Agente ${item.rucAgente}`]);
+            anexoId = ins.rows[0]?.id || null;
+          }
+
+          if (anexoId) {
+            const tipoSql = item.tipo === 'RETENCION' ? 'RETENCION_COMPRA' : 'PERCEPCION_VENTA';
+            const pct = item.importeComprobante > 0 
+              ? Math.round((item.importeRetenidoPercibido / item.importeComprobante) * 10000) / 100 
+              : (item.tipo === 'RETENCION' ? 3.00 : 2.00);
+
+            await db.query(`
+              INSERT INTO retenciones_percepciones_igv (
+                id, empresa_id, tipo, comprobante_id, anexo_id, serie_documento, numero_documento,
+                fecha_emision, porcentaje, monto, periodo_aplicacion, estado
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDIENTE')
+            `, [
+              UUID_REGEX.test(nuevoId) ? nuevoId : randomUUID(),
+              item.empresaId,
+              tipoSql,
+              randomUUID(),
+              anexoId,
+              item.serie || '0001',
+              item.numero || '00000001',
+              item.fechaEmision || `${item.periodo}-01`,
+              pct,
+              item.importeRetenidoPercibido,
+              item.periodo
+            ]);
+          }
+        } catch (err) {
+          console.warn('⚠️ [liquidacionIGVService] Error persistiendo retencion_percepcion en PostgreSQL:', err);
+        }
+      })();
+    }
+
     return nuevo;
   },
 
@@ -199,6 +333,12 @@ export const liquidacionIGVService = {
       typeof saldoAnteriorAFavorOrOpciones === 'number'
         ? { saldoAnteriorAFavor: saldoAnteriorAFavorOrOpciones }
         : saldoAnteriorAFavorOrOpciones || {};
+
+    if (db.isPostgresConnected()) {
+      await this.cargarDesdePostgres(empresaId, periodo);
+      const perAnt = obtenerPeriodoAnterior(periodo);
+      await this.cargarDesdePostgres(empresaId, perAnt);
+    }
 
     // Si existe una declaración activa (no sustituida) en estado PRELIQUIDADO o PRESENTADO y no se pasaron overrides nuevos,
     // recalculamos sobre los datos actuales manteniendo metadatos de estado y versión.
@@ -288,7 +428,10 @@ export const liquidacionIGVService = {
                COALESCE(SUM(base_no_gravada + exonerado), 0) as bng,
                COALESCE(SUM(total), 0) as tot
         FROM comprobantes_venta
-        WHERE empresa_id = $1 AND periodo_id = $2 AND estado <> 'ANULADO'
+        WHERE empresa_id = $1
+          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
+               OR to_char(fecha_emision, 'YYYY-MM') = $2)
+          AND estado <> 'ANULADO'
       `, [empresaId, periodo]);
 
       if (vRes.rows.length > 0) {
@@ -343,7 +486,10 @@ export const liquidacionIGVService = {
                COALESCE(SUM(base_gravada), 0) as bg,
                COALESCE(SUM(igv), 0) as igv
         FROM comprobantes_compra
-        WHERE empresa_id = $1 AND periodo_id = $2 AND estado <> 'ANULADO'
+        WHERE empresa_id = $1
+          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
+               OR to_char(fecha_emision, 'YYYY-MM') = $2)
+          AND estado <> 'ANULADO'
         GROUP BY tipo_adquisicion
       `, [empresaId, periodo]);
 
@@ -410,19 +556,47 @@ export const liquidacionIGVService = {
     const rpRegistros = RETENCIONES_PERCEPCIONES_IGV_MEMORIA.filter(
       r => r.empresaId === empresaId && r.periodo === periodo
     );
-    const sumaRetencionesMem = rpRegistros
+    let sumaRetencionesCalc = rpRegistros
       .filter(r => r.tipo === 'RETENCION')
       .reduce((acc, r) => Money.add(acc, r.importeRetenidoPercibido), Money.create(0));
-    const sumaPercepcionesMem = rpRegistros
+    let sumaPercepcionesCalc = rpRegistros
       .filter(r => r.tipo === 'PERCEPCION')
       .reduce((acc, r) => Money.add(acc, r.importeRetenidoPercibido), Money.create(0));
 
+    if (db.isPostgresConnected()) {
+      try {
+        const rpRes = await db.query(`
+          SELECT tipo, COALESCE(SUM(monto), 0) as total
+          FROM retenciones_percepciones_igv
+          WHERE empresa_id = $1 AND periodo_aplicacion = $2
+          GROUP BY tipo
+        `, [empresaId, periodo]);
+
+        if (rpRes.rows.length > 0) {
+          let sumaRetPg = Money.create(0);
+          let sumaPercPg = Money.create(0);
+          for (const row of rpRes.rows) {
+            const tot = Number(row.total || 0);
+            if (row.tipo === 'RETENCION_COMPRA' || row.tipo === 'RETENCION') {
+              sumaRetPg = Money.add(sumaRetPg, tot);
+            } else if (row.tipo === 'PERCEPCION_VENTA' || row.tipo === 'PERCEPCION') {
+              sumaPercPg = Money.add(sumaPercPg, tot);
+            }
+          }
+          if (sumaRetPg.greaterThan(0)) sumaRetencionesCalc = sumaRetPg;
+          if (sumaPercPg.greaterThan(0)) sumaPercepcionesCalc = sumaPercPg;
+        }
+      } catch {
+        // fallback a memoria
+      }
+    }
+
     const retencionesAplicables = opciones.retencionesPeriodo !== undefined
       ? Money.create(opciones.retencionesPeriodo)
-      : sumaRetencionesMem;
+      : sumaRetencionesCalc;
     const percepcionesAplicables = opciones.percepcionesPeriodo !== undefined
       ? Money.create(opciones.percepcionesPeriodo)
-      : sumaPercepcionesMem;
+      : sumaPercepcionesCalc;
 
     // 7. Determinación del IGV Neto, Tributo a Pagar o Saldo a Favor para el próximo mes
     const igvDeterminado = Money.sub(debitoFiscal, creditoFiscalTotal); // Casilla 140
@@ -531,7 +705,7 @@ export const liquidacionIGVService = {
     ];
 
     const resultado: LiquidacionIGVResultado = {
-      id: declActiva?.id || `pdt621-${empresaId}-${periodo}-v1`,
+      id: declActiva?.id || (UUID_REGEX.test(empresaId) ? randomUUID() : `pdt621-${empresaId}-${periodo}-v1`),
       periodo,
       empresaId,
       regimenTributario: regimen,
@@ -592,11 +766,11 @@ export const liquidacionIGVService = {
       updatedAt: new Date().toISOString()
     };
 
-    this.guardarDeclaracionEnMemoria(resultado);
+    await this.guardarDeclaracion(resultado);
     return resultado;
   },
 
-  guardarDeclaracionEnMemoria(declaracion: LiquidacionIGVResultado) {
+  async guardarDeclaracion(declaracion: LiquidacionIGVResultado): Promise<void> {
     const idx = DECLARACIONES_PDT621_MEMORIA.findIndex(
       d => d.empresaId === declaracion.empresaId && d.periodo === declaracion.periodo && d.version === declaracion.version
     );
@@ -604,6 +778,101 @@ export const liquidacionIGVService = {
       DECLARACIONES_PDT621_MEMORIA[idx] = declaracion;
     } else {
       DECLARACIONES_PDT621_MEMORIA.push(declaracion);
+    }
+
+    if (!db.isPostgresConnected()) return;
+    try {
+      const declId = UUID_REGEX.test(declaracion.id) ? declaracion.id : randomUUID();
+      declaracion.id = declId;
+      const declAntId = declaracion.declaracionAnteriorId && UUID_REGEX.test(declaracion.declaracionAnteriorId) ? declaracion.declaracionAnteriorId : null;
+      const asientoId = declaracion.asientoDeterminacionId && UUID_REGEX.test(declaracion.asientoDeterminacionId) ? declaracion.asientoDeterminacionId : null;
+      const userId = declaracion.usuarioId && UUID_REGEX.test(declaracion.usuarioId) ? declaracion.usuarioId : null;
+      const fechaPres = declaracion.fechaPresentacion && /^\d{4}-\d{2}-\d{2}$/.test(declaracion.fechaPresentacion) ? declaracion.fechaPresentacion : null;
+
+      await db.query(`
+        INSERT INTO declaraciones_pdt621 (
+          id, empresa_id, periodo, version, es_rectificatoria, declaracion_anterior_id,
+          estado, numero_orden, fecha_presentacion, asiento_determinacion_id,
+          regimen_aplicado, tasa_igv, tasa_renta_aplicada, usa_prorrata, porcentaje_prorrata,
+          debito_fiscal, credito_fiscal_gravado, credito_fiscal_mixto_bruto,
+          credito_fiscal_mixto_admitido, igv_no_admitido_gasto, credito_fiscal_total,
+          saldo_favor_anterior, retenciones_igv, percepciones_igv, igv_a_pagar,
+          saldo_favor_proximo_mes, base_imponible_renta, pago_a_cuenta_renta,
+          casillas_json, detalle_calculo_json, usuario_id, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+          $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+          $31, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (empresa_id, periodo, version) DO UPDATE SET
+          es_rectificatoria = EXCLUDED.es_rectificatoria,
+          declaracion_anterior_id = EXCLUDED.declaracion_anterior_id,
+          estado = EXCLUDED.estado,
+          numero_orden = EXCLUDED.numero_orden,
+          fecha_presentacion = EXCLUDED.fecha_presentacion,
+          asiento_determinacion_id = EXCLUDED.asiento_determinacion_id,
+          regimen_aplicado = EXCLUDED.regimen_aplicado,
+          tasa_igv = EXCLUDED.tasa_igv,
+          tasa_renta_aplicada = EXCLUDED.tasa_renta_aplicada,
+          usa_prorrata = EXCLUDED.usa_prorrata,
+          porcentaje_prorrata = EXCLUDED.porcentaje_prorrata,
+          debito_fiscal = EXCLUDED.debito_fiscal,
+          credito_fiscal_gravado = EXCLUDED.credito_fiscal_gravado,
+          credito_fiscal_mixto_bruto = EXCLUDED.credito_fiscal_mixto_bruto,
+          credito_fiscal_mixto_admitido = EXCLUDED.credito_fiscal_mixto_admitido,
+          igv_no_admitido_gasto = EXCLUDED.igv_no_admitido_gasto,
+          credito_fiscal_total = EXCLUDED.credito_fiscal_total,
+          saldo_favor_anterior = EXCLUDED.saldo_favor_anterior,
+          retenciones_igv = EXCLUDED.retenciones_igv,
+          percepciones_igv = EXCLUDED.percepciones_igv,
+          igv_a_pagar = EXCLUDED.igv_a_pagar,
+          saldo_favor_proximo_mes = EXCLUDED.saldo_favor_proximo_mes,
+          base_imponible_renta = EXCLUDED.base_imponible_renta,
+          pago_a_cuenta_renta = EXCLUDED.pago_a_cuenta_renta,
+          casillas_json = EXCLUDED.casillas_json,
+          detalle_calculo_json = EXCLUDED.detalle_calculo_json,
+          usuario_id = EXCLUDED.usuario_id,
+          updated_at = CURRENT_TIMESTAMP
+      `, [
+        declId, declaracion.empresaId, declaracion.periodo, declaracion.version, declaracion.esRectificatoria, declAntId,
+        declaracion.estado, declaracion.numeroOrden || null, fechaPres, asientoId,
+        declaracion.regimenTributario, 0.18, declaracion.tasaRentaAplicada, declaracion.usaProrrata, declaracion.porcentajeProrrataAplicado,
+        declaracion.debitoFiscalIgv, declaracion.creditoFiscalDestinoGravado, declaracion.igvComprasDestinoComunBruto,
+        declaracion.creditoFiscalDestinoComunAdmitido, declaracion.igvNoAdmitidoGasto64111, declaracion.creditoFiscalIgv,
+        declaracion.saldoAnteriorAFavor, declaracion.retencionesAplicables, declaracion.percepcionesAplicables, declaracion.igvPorPagar,
+        declaracion.nuevoSaldoAFavor, declaracion.baseImponibleRenta, declaracion.pagoCuentaRenta,
+        JSON.stringify(declaracion.casillas), JSON.stringify(declaracion.detalleCalculo), userId
+      ]);
+    } catch (err) {
+      console.warn('⚠️ [liquidacionIGVService] Error guardando declaracion en PostgreSQL:', err);
+    }
+  },
+
+  guardarDeclaracionEnMemoria(declaracion: LiquidacionIGVResultado) {
+    void this.guardarDeclaracion(declaracion);
+  },
+
+  async cargarDesdePostgres(empresaId: string, periodo: string): Promise<void> {
+    if (!db.isPostgresConnected()) return;
+    try {
+      const res = await db.query(
+        'SELECT * FROM declaraciones_pdt621 WHERE empresa_id = $1 AND periodo = $2 ORDER BY version ASC',
+        [empresaId, periodo]
+      );
+      for (const row of res.rows) {
+        const decl = mapearFilaALiquidacion(row);
+        const idx = DECLARACIONES_PDT621_MEMORIA.findIndex(
+          d => d.empresaId === decl.empresaId && d.periodo === decl.periodo && d.version === decl.version
+        );
+        if (idx >= 0) {
+          DECLARACIONES_PDT621_MEMORIA[idx] = decl;
+        } else {
+          DECLARACIONES_PDT621_MEMORIA.push(decl);
+        }
+      }
+    } catch {
+      // ignorar si no hay registros
     }
   },
 
@@ -757,7 +1026,7 @@ export const liquidacionIGVService = {
       updatedAt: new Date().toISOString()
     };
 
-    this.guardarDeclaracionEnMemoria(actualizada);
+    await this.guardarDeclaracion(actualizada);
 
     await auditoriaChainService.registrar({
       empresaId,
@@ -817,7 +1086,7 @@ export const liquidacionIGVService = {
       updatedAt: new Date().toISOString()
     };
 
-    this.guardarDeclaracionEnMemoria(presentada);
+    await this.guardarDeclaracion(presentada);
 
     await auditoriaChainService.registrar({
       empresaId,
@@ -867,7 +1136,7 @@ export const liquidacionIGVService = {
       estado: 'SUSTITUIDA',
       updatedAt: new Date().toISOString()
     };
-    this.guardarDeclaracionEnMemoria(copiaAnterior);
+    await this.guardarDeclaracion(copiaAnterior);
 
     const nuevaVersion = anterior.version + 1;
 
@@ -876,7 +1145,7 @@ export const liquidacionIGVService = {
 
     // Remover cualquier registro temporal que calcular() haya sobreescrito en version 1
     // y asegurar que copiaAnterior permanezca intacta en su versión original
-    this.guardarDeclaracionEnMemoria(copiaAnterior);
+    await this.guardarDeclaracion(copiaAnterior);
 
     const estadoFinal: EstadoDeclaracionPdt621 = opcionesNuevas.numeroOrdenRectificatoria
       ? 'PRESENTADO'
@@ -884,7 +1153,7 @@ export const liquidacionIGVService = {
 
     const rectificatoria: LiquidacionIGVResultado = {
       ...baseRecalculada,
-      id: `pdt621-${empresaId}-${periodo}-v${nuevaVersion}`,
+      id: UUID_REGEX.test(empresaId) ? randomUUID() : `pdt621-${empresaId}-${periodo}-v${nuevaVersion}`,
       version: nuevaVersion,
       esRectificatoria: true,
       declaracionAnteriorId: copiaAnterior.id,
@@ -896,7 +1165,7 @@ export const liquidacionIGVService = {
       updatedAt: new Date().toISOString()
     };
 
-    this.guardarDeclaracionEnMemoria(rectificatoria);
+    await this.guardarDeclaracion(rectificatoria);
 
     await auditoriaChainService.registrar({
       empresaId,

@@ -26,6 +26,15 @@
 | `CORR-11` | `H-05` | A | `server/services/compraService.ts` | Corrección de comparación de tipos `id::text = $2` en búsqueda de subdiario y resolución inteligente de cuentas divisionarias (60111/20111/61111 a 6011/2011/6111) evitando `CUENTA_NO_ENCONTRADA`. | **APROBADO** | `test_pg_compra_escritorio.ts` aprueba creación y registro contable en PostgreSQL. |
 | `CORR-12` | `H-16` | A | `server/tests/real/test_infra.ts` | Configuración de conexión de administración con `TEST_ADMIN_DATABASE_URL` y asignación de `OWNER contabilidad_app` en bases descartables. | **APROBADO** | `npm run test:infra` aprueba con EXIT 0. |
 | `CORR-13` | `H-04` | A | `server/tests/real/test_pg_idor_negativo.ts` | Creación de suite automatizada de pruebas negativas contra PostgreSQL real verificando 401 en accesos sin token y 403 en ataques IDOR y manipulación de parámetros. | **APROBADO** | `npx tsx server/tests/real/test_pg_idor_negativo.ts` aprueba con EXIT 0. |
+| `CORR-14` | `H-05`, `H-15` | B | `server/db/schema_fase19_kardex_activos_fijos.sql` | Creación de tablas `articulos_kardex`, `movimientos_kardex` y `activos_fijos` con RLS y FORCE RLS. Actualización de `subdiarios_tipo_check` en `subdiarios` y `subdiarios_predeterminados` admitiendo los 15 tipos contables oficiales. | **APROBADO** | Criterio B.1: 12 subdiarios creados en PG sin SQLSTATE 23514. |
+| `CORR-15` | `H-02` | B | `server/config/persistencia.ts` | Implementación de guardas y orquestación de persistencia híbrida / PostgreSQL real para los 18 servicios del sistema. | **APROBADO** | `npm run test:pg` (`test_pg_matriz_contable.ts`). |
+| `CORR-16` | `H-02` | B | `server/services/kardexService.ts`, `server/services/activosFijosService.ts` | Persistencia en PostgreSQL de artículos, movimientos de inventario permanente (Kardex Libro 13.1) y activos fijos con depreciación mensual (Libro 7.1). | **APROBADO** | `test_pg_matriz_contable.ts` Criterio B.4. |
+| `CORR-17` | `H-02` | B | `server/services/cajaChicaService.ts`, `server/services/honorariosService.ts`, `server/services/planillaService.ts` | Persistencia en PostgreSQL de fondos fijos de caja chica, recibos de honorarios 4ta categoría con retención 8% y nóminas de trabajadores. | **APROBADO** | `test_pg_matriz_contable.ts` Criterio B.4. |
+| `CORR-18` | `H-06` | B | `server/services/liquidacionIGVService.ts`, `server/services/daotService.ts`, `server/services/djRentaAnualService.ts` | Liquidación de PDT 621 contra facturas de compras y ventas de PostgreSQL, DAOT 2026 (umbral 2 UIT = S/ 11,000) y DJ Renta Anual relacional. | **APROBADO** | `test_pg_matriz_contable.ts` Criterio B.4. |
+| `CORR-19` | `H-14` | B | `server/services/asientoService.ts`, `server/services/contabilizacionService.ts` | Generación de correlativos y asientos concurrentes con resolución automática de códigos de cuentas a UUIDs y normalización de origen. | **APROBADO** | 50 inserciones concurrentes en Subdiario 01 con 0 duplicaciones. |
+| `CORR-20` | `H-03` | B | `server/db/fk_empresa_08_kardex.sql`, `server/tests/real/test_pg_seguridad.ts` | Registro e integración del módulo `08_kardex` con clave foránea compuesta `(empresa_id, articulo_id)` para aislamiento multiempresa. | **APROBADO** | `npm run test:pg` (`test_pg_seguridad.ts`). |
+| `CORR-21` | `H-02`, `H-15` | B | `docs/MATRIZ_COMPLETITUD_ASIENTOS.md` | Actualización de 69/69 escenarios contables a `IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL` con citas a pruebas reales. | **APROBADO** | `scripts/verificar-matriz.ts` aprueba con 0 errores y 4/4 negativas. |
+| `CORR-22` | `H-02`, `H-14`, `H-15` | B | `server/tests/real/test_pg_matriz_contable.ts` | Suite de pruebas contra PostgreSQL 18.6 real que valida los 69 escenarios contables, 50 correlativos concurrentes, servicios especializados y reinicio en frío. | **APROBADO** | `npm run test:pg` aprueba al 100% con código 0. |
 
 ---
 
@@ -34,11 +43,11 @@
 | ID | Hallazgo | Severidad | Fase Asignada | Estado | Cierre Técnico |
 | :---: | :--- | :---: | :---: | :---: | :--- |
 | `H-01` | TypeScript `npm run lint` fallido (prop `label` faltante) | CRÍTICA | A | **RESUELTO** | `SelectorCuentaContable.tsx` actualizado con `label?: string` y `<label>`. `lint` = 0 errores. |
-| `H-02` | Dependencia de arrays en memoria en 18 servicios operativos | CRÍTICA | B | EN PROCESO | Identificados 18 servicios; migración a PostgreSQL en ejecución. |
-| `H-03` | RLS inactivo en 41 tablas y 75 claves foráneas | CRÍTICA | A | **RESUELTO** | Migración 18 aplicó RLS + FORCE en las 41 tablas (64 totales). 75 FKs validadas en `test:pg`. |
+| `H-02` | Dependencia de arrays en memoria en 18 servicios operativos | CRÍTICA | B | **RESUELTO** | 18 servicios migrados a PostgreSQL real con schema fase 19 y guardas relacionales. |
+| `H-03` | RLS inactivo en 41 tablas y 75 claves foráneas | CRÍTICA | A | **RESUELTO** | Migración 18 aplicó RLS + FORCE en 64 tablas. 75 FKs validadas en `test:pg`. |
 | `H-04` | Múltiples vulnerabilidades IDOR y rutas desprotegidas | CRÍTICA | A | **RESUELTO** | Retiro de `/analisis-cuentas` raíz, validación `resolverEmpresaId`, protección PLE, activos y cronograma. |
-| `H-05` | Error SQLSTATE 23514 al crear empresas por subdiarios | CRÍTICA | A / B | **RESUELTO** | Restricciones `subdiarios_tipo_check` y `chk_subdiarios_tipo_operacion` ampliadas. |
-| `H-06` | Incompatibilidad normativa tributaria 2026 (UIT, SIRE, DAOT) | ALTA | B | PENDIENTE | Se actualizarán parámetros y umbrales en base real. |
+| `H-05` | Error SQLSTATE 23514 al crear empresas por subdiarios | CRÍTICA | A / B | **RESUELTO** | Restricciones `subdiarios_tipo_check` ampliadas a los 15 tipos en schema 18 y 19. |
+| `H-06` | Incompatibilidad normativa tributaria 2026 (UIT, SIRE, DAOT) | ALTA | B | **RESUELTO** | Parámetros tributarios 2026 (UIT S/ 5,500, DAOT 2 UIT S/ 11,000, IGV 18%) en base real. |
 | `H-07` | Respaldos no integrales (exclusión de 36 tablas y archivos) | ALTA | B2 | PENDIENTE | Módulo `archivosEmpresa.ts` y backup ZIP cifrado integral. |
 | `H-08` | Desconexión en Cuentas por Cobrar y Cuentas por Pagar | ALTA | C | PENDIENTE | Conexión directa a saldos de comprobantes en PostgreSQL. |
 | `H-09` | Vistas huérfanas con endpoints inexistentes (404) | ALTA | C | PENDIENTE | Conexión de 7 vistas a endpoints reales. |
@@ -46,8 +55,8 @@
 | `H-11` | PCGE desconectado en selectores de interfaz | MEDIA | C | PENDIENTE | Conexión de selectores a API dinámica del PCGE. |
 | `H-12` | Falta de soporte multiusuario y sincronización en tiempo real | MEDIA | D | PENDIENTE | Implementación de sync p95 ≤ 2s y polling/SSE ≤ 5s. |
 | `H-13` | Certificación sin evidencias en PostgreSQL real | MEDIA | E | PENDIENTE | Inclusión en `npm run verify` con fallo ante mock. |
-| `H-14` | Correlativos concurrentes propensos a colisión | MEDIA | B | PENDIENTE | Bloqueo pesimista o secuencias atómicas por subdiario/periodo. |
-| `H-15` | Inconsistencias entre catálogo de subdiarios y asientos | MEDIA | B | PENDIENTE | Validación de los 15 subdiarios oficiales. |
+| `H-14` | Correlativos concurrentes propensos a colisión | MEDIA | B | **RESUELTO** | Secuencia concurrente probada con 50 hilos sin colisiones en `test_pg_matriz_contable.ts`. |
+| `H-15` | Inconsistencias entre catálogo de subdiarios y asientos | MEDIA | B | **RESUELTO** | Catálogo unificado 00..11 consistente entre base de datos, asientos y reportes. |
 | `H-16` | Secretos de producción omitidos en script de inicialización | MEDIA | A | **RESUELTO** | `inicializar-escritorio.ps1` genera los 5 secretos hex de 32 bytes. |
 | `H-17` | Ausencia de validación de integridad SHA-256 en respaldos | MEDIA | B2 | PENDIENTE | Manifest con SHA-256 y firma criptográfica. |
 | `H-18` | Desconexión de módulos de cierre contable y diferencia de cambio | BAJA | C | PENDIENTE | Implementación de endpoints de cierre mensual/anual y ajuste TC. |

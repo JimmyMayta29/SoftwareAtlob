@@ -865,6 +865,246 @@ async function ejecutarSuitePruebas() {
   }
 
   // -------------------------------------------------------------------------
+  // ESC-C-1.03: Compra a Crédito con Cuotas y Fechas de Vencimiento
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.03: Compra a Crédito con Cuotas ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000103',
+      fechaEmision: '2026-09-05',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      destino: '1',
+      cuotas: [
+        { numeroCuota: 1, fechaVencimiento: '2026-10-05', importe: 400.00 },
+        { numeroCuota: 2, fechaVencimiento: '2026-11-05', importe: 400.00 },
+        { numeroCuota: 3, fechaVencimiento: '2026-12-05', importe: 380.00 }
+      ]
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.03: Asiento debe cuadrar');
+    assert.equal(prop.totalDebe, 2180.00, 'ESC-C-1.03: Total Debe 2180');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 1180.00), 'ESC-C-1.03: Pasivo 4212 por 1180');
+    console.log('✔ ESC-C-1.03 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.05: Liquidación de Compra (Tipo 04 - Sector Primario / Artesanal)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.05: Liquidación de Compra (Tipo 04) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-artesano-1',
+      docTipo: '04',
+      docSerie: 'L001',
+      docNumero: '00000001',
+      fechaEmision: '2026-09-10',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      destino: '1',
+      tasaRetencionRenta: 0.015
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.05: Asiento liquidación de compra debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40171' && l.haber === 15.00), 'ESC-C-1.05: Retención Renta 1.5% S/ 15.00');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 180.00), 'ESC-C-1.05: Retención IGV 100% S/ 180.00 al Haber');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 180.00), 'ESC-C-1.05: Crédito fiscal IGV S/ 180.00 al Debe');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 985.00), 'ESC-C-1.05: Neto a pagar al vendedor S/ 985.00');
+    console.log('✔ ESC-C-1.05 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.07: Nota de Crédito de Compras (Tipo 07 - Descuento / Devolución)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.07: Nota de Crédito de Compras (Tipo 07) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '07',
+      docSerie: 'FC01',
+      docNumero: '00000007',
+      fechaEmision: '2026-09-12',
+      baseImponible: 500.00,
+      igv: 90.00,
+      destino: '1',
+      ajustaInventarioFisico: true
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.07: NC debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.debe === 590.00), 'ESC-C-1.07: Disminución pasivo 4212 al Debe S/ 590');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '60111' && l.haber === 500.00), 'ESC-C-1.07: Ajuste compra 60111 al Haber S/ 500');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 90.00), 'ESC-C-1.07: Ajuste crédito fiscal IGV al Haber S/ 90');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '6111' && l.debe === 500.00), 'ESC-C-1.07: Ajuste variación existencias 6111 Debe S/ 500');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '20111' && l.haber === 500.00), 'ESC-C-1.07: Descargo almacén 20111 Haber S/ 500');
+    console.log('✔ ESC-C-1.07 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.08: Nota de Débito de Compras (Tipo 08 - Intereses / Penalidades)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.08: Nota de Débito de Compras (Tipo 08) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '08',
+      docSerie: 'FD01',
+      docNumero: '00000008',
+      fechaEmision: '2026-09-14',
+      baseImponible: 200.00,
+      igv: 36.00,
+      destino: '1',
+      motivoNcNd: 'INTERESES'
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.08: ND debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '67311' && l.debe === 200.00), 'ESC-C-1.08: Intereses 67311 al Debe S/ 200');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 36.00), 'ESC-C-1.08: IGV adicional 40111 Debe S/ 36');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 236.00), 'ESC-C-1.08: Incremento obligación 4212 Haber S/ 236');
+    console.log('✔ ESC-C-1.08 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.09: Importación con DUA / DAM (Tipo 50)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.09: Importación con DUA / DAM (Tipo 50) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'aduanas-sunat-1',
+      docTipo: '50',
+      docSerie: '118',
+      docNumero: '2026-000109',
+      fechaEmision: '2026-09-15',
+      baseImponible: 5000.00,
+      valorCif: 5000.00,
+      adValorem: 300.00,
+      igvAduanero: 954.00,
+      percepcionAduanera: 185.64,
+      destino: '1'
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.09: DUA debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '60111' && l.debe === 5300.00), 'ESC-C-1.09: Costo CIF + Arancel 60111 Debe S/ 5,300');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 954.00), 'ESC-C-1.09: IGV aduanero 40111 Debe S/ 954');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40113' && l.debe === 185.64), 'ESC-C-1.09: Percepción aduanera 40113 Debe S/ 185.64');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '20111' && l.debe === 5300.00), 'ESC-C-1.09: Almacén existencias 20111 Debe S/ 5,300');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 6439.64), 'ESC-C-1.09: Pasivo liquidación DUA 4212 Haber S/ 6,439.64');
+    console.log('✔ ESC-C-1.09 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.10: Factura de No Domiciliados (Invoice Exterior Tipo 91)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.10: Invoice No Domiciliados (Tipo 91) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-ext-usa',
+      docTipo: '91',
+      docSerie: 'INV',
+      docNumero: '2026-9101',
+      fechaEmision: '2026-09-18',
+      baseImponible: 2000.00,
+      destino: '1',
+      tasaRetencionNoDomiciliado: 0.30,
+      cuentaCompra: '63211'
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.10: Invoice exterior debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '63211' && l.debe === 2000.00), 'ESC-C-1.10: Gasto servicios exterior 63211 Debe S/ 2,000');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 360.00), 'ESC-C-1.10: Crédito IGV utilización 40111 Debe S/ 360');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '941' && l.debe === 1200.00), 'ESC-C-1.10: Destino administración 941 Debe S/ 1,200');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '951' && l.debe === 800.00), 'ESC-C-1.10: Destino ventas 951 Debe S/ 800');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 1400.00), 'ESC-C-1.10: Neto exterior 4212 Haber S/ 1,400');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40174' && l.haber === 600.00), 'ESC-C-1.10: Retención Renta ND 40174 Haber S/ 600');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40112' && l.haber === 360.00), 'ESC-C-1.10: IGV utilización 40112 Haber S/ 360');
+    console.log('✔ ESC-C-1.10 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.11: Descuentos Comerciales en Factura vs Fuera de Factura
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.11: Descuentos Comerciales Fuera de Factura ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '07',
+      docSerie: 'FC01',
+      docNumero: '00000011',
+      fechaEmision: '2026-09-20',
+      baseImponible: 300.00,
+      igv: 54.00,
+      destino: '1',
+      cuentaDescuentoNc: '7311',
+      ajustaInventarioFisico: false
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.11: NC descuento comercial debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '4212' && l.debe === 354.00), 'ESC-C-1.11: Pasivo 4212 Debe S/ 354');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '7311' && l.haber === 300.00), 'ESC-C-1.11: Descuentos obtenidos 7311 Haber S/ 300');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '40111' && l.haber === 54.00), 'ESC-C-1.11: Ajuste IGV 40111 Haber S/ 54');
+    console.log('✔ ESC-C-1.11 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.12: Anticipos Otorgados a Proveedores y su Aplicación
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.12: Anticipos Otorgados y Aplicación ---');
+  {
+    // Parte 1: Comprobante de anticipo otorgado
+    const propAnt = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '01',
+      docSerie: 'FA01',
+      docNumero: '00000001',
+      fechaEmision: '2026-09-02',
+      baseImponible: 1000.00,
+      igv: 180.00,
+      destino: '1',
+      esAnticipo: true
+    });
+    assert.equal(propAnt.cuadrado, true, 'ESC-C-1.12: Asiento anticipo debe cuadrar');
+    assert.ok(propAnt.lineas.some(l => l.codigoCuenta === '422' && l.debe === 1000.00), 'ESC-C-1.12: Anticipos a proveedores 422 Debe S/ 1,000');
+    assert.ok(propAnt.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 180.00), 'ESC-C-1.12: Crédito fiscal anticipo 40111 Debe S/ 180');
+    assert.ok(propAnt.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 1180.00), 'ESC-C-1.12: Obligación anticipo 4212 Haber S/ 1,180');
+
+    // Parte 2: Factura definitiva con aplicación del anticipo
+    const propFact = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '01',
+      docSerie: 'F001',
+      docNumero: '00000112',
+      fechaEmision: '2026-09-22',
+      baseImponible: 3000.00,
+      igv: 540.00,
+      destino: '1',
+      montoAnticipoAplicado: 1000.00
+    });
+    assert.equal(propFact.cuadrado, true, 'ESC-C-1.12: Factura definitiva con aplicación anticipo debe cuadrar');
+    assert.ok(propFact.lineas.some(l => l.codigoCuenta === '60111' && l.debe === 3000.00), 'ESC-C-1.12: Costo compra 60111 Debe S/ 3,000');
+    assert.ok(propFact.lineas.some(l => l.codigoCuenta === '40111' && l.debe === 540.00), 'ESC-C-1.12: IGV 40111 Debe S/ 540');
+    assert.ok(propFact.lineas.some(l => l.codigoCuenta === '422' && l.haber === 1000.00), 'ESC-C-1.12: Aplicación anticipo 422 Haber S/ 1,000');
+    assert.ok(propFact.lineas.some(l => l.codigoCuenta === '4212' && l.haber === 2540.00), 'ESC-C-1.12: Saldo neto por pagar 4212 Haber S/ 2,540');
+    console.log('✔ ESC-C-1.12 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
+  // ESC-C-1.17: Adquisiciones a Título Gratuito (Bonificaciones Comerciales)
+  // -------------------------------------------------------------------------
+  console.log('--- ESC-C-1.17: Adquisición a Título Gratuito (Bonificación) ---');
+  {
+    const prop = await contabilizacionService.generarAsientoCompraAutomatizada(empresaId, {
+      proveedorId: 'prv-01',
+      docTipo: '01',
+      docSerie: 'FB01',
+      docNumero: '00000017',
+      fechaEmision: '2026-09-25',
+      baseImponible: 0.00,
+      destino: '1',
+      esGratuito: true,
+      valorReferencial: 800.00
+    });
+    assert.equal(prop.cuadrado, true, 'ESC-C-1.17: Bonificación comercial debe cuadrar');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '20111' && l.debe === 800.00), 'ESC-C-1.17: Almacén 20111 Debe S/ 800');
+    assert.ok(prop.lineas.some(l => l.codigoCuenta === '7311' && l.haber === 800.00), 'ESC-C-1.17: Descuentos y bonificaciones obtenidos 7311 Haber S/ 800');
+    console.log('✔ ESC-C-1.17 superado exitosamente.\n');
+  }
+
+  // -------------------------------------------------------------------------
   // ESC-V-2.01: Factura de Venta al Contado / Crédito (Operación Gravada 18%)
   // -------------------------------------------------------------------------
   console.log('--- ESC-V-2.01: Factura de Venta al Contado / Credito (18%) ---');

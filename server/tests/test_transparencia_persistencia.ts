@@ -8,6 +8,7 @@ import { apiRoutes } from '../routes';
 import {
   HELPERS_SIN_PERSISTENCIA,
   MODULOS_SOLO_MEMORIA,
+  ModuloSoloMemoria,
   esPeticionEscrituraBloqueableMemoria,
   obtenerEstadoPersistencia,
   tieneConsultasPostgreSQL
@@ -30,10 +31,11 @@ import type { EstadoPersistenciaSistema } from '../../src/api/sistemaApi';
 import { TEXTOS_RESPALDO_PARCIAL } from '../../src/components/modals/ModalBackupEmpresa';
 
 function validarSincroniaServiciosSimulados(
-  servicios: Array<{ archivo: string; codigoFuente: string }>
+  servicios: Array<{ archivo: string; codigoFuente: string }>,
+  soloMemoriaPersonalizado?: readonly ModuloSoloMemoria[]
 ): string[] {
   const errores: string[] = [];
-  const soloMemoriaSet = new Set(MODULOS_SOLO_MEMORIA.flatMap((m) => [...m.servicios]));
+  const soloMemoriaSet = new Set((soloMemoriaPersonalizado ?? MODULOS_SOLO_MEMORIA).flatMap((m) => [...m.servicios]));
   const helpersSet = new Set(HELPERS_SIN_PERSISTENCIA.map((h) => h.servicio));
 
   for (const { archivo, codigoFuente } of servicios) {
@@ -55,8 +57,16 @@ async function main() {
   console.log('🧪 Ejecutando Suite 37: Transparencia de persistencia y respaldo parcial (M1 + M2)...');
 
   const nodeEnvOriginal = process.env.NODE_ENV;
+  const envNodeEnvOriginal = env.NODE_ENV;
+  const dbUrlOriginal = process.env.DATABASE_URL;
+  const envDbUrlOriginal = env.DATABASE_URL;
   const bloqueoOriginal = process.env.ATLOB_BLOQUEAR_MEMORIA;
   const desktopOriginal = process.env.ATLOB_DESKTOP;
+
+  (env as any).NODE_ENV = 'test';
+  process.env.NODE_ENV = 'test';
+  (env as any).DATABASE_URL = '';
+  process.env.DATABASE_URL = '';
 
   // 1) M1.1: Registro único y regla de sincronía contra server/services/
   const dirServicios = path.join(process.cwd(), 'server', 'services');
@@ -83,14 +93,23 @@ async function main() {
   }
 
   // Simular fallos exigidos por M1.1
+  const moduloSimulado = [
+    {
+      id: 'simulado-memoria',
+      nombreVisible: 'Servicio Simulado en Memoria',
+      servicios: ['servicioSimuladoMemoriaService.ts'],
+      prefijosRuta: ['/simulado'],
+      vistasMenuIds: ['simulado']
+    }
+  ];
   const errorSiUsaPg = validarSincroniaServiciosSimulados([
     {
-      archivo: 'planillaService.ts',
+      archivo: 'servicioSimuladoMemoriaService.ts',
       codigoFuente: `import { db } from '../config/database'; export async function x() { return db.query('SELECT 1'); }`
     }
-  ]);
+  ], moduloSimulado);
   assert.equal(errorSiUsaPg.length, 1);
-  assert.match(errorSiUsaPg[0], /SERVICIO_EN_MEMORIA_YA_USA_PG:planillaService\.ts/);
+  assert.match(errorSiUsaPg[0], /SERVICIO_EN_MEMORIA_YA_USA_PG:servicioSimuladoMemoriaService\.ts/);
 
   const errorSiFaltaRegistrar = validarSincroniaServiciosSimulados([
     {
@@ -127,11 +146,11 @@ async function main() {
     });
 
   try {
-    // /health agrega persistenciaCompleta=false y mantiene contrato base
+    // /health reporta persistenciaCompleta=true en FASE B (100% servicios en PostgreSQL)
     const resHealth = await callApi('/health');
     const jsonHealth = (await resHealth.json()) as Record<string, unknown>;
     assert.equal(typeof jsonHealth.persistenciaCompleta, 'boolean');
-    assert.equal(jsonHealth.persistenciaCompleta, false);
+    assert.equal(jsonHealth.persistenciaCompleta, true);
     assert.ok('status' in jsonHealth && 'database' in jsonHealth);
 
     // /sistema/persistencia requiere autenticación
@@ -143,15 +162,25 @@ async function main() {
     assert.equal(resPersist.status, 200);
     const jsonPersist = (await resPersist.json()) as EstadoPersistenciaSistema;
     assert.equal(jsonPersist.modo, 'test');
-    assert.equal(jsonPersist.persistenciaCompleta, false);
+    assert.equal(jsonPersist.persistenciaCompleta, true);
     assert.equal(jsonPersist.bloqueo.activo, false);
-    assert.equal(jsonPersist.modulosTemporales.length, MODULOS_SOLO_MEMORIA.length);
+    assert.equal(jsonPersist.modulosTemporales.length, 0);
+
+    // Registrar temporalmente un módulo en memoria para probar el middleware de bloqueo 503
+    const moduloSimuladoBloqueo: ModuloSoloMemoria = {
+      id: 'modulo-simulado-bloqueo',
+      nombreVisible: 'Módulo Simulado para Prueba Bloqueo',
+      servicios: ['moduloSimuladoBloqueoService.ts'],
+      prefijosRuta: ['/empresas/:empresaId/modulo-simulado-bloqueo'],
+      vistasMenuIds: ['modulo-simulado-bloqueo']
+    };
+    MODULOS_SOLO_MEMORIA.push(moduloSimuladoBloqueo);
 
     // En NODE_ENV=test o development, ATLOB_BLOQUEAR_MEMORIA=1 NO bloquea escrituras
     process.env.ATLOB_BLOQUEAR_MEMORIA = '1';
     for (const modoSinBloqueo of ['test', 'development'] as const) {
       process.env.NODE_ENV = modoSinBloqueo;
-      const resNoBloq = await callApi('/empresas/emp-01/honorarios', {
+      const resNoBloq = await callApi('/empresas/emp-01/modulo-simulado-bloqueo', {
         method: 'POST',
         token: contador.accessToken,
         body: {}
@@ -162,7 +191,7 @@ async function main() {
     // En NODE_ENV=production sin bandera (default 0), tampoco bloquea
     process.env.NODE_ENV = 'production';
     process.env.ATLOB_BLOQUEAR_MEMORIA = '0';
-    const resProdSinFlag = await callApi('/empresas/emp-01/honorarios', {
+    const resProdSinFlag = await callApi('/empresas/emp-01/modulo-simulado-bloqueo', {
       method: 'POST',
       token: contador.accessToken,
       body: {}
@@ -176,30 +205,19 @@ async function main() {
     assert.equal(estadoBloqueado.bloqueo.banderaSolicitada, true);
     assert.equal(estadoBloqueado.bloqueo.activo, true);
 
-    const rutasExclusivasBloqueadas: Array<{ method: string; path: string; moduloId: string }> = [
-      { method: 'POST', path: '/empresas/emp-01/trabajadores', moduloId: 'planillas-plame' },
-      { method: 'PUT', path: '/empresas/emp-01/honorarios/rxh-1', moduloId: 'recibos-honorarios' },
-      { method: 'POST', path: '/empresas/emp-01/caja-chica/gastos', moduloId: 'caja-chica' },
-      { method: 'POST', path: '/empresas/emp-01/backups', moduloId: 'respaldos-empresa' },
-      { method: 'POST', path: '/empresas/demo/restablecer', moduloId: 'empresa-demo' },
-      { method: 'PATCH', path: '/tributos/daot', moduloId: 'daot' },
-      { method: 'POST', path: '/empresas/emp-01/ple/exportar', moduloId: 'ple-exportacion' },
-      { method: 'DELETE', path: '/empresas/emp-01/activos-fijos/af-1', moduloId: 'activos-fijos' },
-      { method: 'POST', path: '/importacion/analizar', moduloId: 'importacion-csv' }
-    ];
+    const respBloq = await callApi('/empresas/emp-01/modulo-simulado-bloqueo', {
+      method: 'POST',
+      token: contador.accessToken,
+      body: {}
+    });
+    assert.equal(respBloq.status, 503, `POST /empresas/emp-01/modulo-simulado-bloqueo debe bloquearse con 503`);
+    const bodyBloq = (await respBloq.json()) as { success: boolean; codigo: string; modulo: string };
+    assert.equal(bodyBloq.success, false);
+    assert.equal(bodyBloq.codigo, 'MODULO_SIN_PERSISTENCIA');
+    assert.equal(bodyBloq.modulo, 'modulo-simulado-bloqueo');
 
-    for (const caso of rutasExclusivasBloqueadas) {
-      const resp = await callApi(caso.path, {
-        method: caso.method,
-        token: contador.accessToken,
-        body: {}
-      });
-      assert.equal(resp.status, 503, `${caso.method} ${caso.path} debe bloquearse con 503`);
-      const body = (await resp.json()) as { success: boolean; codigo: string; modulo: string };
-      assert.equal(body.success, false);
-      assert.equal(body.codigo, 'MODULO_SIN_PERSISTENCIA');
-      assert.equal(body.modulo, caso.moduloId);
-    }
+    // Limpiar módulo simulado para volver a persistencia completa 100%
+    MODULOS_SOLO_MEMORIA.length = 0;
 
     // GET en módulos solo-memoria NO se bloquea
     const resGetPermitido = await callApi('/empresas/emp-01/honorarios', {
@@ -251,17 +269,29 @@ async function main() {
     assert.equal(esEntornoAvisoPersistencia(estadoProd), true);
     assert.equal(esEntornoAvisoPersistencia(estadoDesktop), true);
 
+    const estadoConModulos: EstadoPersistenciaSistema = {
+      ...estadoProd,
+      persistenciaCompleta: false,
+      modulosTemporales: [
+        { id: 'planillas-plame', nombreVisible: 'Planillas', servicios: ['planillaService.ts'], prefijosRuta: [], vistasMenuIds: ['trabajadores'] },
+        { id: 'kardex-existencias', nombreVisible: 'Kardex', servicios: ['kardexService.ts'], prefijosRuta: [], vistasMenuIds: ['kardex'] },
+        { id: 'respaldos-empresa', nombreVisible: 'Respaldos', servicios: ['backupEmpresaService.ts'], prefijosRuta: [], vistasMenuIds: ['respaldos'] },
+        { id: 'importacion-csv', nombreVisible: 'Importación', servicios: ['importacionService.ts'], prefijosRuta: [], vistasMenuIds: ['importar-csv'] }
+      ]
+    };
+    const estadoDesktopConModulos: EstadoPersistenciaSistema = { ...estadoConModulos, esEscritorio: true };
+
     assert.equal(moduloTemporalParaVista('trabajadores', estadoDev), null);
     assert.equal(moduloTemporalParaVista('trabajadores', estadoTest), null);
-    assert.equal(moduloTemporalParaVista('trabajadores', estadoProd)?.id, 'planillas-plame');
-    assert.equal(moduloTemporalParaVista('kardex', estadoDesktop)?.id, 'kardex-existencias');
-    assert.equal(moduloTemporalParaVista('respaldos', estadoProd)?.id, 'respaldos-empresa');
-    assert.equal(moduloTemporalParaVista('importar-csv', estadoProd)?.id, 'importacion-csv');
+    assert.equal(moduloTemporalParaVista('trabajadores', estadoConModulos)?.id, 'planillas-plame');
+    assert.equal(moduloTemporalParaVista('kardex', estadoDesktopConModulos)?.id, 'kardex-existencias');
+    assert.equal(moduloTemporalParaVista('respaldos', estadoConModulos)?.id, 'respaldos-empresa');
+    assert.equal(moduloTemporalParaVista('importar-csv', estadoConModulos)?.id, 'importacion-csv');
 
-    // Vistas persistentes en PostgreSQL NO muestran banner ni en producción ni en escritorio
-    for (const vistaPersistente of ['asientos', 'compras', 'ventas', 'emitir-comprobante', 'plan-cuentas', 'liquidacion-igv']) {
-      assert.equal(moduloTemporalParaVista(vistaPersistente, estadoProd), null);
-      assert.equal(moduloTemporalParaVista(vistaPersistente, estadoDesktop), null);
+    // Con estadoProd real (persistenciaCompleta = true, 0 módulos temporales), ninguna vista muestra banner
+    for (const vista of ['trabajadores', 'kardex', 'respaldos', 'importar-csv', 'asientos', 'compras', 'ventas', 'plan-cuentas']) {
+      assert.equal(moduloTemporalParaVista(vista, estadoProd), null);
+      assert.equal(moduloTemporalParaVista(vista, estadoDesktop), null);
     }
 
     // Verificar montaje en App.tsx y modales sin bloqueo de UI
@@ -383,6 +413,10 @@ async function main() {
     assert.match(modalBackupSource, /TEXTOS_RESPALDO_PARCIAL\.referenciaDocs/);
   } finally {
     process.env.NODE_ENV = nodeEnvOriginal;
+    (env as any).NODE_ENV = envNodeEnvOriginal;
+    (env as any).DATABASE_URL = envDbUrlOriginal;
+    if (dbUrlOriginal !== undefined) process.env.DATABASE_URL = dbUrlOriginal;
+    else delete process.env.DATABASE_URL;
     if (bloqueoOriginal === undefined) delete process.env.ATLOB_BLOQUEAR_MEMORIA;
     else process.env.ATLOB_BLOQUEAR_MEMORIA = bloqueoOriginal;
     if (desktopOriginal === undefined) delete process.env.ATLOB_DESKTOP;

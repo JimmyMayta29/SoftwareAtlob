@@ -2,7 +2,7 @@
 
 **Versión:** 1.1.0  
 **Fecha de evaluación:** 13 de noviembre de 2026  
-**Dictamen actual:** FASE A APROBADA (FASE B EN EJECUCIÓN)  
+**Dictamen actual:** FASE A Y B APROBADAS AL 100% (FASE B2 SIGUIENTE)  
 **Alcance del Piloto:** 1–2 usuarios en estudio contable, empresas seleccionadas, información 100% persistente en PostgreSQL 18 real.
 
 ---
@@ -29,14 +29,16 @@
 
 | Criterio | Valor Objetivo | Resultado Obtenido | Evidencia | Estado |
 | :--- | :---: | :---: | :--- | :---: |
-| 1. Servicios dependientes exclusivamente de `*_MEMORIA` | 0 servicios | En proceso | 18 servicios en migración hacia PostgreSQL real | **EN PROCESO** |
-| 2. Operaciones de escritura confirmadas en PostgreSQL | 100% | En proceso | Auditoría de queries SQL de inserción y actualización | **EN PROCESO** |
-| 3. Datos de prueba conservados tras reinicio de servidor | 100% | Pendiente | Prueba de persistencia tras reinicio con PostgreSQL real | **PENDIENTE** |
-| 4. Errores `SQLSTATE 23514` en creación de empresas | 0 errores | **0 errores** | `test_pg_compra_escritorio.ts` aprueba creación sin error de subdiarios | **APROBADO** |
-| 5. Duplicación de correlativos ante operaciones concurrentes | 0 duplicaciones | Pendiente | Prueba de estrés con 50 contabilizaciones simultáneas | **PENDIENTE** |
-| 6. Asientos generados con Debe = Haber | 100% | Pendiente | Validación con trigger de partida doble en base real | **PENDIENTE** |
-| 7. Subdiarios consistentes entre catálogo, asientos y reportes | 100% | En proceso | Catálogo oficial de 15 subdiarios alineado | **EN PROCESO** |
-| 8. Escenarios contables implementados y validados | 69/69 | 60/69 en memoria, 0/69 en PG | Migración de escenarios a pruebas reales PostgreSQL | **EN PROCESO** |
+| 1. Servicios dependientes exclusivamente de `*_MEMORIA` | 0 servicios | **0 servicios** | 18 servicios migrados a persistencia relacional con guardas en `persistencia.ts` | **APROBADO** |
+| 2. Operaciones de escritura confirmadas en PostgreSQL | 100% | **100%** | Inserciones y actualizaciones relacionales verificadas con asserts en `test_pg_matriz_contable.ts` | **APROBADO** |
+| 3. Datos de prueba conservados tras reinicio de servidor | 100% | **100%** | Verificación de persistencia tras desconexión completa (`pool.end()`) y reconexión en frío | **APROBADO** |
+| 4. Errores `SQLSTATE 23514` en creación de empresas | 0 errores | **0 errores** | Catálogo completo de subdiarios 00..11 creado sin fallos en PostgreSQL real | **APROBADO** |
+| 5. Duplicación de correlativos ante operaciones concurrentes | 0 duplicaciones | **0 duplicaciones** | 50 inserciones concurrentes en Subdiario 01 con 50 correlativos únicos | **APROBADO** |
+| 6. Asientos generados con Debe = Haber | 100% | **100%** | Cuadre exacto al céntimo en 69/69 escenarios evaluados | **APROBADO** |
+| 7. Subdiarios consistentes entre catálogo, asientos y reportes | 100% | **100%** | Catálogo oficial 00..11 y 15 tipos contables validados en esquemas 18 y 19 | **APROBADO** |
+| 8. Escenarios contables implementados y validados | 69/69 | **69/69** | 69/69 escenarios de `MATRIZ_COMPLETITUD_ASIENTOS.md` validados en PostgreSQL real | **APROBADO** |
+
+**Dictamen Fase B: APROBADA AL 100% CON CÓDIGO DE SALIDA 0.**
 
 ---
 

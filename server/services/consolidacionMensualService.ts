@@ -133,8 +133,8 @@ export const consolidacionMensualService = {
 
       const asientoCosto: AsientoPropuestoConsolidacion = {
         tipo: 'COSTO_VENTAS',
-        subdiarioId: '07',
-        subdiarioNombre: '07 - Asientos de Cierre y Ajuste',
+        subdiarioId: '11',
+        subdiarioNombre: '11 - Provisiones Varias',
         glosa: `Reconocimiento mensual de Costo de Ventas según Kardex Valorado ${periodoId}`,
         lineas: [
           {
@@ -167,8 +167,8 @@ export const consolidacionMensualService = {
       // Asiento 1: Traslado de compras acumuladas de mercaderías al almacén
       const asientoTraslado: AsientoPropuestoConsolidacion = {
         tipo: 'TRASLADO_ALMACEN',
-        subdiarioId: '07',
-        subdiarioNombre: '07 - Asientos de Cierre y Ajuste',
+        subdiarioId: '11',
+        subdiarioNombre: '11 - Provisiones Varias',
         glosa: `Traslado mensual de compras al almacén (Método Periódico) ${periodoId}`,
         lineas: [
           {
@@ -199,8 +199,8 @@ export const consolidacionMensualService = {
       costoVentas = Money.toNumber(Money.mul(comprasAcumuladas, 0.75));
       const asientoCostoPeriodico: AsientoPropuestoConsolidacion = {
         tipo: 'COSTO_VENTAS',
-        subdiarioId: '07',
-        subdiarioNombre: '07 - Asientos de Cierre y Ajuste',
+        subdiarioId: '11',
+        subdiarioNombre: '11 - Provisiones Varias',
         glosa: `Reconocimiento del Costo de Ventas mensual (Método Periódico) ${periodoId}`,
         lineas: [
           {
@@ -445,7 +445,7 @@ export const consolidacionMensualService = {
 
       const borradorExtorno = await asientoService.crearBorrador(empresaId, {
         periodoId,
-        subdiarioId: aOrig.subdiarioId || '07',
+        subdiarioId: aOrig.subdiarioId || '11',
         fecha: fechaExtorno,
         glosa: `Extorno de consolidación ${periodoId}: ${motivo}`,
         moneda: aOrig.moneda || 'PEN',

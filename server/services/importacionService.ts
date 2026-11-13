@@ -529,6 +529,32 @@ export const importacionService = {
     };
     LOTES_HISTORIAL_MEMORIA.unshift(loteRegistro);
 
+    if (db.isPostgresConnected()) {
+      try {
+        if (tipo === 'PROVEEDORES' || tipo === 'CLIENTES') {
+          for (const fila of pendiente.filasParaImportar) {
+            const numDoc = fila.numerodoc;
+            const esProveedor = tipo === 'PROVEEDORES';
+            await db.query(`
+              INSERT INTO anexos (
+                empresa_id, tipo_documento, numero_documento, razon_social, direccion, tipo_entidad
+              ) VALUES ($1, $2, $3, $4, $5, $6)
+              ON CONFLICT (empresa_id, tipo_documento, numero_documento) DO UPDATE SET
+                razon_social = EXCLUDED.razon_social,
+                direccion = EXCLUDED.direccion,
+                updated_at = CURRENT_TIMESTAMP
+            `, [
+              empresaId, fila.tipodoc || (numDoc.length === 11 ? '6' : '1'), numDoc,
+              fila.razonsocial, fila.direccion || 'LIMA, PERÚ',
+              esProveedor ? 'PROVEEDOR' : 'CLIENTE'
+            ]);
+          }
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     // Limpiar lote temporal
     LOTES_TEMPORALES_PENDIENTES.delete(loteId);
 

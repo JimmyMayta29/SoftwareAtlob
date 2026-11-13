@@ -64,6 +64,29 @@ export const historialGeneracionesService = {
 
     HISTORIAL_GENERACIONES_MEMORIA.push(item);
 
+    if (db.isPostgresConnected()) {
+      try {
+        const pleUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id)
+          ? item.id
+          : crypto.randomUUID();
+        const usrUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(datos.usuarioId)
+          ? datos.usuarioId
+          : null;
+        await db.query(`
+          INSERT INTO ple_exportaciones (
+            id, empresa_id, periodo, codigo_libro, nombre_archivo, contenido_txt,
+            hash_sha256, total_filas, es_oficial, validaciones_superadas, usuario_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)
+        `, [
+          pleUuid, datos.empresaId, datos.periodo, datos.subtipo, datos.nombreArchivo,
+          datos.contenido ? String(datos.contenido) : '', item.hashSha256,
+          datos.totalRegistros, item.esOficial, usrUuid
+        ]);
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     await auditoriaRepository.registrar({
       empresaId: datos.empresaId,
       usuarioId: datos.usuarioId,

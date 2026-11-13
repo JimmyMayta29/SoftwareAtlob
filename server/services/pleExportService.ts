@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto, { randomUUID } from 'crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { compraService, COMPRAS_MEMORIA } from './compraService';
@@ -105,6 +105,8 @@ export const PLE_LIBROS_CATALOGO: PleLibroConfigModel[] = [
     especificacionNormativa: 'Resolución de Superintendencia N° 286-2009/SUNAT Anexo II.'
   }
 ];
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const PLE_EXPORTACIONES_MEMORIA: PleExportacionModel[] = [];
 
@@ -566,8 +568,9 @@ export const pleExportService = {
     const contenidoTxt = lineas.length > 0 ? lineas.join('\r\n') : '';
     const hashSha256 = crypto.createHash('sha256').update(contenidoTxt, 'utf8').digest('hex');
 
+    const expId = UUID_REGEX.test(empresaId) ? randomUUID() : `ple-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const exportacion: PleExportacionModel = {
-      id: `ple-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: expId,
       empresaId,
       periodo,
       codigoLibro,
@@ -597,6 +600,24 @@ export const pleExportService = {
     };
 
     PLE_EXPORTACIONES_MEMORIA.push(exportacion);
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+      try {
+        await db.query(`
+          INSERT INTO ple_exportaciones (
+            id, empresa_id, periodo, codigo_libro, nombre_archivo, contenido_txt,
+            hash_sha256, total_filas, es_oficial, validaciones_superadas, detalle_validaciones, usuario_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `, [
+          expId, empresaId, periodo, codigoLibro, nombreArchivoFinal, contenidoTxt,
+          hashSha256, lineas.length, esModoOficial, prevalidacion.validacionesSuperadas,
+          JSON.stringify(exportacion.detalleValidaciones),
+          UUID_REGEX.test(userId) ? userId : null
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [pleExportService] Error persistiendo exportacion PLE en PostgreSQL:', err);
+      }
+    }
 
     await auditoriaRepository.registrar({
       empresaId,

@@ -27,3 +27,4 @@
 - **Sincronización:** Máximo 5 segundos de desfase para visibilidad de cambios entre usuarios (vía revalidación React Query / polling suave de 3–5s o SSE).
 - **Concurrencia:** Bloqueo optimista por versión (`version` en tablas críticas) para evitar sobreescritura ciega de vouchers o comprobantes.
 - **Persistencia garantizada:** Datos confirmados en PostgreSQL 18 con WAL y copias de seguridad automáticas programadas sin costo.
+

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { COMPRAS_MEMORIA } from './compraService';
 import { VENTAS_MEMORIA } from './ventaService';
@@ -47,6 +49,8 @@ export interface OpcionesCalculoProrrata {
   integrarEnPdt621?: boolean;
   usarVentana12Meses?: boolean;
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const DECLARACIONES_PRORRATA_MEMORIA: LiquidacionProrrataIgv[] = [];
 
@@ -242,6 +246,45 @@ export const prorrataIgvService = {
       DECLARACIONES_PRORRATA_MEMORIA[idx] = resultado;
     } else {
       DECLARACIONES_PRORRATA_MEMORIA.push(resultado);
+    }
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+      try {
+        const prorrataId = UUID_REGEX.test(resultado.id || '') ? resultado.id! : randomUUID();
+        resultado.id = prorrataId;
+        await db.query(`
+          INSERT INTO declaraciones_prorrata_igv (
+            id, empresa_id, periodo, ventas_gravadas_mes, exportaciones_mes, ventas_no_gravadas_mes,
+            ventas_gravadas_12m, exportaciones_12m, ventas_no_gravadas_12m,
+            coeficiente_prorrata, porcentaje_prorrata, igv_destino_comun, credito_fiscal_admitido,
+            igv_costo_gasto_64111, integrar_en_pdt621, es_regularizacion_anual, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP
+          )
+          ON CONFLICT (empresa_id, periodo) DO UPDATE SET
+            ventas_gravadas_mes = EXCLUDED.ventas_gravadas_mes,
+            exportaciones_mes = EXCLUDED.exportaciones_mes,
+            ventas_no_gravadas_mes = EXCLUDED.ventas_no_gravadas_mes,
+            ventas_gravadas_12m = EXCLUDED.ventas_gravadas_12m,
+            exportaciones_12m = EXCLUDED.exportaciones_12m,
+            ventas_no_gravadas_12m = EXCLUDED.ventas_no_gravadas_12m,
+            coeficiente_prorrata = EXCLUDED.coeficiente_prorrata,
+            porcentaje_prorrata = EXCLUDED.porcentaje_prorrata,
+            igv_destino_comun = EXCLUDED.igv_destino_comun,
+            credito_fiscal_admitido = EXCLUDED.credito_fiscal_admitido,
+            igv_costo_gasto_64111 = EXCLUDED.igv_costo_gasto_64111,
+            integrar_en_pdt621 = EXCLUDED.integrar_en_pdt621,
+            es_regularizacion_anual = EXCLUDED.es_regularizacion_anual,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          prorrataId, empresaId, periodo, resultado.ventasGravadas, resultado.exportacionesMes, resultado.ventasNoGravadas,
+          resultado.ventasGravadas12Meses, resultado.exportaciones12Meses, resultado.ventasNoGravadas12Meses,
+          resultado.coeficienteProrrata, resultado.porcentajeProrrata, resultado.totalIgvDestinoComun, resultado.igvCreditoFiscalPermitido,
+          resultado.igvGastoCostoNoAdmitido, resultado.integrarEnPdt621, resultado.esRegularizacionAnual
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [prorrataIgvService] Error persistiendo prorrata en PostgreSQL:', err);
+      }
     }
 
     return resultado;

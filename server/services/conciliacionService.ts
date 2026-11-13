@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { MOVIMIENTOS_TESORERIA_MEMORIA, CUENTAS_FINANCIERAS_MEMORIA } from './tesoreriaService';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface ExtractoLineaModel {
   id: string;
@@ -100,13 +103,13 @@ export const conciliacionService = {
       throw new Error('EXTRACTO_DUPLICADO: Este extracto bancario ya fue importado previamente para esta cuenta.');
     }
 
-    const extractoId = `ext-${Date.now()}`;
+    const extractoId = UUID_REGEX.test(empresaId) ? randomUUID() : `ext-${Date.now()}`;
     const fechas = archivo.lineas.map(l => l.fecha).sort();
     const fechaDesde = fechas[0];
     const fechaHasta = fechas[fechas.length - 1];
 
     const lineasProcesadas: ExtractoLineaModel[] = archivo.lineas.map((l, index) => ({
-      id: `extline-${Date.now()}-${index}`,
+      id: UUID_REGEX.test(empresaId) ? randomUUID() : `extline-${Date.now()}-${index}`,
       extractoId,
       empresaId,
       fecha: l.fecha,
@@ -132,6 +135,33 @@ export const conciliacionService = {
     };
 
     EXTRACTOS_MEMORIA.push(nuevoExtracto);
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId) && UUID_REGEX.test(cuentaFinancieraId)) {
+      try {
+        await db.query(`
+          INSERT INTO extractos_bancarios (
+            id, empresa_id, cuenta_financiera_id, nombre_archivo, fecha_corte_desde, fecha_corte_hasta,
+            saldo_inicial, saldo_final, hash_archivo, estado
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'CARGADO')
+          ON CONFLICT (empresa_id, cuenta_financiera_id, hash_archivo) DO UPDATE SET estado = 'CARGADO'
+        `, [
+          extractoId, empresaId, cuentaFinancieraId, archivo.nombreArchivo, fechaDesde, fechaHasta,
+          nuevoExtracto.saldoInicial, nuevoExtracto.saldoFinal, hashArchivo
+        ]);
+
+        for (const l of lineasProcesadas) {
+          await db.query(`
+            INSERT INTO extracto_lineas (
+              id, extracto_id, empresa_id, fecha, descripcion, referencia, monto, saldo, conciliada
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+          `, [
+            l.id, extractoId, empresaId, l.fecha, l.descripcion, l.referencia || null, l.monto, l.saldo || null
+          ]);
+        }
+      } catch (err) {
+        console.warn('⚠️ [conciliacionService] Error persistiendo extracto en PostgreSQL:', err);
+      }
+    }
 
     await auditoriaRepository.registrar({
       empresaId,
@@ -281,6 +311,18 @@ export const conciliacionService = {
     linea.movimientoTesoreriaId = movimientoId;
     movimiento.conciliado = true;
 
+    if (db.isPostgresConnected() && UUID_REGEX.test(extractoLineaId)) {
+      try {
+        await db.query(
+          'UPDATE extracto_lineas SET conciliada = true, movimiento_tesoreria_id = $1 WHERE id = $2',
+          [UUID_REGEX.test(movimientoId) ? movimientoId : null, extractoLineaId]
+        );
+        if (UUID_REGEX.test(movimientoId)) {
+          await db.query('UPDATE movimientos_tesoreria SET conciliado = true WHERE id = $1', [movimientoId]);
+        }
+      } catch {}
+    }
+
     return { success: true, message: 'Partida conciliada exitosamente' };
   },
 
@@ -297,6 +339,15 @@ export const conciliacionService = {
     linea.conciliada = false;
     linea.movimientoTesoreriaId = undefined;
 
+    if (db.isPostgresConnected() && UUID_REGEX.test(extractoLineaId)) {
+      try {
+        await db.query(
+          'UPDATE extracto_lineas SET conciliada = false, movimiento_tesoreria_id = null WHERE id = $1',
+          [extractoLineaId]
+        );
+      } catch {}
+    }
+
     return { success: true, message: 'Partida desconciliada' };
   },
 
@@ -306,8 +357,9 @@ export const conciliacionService = {
   async cerrarConciliacion(empresaId: string, cuentaFinancieraId: string, periodoId: string, fechaCorte: string, userId: string) {
     const estado = await this.obtenerEstadoConciliacion(empresaId, cuentaFinancieraId, periodoId, fechaCorte);
 
+    const cncId = UUID_REGEX.test(empresaId) ? randomUUID() : `cnc-${Date.now()}`;
     const conciliacion: ConciliacionPeriodoModel = {
-      id: `cnc-${Date.now()}`,
+      id: cncId,
       empresaId,
       cuentaFinancieraId,
       periodoId,
@@ -323,6 +375,42 @@ export const conciliacionService = {
     };
 
     CONCILIACIONES_MEMORIA.push(conciliacion);
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId) && UUID_REGEX.test(cuentaFinancieraId)) {
+      try {
+        let pId = periodoId;
+        if (!UUID_REGEX.test(pId)) {
+          const mes = fechaCorte.substring(0, 7);
+          const pRes = await db.query('SELECT id FROM periodos WHERE empresa_id = $1 AND anio = $2 AND mes = $3 LIMIT 1', [empresaId, Number(mes.split('-')[0]), Number(mes.split('-')[1])]);
+          if (pRes.rows.length > 0) pId = pRes.rows[0].id;
+        }
+
+        if (UUID_REGEX.test(pId)) {
+          await db.query(`
+            INSERT INTO conciliaciones_bancarias (
+              id, empresa_id, cuenta_financiera_id, periodo_id, fecha_corte,
+              saldo_segun_libros, saldo_segun_banco, partidas_conciliadas, partidas_en_transito,
+              diferencia, estado, cerrada_por, fecha_cierre
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'CERRADA', $11, CURRENT_TIMESTAMP)
+            ON CONFLICT (empresa_id, cuenta_financiera_id, periodo_id) DO UPDATE SET
+              saldo_segun_libros = EXCLUDED.saldo_segun_libros,
+              saldo_segun_banco = EXCLUDED.saldo_segun_banco,
+              partidas_conciliadas = EXCLUDED.partidas_conciliadas,
+              partidas_en_transito = EXCLUDED.partidas_en_transito,
+              diferencia = EXCLUDED.diferencia,
+              estado = 'CERRADA',
+              fecha_cierre = CURRENT_TIMESTAMP
+          `, [
+            cncId, empresaId, cuentaFinancieraId, pId, fechaCorte,
+            estado.resumen.saldoSegunLibros, estado.resumen.saldoSegunBanco, estado.resumen.partidasConciliadas,
+            estado.resumen.partidasEnTransito, estado.resumen.diferencia,
+            UUID_REGEX.test(userId) ? userId : null
+          ]);
+        }
+      } catch (err) {
+        console.warn('⚠️ [conciliacionService] Error guardando conciliacion en PostgreSQL:', err);
+      }
+    }
 
     await auditoriaRepository.registrar({
       empresaId,

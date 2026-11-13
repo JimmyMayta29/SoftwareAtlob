@@ -40,9 +40,68 @@ export const auditoriaTributariaService = {
    * Ejecuta el escaneo de auditoría tributaria preventiva para un año y empresa dados.
    */
   async ejecutarDiagnostico(empresaId: string, anio: number = 2026): Promise<DiagnosticoAuditoriaPreventiva> {
-    const compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId);
-    const ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId);
-    const movimientos = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId);
+    let compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId);
+    let ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId);
+    let movimientos = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId);
+
+    if (db.isPostgresConnected()) {
+      try {
+        const cRes = await db.query(
+          `SELECT id, empresa_id, periodo_id, tipo_comprobante, serie, numero, fecha_emision, moneda, total, estado FROM comprobantes_compra WHERE empresa_id = $1`,
+          [empresaId]
+        );
+        if (cRes.rows.length > 0) {
+          compras = cRes.rows.map(r => ({
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            periodoId: String(r.periodo_id),
+            tipoComprobante: String(r.tipo_comprobante),
+            serie: String(r.serie),
+            numero: String(r.numero),
+            fechaEmision: r.fecha_emision instanceof Date ? r.fecha_emision.toISOString().slice(0, 10) : String(r.fecha_emision).slice(0, 10),
+            moneda: r.moneda,
+            total: Number(r.total),
+            estado: r.estado
+          } as any));
+        }
+
+        const vRes = await db.query(
+          `SELECT id, empresa_id, periodo_id, tipo_comprobante, serie, numero, fecha_emision, moneda, total, estado FROM comprobantes_venta WHERE empresa_id = $1`,
+          [empresaId]
+        );
+        if (vRes.rows.length > 0) {
+          ventas = vRes.rows.map(r => ({
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            periodoId: String(r.periodo_id),
+            tipoComprobante: String(r.tipo_comprobante),
+            serie: String(r.serie),
+            numero: String(r.numero),
+            fechaEmision: r.fecha_emision instanceof Date ? r.fecha_emision.toISOString().slice(0, 10) : String(r.fecha_emision).slice(0, 10),
+            moneda: r.moneda,
+            total: Number(r.total),
+            estado: r.estado
+          } as any));
+        }
+
+        const mRes = await db.query(
+          `SELECT id, empresa_id, periodo_id, glosa, monto, moneda FROM movimientos_tesoreria WHERE empresa_id = $1`,
+          [empresaId]
+        );
+        if (mRes.rows.length > 0) {
+          movimientos = mRes.rows.map(r => ({
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            periodoId: String(r.periodo_id),
+            glosa: r.glosa,
+            monto: Number(r.monto),
+            moneda: r.moneda
+          } as any));
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
 
     // Filtrar por año
     const comprasAnio = compras.filter(c => (c.fechaEmision || '').startsWith(String(anio)) || (c.periodoId || '').startsWith(String(anio)));

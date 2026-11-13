@@ -43,6 +43,16 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
   { tabla: 'anexos', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
   ] },
+  { tabla: 'activos_fijos', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+  ] },
+  { tabla: 'articulos_kardex', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+  ] },
+  { tabla: 'movimientos_kardex', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'producto_id', tabla: 'articulos_kardex', columnaDestino: 'id', remapeo: 'identificador' },
+  ] },
   { tabla: 'asientos_recurrentes', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
   ] },

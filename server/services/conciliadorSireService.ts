@@ -1,5 +1,8 @@
+import crypto from 'crypto';
 import { db } from '../config/database';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { Money } from '../utils/decimal';
 import { sireService, SirePropuestaModel } from './sireService';
 import { compraService, COMPRAS_MEMORIA } from './compraService';
@@ -608,6 +611,35 @@ export const conciliadorSireService = {
     const idx = CONCILIACIONES_SIRE_MEMORIA.findIndex(c => c.id === conciliacionId);
     if (idx >= 0) CONCILIACIONES_SIRE_MEMORIA[idx] = resultado;
     else CONCILIACIONES_SIRE_MEMORIA.push(resultado);
+
+    if (db.isPostgresConnected()) {
+      try {
+        const propRes = await db.query(
+          `SELECT id FROM sire_propuestas WHERE empresa_id = $1 AND periodo = $2 AND tipo = $3 LIMIT 1`,
+          [empresaId, periodo, tipo]
+        );
+        const propId = propRes.rows[0]?.id;
+        if (propId) {
+          const concUuid = UUID_REGEX.test(conciliacionId) ? conciliacionId : crypto.randomUUID();
+          await db.query(`
+            INSERT INTO sire_conciliaciones (
+              id, empresa_id, propuesta_id, tipo, periodo,
+              total_coinciden, total_solo_sistema, total_solo_sunat, total_diferencias
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id) DO UPDATE SET
+              total_coinciden = EXCLUDED.total_coinciden,
+              total_solo_sistema = EXCLUDED.total_solo_sistema,
+              total_solo_sunat = EXCLUDED.total_solo_sunat,
+              total_diferencias = EXCLUDED.total_diferencias
+          `, [
+            concUuid, empresaId, propId, tipo, periodo,
+            countCoinciden, countSoloSistema, countSoloSunat, countDiferencias
+          ]);
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
 
     return resultado;
   },

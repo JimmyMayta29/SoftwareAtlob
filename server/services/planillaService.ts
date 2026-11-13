@@ -1,5 +1,12 @@
+import crypto from 'crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function toUuid(id?: string): string {
+  if (id && UUID_REGEX.test(id)) return id;
+  return crypto.randomUUID();
+}
 import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
 import { periodoService } from './periodoService';
@@ -643,6 +650,66 @@ export const planillaService = {
     tienePermisoDatosSensibles = false,
     rolUsuario?: string
   ): Promise<TrabajadorModel[]> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          `SELECT * FROM trabajadores WHERE empresa_id = $1 ORDER BY apellidos, nombres ASC`,
+          [empresaId]
+        );
+        if (res.rows.length > 0) {
+          for (const row of res.rows) {
+            const idStr = String(row.id);
+            const idx = TRABAJADORES_MEMORIA.findIndex(t => t.id === idStr);
+            const item: TrabajadorModel = {
+              id: idStr,
+              empresaId: String(row.empresa_id),
+              tipoDocumento: String(row.tipo_documento),
+              numeroDocumento: String(row.numero_documento),
+              nombres: String(row.nombres),
+              apellidos: String(row.apellidos),
+              fechaNacimiento: row.fecha_nacimiento ? (row.fecha_nacimiento instanceof Date ? row.fecha_nacimiento.toISOString().slice(0, 10) : String(row.fecha_nacimiento).slice(0, 10)) : undefined,
+              direccion: row.direccion || undefined,
+              telefono: row.telefono || undefined,
+              email: row.email || undefined,
+              fechaIngreso: row.fecha_ingreso instanceof Date ? row.fecha_ingreso.toISOString().slice(0, 10) : String(row.fecha_ingreso).slice(0, 10),
+              fechaCese: row.fecha_cese ? (row.fecha_cese instanceof Date ? row.fecha_cese.toISOString().slice(0, 10) : String(row.fecha_cese).slice(0, 10)) : undefined,
+              cargo: String(row.cargo),
+              tipoContrato: row.tipo_contrato || 'INDETERMINADO',
+              fechaInicioContrato: row.fecha_inicio_contrato ? (row.fecha_inicio_contrato instanceof Date ? row.fecha_inicio_contrato.toISOString().slice(0, 10) : String(row.fecha_inicio_contrato).slice(0, 10)) : undefined,
+              fechaFinContrato: row.fecha_fin_contrato ? (row.fecha_fin_contrato instanceof Date ? row.fecha_fin_contrato.toISOString().slice(0, 10) : String(row.fecha_fin_contrato).slice(0, 10)) : undefined,
+              regimenLaboral: row.regimen_laboral || 'GENERAL',
+              sueldoBase: Number(row.sueldo_base),
+              cargasFamiliares: Number(row.cargas_familiares || 0),
+              tieneAsignacionFamiliar: Boolean(row.tiene_asignacion_familiar),
+              sistemaPensiones: row.sistema_pensiones,
+              afpAdministradora: row.afp_administradora || undefined,
+              afpTipoComision: row.afp_tipo_comision || 'FLUJO',
+              cuspp: row.cuspp || undefined,
+              centroCosto: String(row.centro_costo || 'ADMINISTRACION'),
+              cuentaBancoSueldo: row.cuenta_banco_sueldo || undefined,
+              cciSueldo: row.cci_sueldo || undefined,
+              cuentaBancoSueldoCifrada: row.cuenta_banco_sueldo_cifrada || undefined,
+              cciSueldoCifrado: row.cci_sueldo_cifrado || undefined,
+              bancoSueldo: row.banco_sueldo || undefined,
+              afiliadoEps: Boolean(row.afiliado_eps),
+              remuneracionesPreviasAnio: Number(row.remuneraciones_previas_anio || 0),
+              retencionesPrevias5taAnio: Number(row.retenciones_previas_5ta_anio || 0),
+              deduccionAdicional3Uit: Number(row.deduccion_adicional_3uit || 0),
+              activo: Boolean(row.activo),
+              version: Number(row.version || 1)
+            };
+            if (idx >= 0) {
+              TRABAJADORES_MEMORIA[idx] = item;
+            } else {
+              TRABAJADORES_MEMORIA.push(item);
+            }
+          }
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     const list = TRABAJADORES_MEMORIA.filter(t => t.empresaId === empresaId);
     const rolNorm = (rolUsuario || '').toUpperCase();
     const esAdminOContador =
@@ -732,8 +799,56 @@ export const planillaService = {
     const ctaCifrada = datos.cuentaBancoSueldo ? cryptoService.cifrar(datos.cuentaBancoSueldo) : undefined;
     const cciCifrado = datos.cciSueldo ? cryptoService.cifrar(datos.cciSueldo) : undefined;
 
+    const rawId = `trab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    let finalId = rawId;
+
+    if (db.isPostgresConnected()) {
+      try {
+        const uuidVal = toUuid(rawId);
+        const res = await db.query(`
+          INSERT INTO trabajadores (
+            id, empresa_id, tipo_documento, numero_documento, nombres, apellidos,
+            fecha_nacimiento, direccion, telefono, email, fecha_ingreso, fecha_cese,
+            cargo, tipo_contrato, fecha_inicio_contrato, fecha_fin_contrato,
+            regimen_laboral, sueldo_base, cargas_familiares, tiene_asignacion_familiar,
+            sistema_pensiones, afp_administradora, afp_tipo_comision, cuspp,
+            centro_costo, cuenta_banco_sueldo, cci_sueldo, cuenta_banco_sueldo_cifrada,
+            cci_sueldo_cifrado, banco_sueldo, afiliado_eps, remuneraciones_previas_anio,
+            retenciones_previas_5ta_anio, deduccion_adicional_3uit, activo, version
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+            $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+            $31, $32, $33, $34, $35, $36
+          )
+          ON CONFLICT (empresa_id, tipo_documento, numero_documento) DO UPDATE SET
+            nombres = EXCLUDED.nombres,
+            apellidos = EXCLUDED.apellidos,
+            sueldo_base = EXCLUDED.sueldo_base,
+            activo = EXCLUDED.activo,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING id
+        `, [
+          uuidVal, empresaId, datos.tipoDocumento, docNorm, datos.nombres, datos.apellidos,
+          datos.fechaNacimiento || null, datos.direccion || null, datos.telefono || null, datos.email || null,
+          datos.fechaIngreso, datos.fechaCese || null, datos.cargo, tipoCont,
+          datos.fechaInicioContrato || datos.fechaIngreso, datos.fechaFinContrato || null, datos.regimenLaboral || 'GENERAL',
+          datos.sueldoBase, cargasFam, tieneAsig,
+          datos.sistemaPensiones, datos.afpAdministradora || null, datos.afpTipoComision || 'FLUJO',
+          datos.cuspp || null, datos.centroCosto || 'ADMINISTRACION', datos.cuentaBancoSueldo || null, datos.cciSueldo || null,
+          ctaCifrada || null, cciCifrado || null, datos.bancoSueldo || null,
+          Boolean(datos.afiliadoEps), datos.remuneracionesPreviasAnio || 0, datos.retencionesPrevias5taAnio || 0,
+          datos.deduccionAdicional3Uit || 0, datos.activo ?? true, 1
+        ]);
+        if (res.rows.length > 0) {
+          finalId = String(res.rows[0].id);
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     const nuevo: TrabajadorModel = {
-      id: `trab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: finalId,
       empresaId,
       ...datos,
       numeroDocumento: docNorm,
@@ -802,6 +917,33 @@ export const planillaService = {
     const esBajaNueva = !habiaCese && Boolean(trab.fechaCese);
     if (esBajaNueva) {
       trab.activo = false;
+    }
+
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          UPDATE trabajadores SET
+            sueldo_base = COALESCE($1, sueldo_base),
+            cargo = COALESCE($2, cargo),
+            fecha_cese = $3,
+            motivo_cese = $4,
+            activo = COALESCE($5, activo),
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE (id = $6 OR numero_documento = $7) AND empresa_id = $8
+        `, [
+          datos.sueldoBase !== undefined ? datos.sueldoBase : null,
+          datos.cargo !== undefined ? datos.cargo : null,
+          trab.fechaCese || null,
+          trab.motivoCese || null,
+          datos.activo !== undefined ? datos.activo : null,
+          toUuid(id),
+          trab.numeroDocumento,
+          empresaId
+        ]);
+      } catch {
+        // Fallback a memoria
+      }
     }
 
     TREGISTRO_MOVIMIENTOS_MEMORIA.unshift({
@@ -1396,6 +1538,37 @@ export const planillaService = {
       PLANILLAS_MEMORIA.push(nuevaPlanilla);
     }
 
+    if (db.isPostgresConnected()) {
+      try {
+        const perCheck = await db.query(
+          `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo = $2 OR id::text = $2) LIMIT 1`,
+          [empresaId, mes]
+        );
+        const perUuid = perCheck.rows[0]?.id || toUuid();
+        const planUuid = toUuid(nuevaPlanilla.id);
+
+        await db.query(`
+          INSERT INTO planillas (
+            id, empresa_id, periodo_id, mes, fecha_calculo, fecha_pago,
+            total_ingresos, total_descuentos, total_aportes_empleador, total_neto, estado, created_by
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          ON CONFLICT (empresa_id, mes) DO UPDATE SET
+            total_ingresos = EXCLUDED.total_ingresos,
+            total_descuentos = EXCLUDED.total_descuentos,
+            total_aportes_empleador = EXCLUDED.total_aportes_empleador,
+            total_neto = EXCLUDED.total_neto,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          planUuid, empresaId, perUuid, mes, nuevaPlanilla.fechaCalculo, nuevaPlanilla.fechaPago,
+          nuevaPlanilla.totalIngresos, nuevaPlanilla.totalDescuentos,
+          nuevaPlanilla.totalAportesEmpleador, nuevaPlanilla.totalNeto,
+          nuevaPlanilla.estado, toUuid(userId)
+        ]);
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     await auditoriaRepository.registrar({
       empresaId,
       usuarioId: userId,
@@ -1785,6 +1958,40 @@ export const planillaService = {
       totNeto = Money.add(totNeto, netoPagar);
     }
 
+    if (db.isPostgresConnected()) {
+      try {
+        for (const item of lineas) {
+          const itemUuid = toUuid(item.id);
+          const trabUuid = toUuid(item.trabajadorId);
+          await db.query(`
+            INSERT INTO planilla_gratificaciones (
+              id, empresa_id, periodo, semestre, trabajador_id, regimen_laboral,
+              meses_computables, dias_computables, sueldo_computable, asignacion_familiar,
+              promedio_variables, remuneracion_computable, gratificacion_ordinaria,
+              tasa_bonif_extraordinaria, bonificacion_extraordinaria, retencion_quinta,
+              descuento_adelantos, neto_pagar, centro_costo, estado, usuario_id
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+            )
+            ON CONFLICT (empresa_id, periodo, trabajador_id) DO UPDATE SET
+              remuneracion_computable = EXCLUDED.remuneracion_computable,
+              gratificacion_ordinaria = EXCLUDED.gratificacion_ordinaria,
+              bonificacion_extraordinaria = EXCLUDED.bonificacion_extraordinaria,
+              neto_pagar = EXCLUDED.neto_pagar,
+              estado = EXCLUDED.estado
+          `, [
+            itemUuid, empresaId, periodo, semestre, trabUuid, item.regimenLaboral,
+            item.mesesComputables, item.diasComputables, item.sueldoComputable, item.asignacionFamiliar,
+            item.promedioVariables, item.remuneracionComputable, item.gratificacionOrdinaria,
+            item.tasaBonifExtraordinaria, item.bonificacionExtraordinaria, item.retencionQuinta,
+            item.descuentoAdelantos, item.netoPagar, item.centroCosto, item.estado, toUuid(userId)
+          ]);
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     return {
       periodo,
       semestre,
@@ -1991,6 +2198,37 @@ export const planillaService = {
       CTS_MEMORIA.push(item);
       lineas.push(item);
       totCts = Money.add(totCts, ctsDepositada);
+    }
+
+    if (db.isPostgresConnected()) {
+      try {
+        for (const item of lineas) {
+          const itemUuid = toUuid(item.id);
+          const trabUuid = toUuid(item.trabajadorId);
+          await db.query(`
+            INSERT INTO planilla_cts (
+              id, empresa_id, periodo, semestre, trabajador_id, regimen_laboral,
+              meses_computables, dias_computables, sueldo_computable, asignacion_familiar,
+              sexto_gratificacion, promedio_variables, remuneracion_computable,
+              cts_depositada, banco_cts, cuenta_cts, centro_costo, estado, usuario_id
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+            )
+            ON CONFLICT (empresa_id, periodo, trabajador_id) DO UPDATE SET
+              remuneracion_computable = EXCLUDED.remuneracion_computable,
+              cts_depositada = EXCLUDED.cts_depositada,
+              estado = EXCLUDED.estado
+          `, [
+            itemUuid, empresaId, periodo, semestre, trabUuid, item.regimenLaboral,
+            item.mesesComputables, item.diasComputables, item.sueldoComputable, item.asignacionFamiliar,
+            item.sextoGratificacion, item.promedioVariables, item.remuneracionComputable,
+            item.ctsDepositada, item.bancoCts || null, item.cuentaCts || null, item.centroCosto,
+            item.estado, toUuid(userId)
+          ]);
+        }
+      } catch {
+        // Fallback a memoria
+      }
     }
 
     return {

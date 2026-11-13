@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { COMPRAS_MEMORIA } from './compraService';
 import { VENTAS_MEMORIA } from './ventaService';
@@ -69,6 +71,8 @@ export interface ParametrosCalculoDjAnual {
   saldoAFavorAnterior?: number;
   itanPagado?: number;
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const DECLARACIONES_RENTA_ANUAL_MEMORIA: CalculoDjAnualRenta[] = [];
 
@@ -306,6 +310,58 @@ export const djRentaAnualService = {
       DECLARACIONES_RENTA_ANUAL_MEMORIA[idx] = resultado;
     } else {
       DECLARACIONES_RENTA_ANUAL_MEMORIA.push(resultado);
+    }
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+      try {
+        const djId = UUID_REGEX.test(resultado.id || '') ? resultado.id! : randomUUID();
+        resultado.id = djId;
+        await db.query(`
+          INSERT INTO declaraciones_renta_anual (
+            id, empresa_id, anio, regimen, uit_aplicada, utilidad_contable,
+            total_adiciones, total_deducciones, renta_neta_antes_perdidas,
+            sistema_compensacion_perdidas, perdida_arrastrable_declarada, perdida_compensada_ejercicio,
+            renta_neta_imponible, impuesto_renta_calculado, pagos_a_cuenta_mensuales,
+            saldo_favor_anterior, itan_pagado, saldo_por_regularizar, saldo_a_favor_contribuyente,
+            reparos_json, estado, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9,
+            $10, $11, $12,
+            $13, $14, $15,
+            $16, $17, $18, $19,
+            $20, 'BORRADOR', CURRENT_TIMESTAMP
+          )
+          ON CONFLICT (empresa_id, anio) DO UPDATE SET
+            regimen = EXCLUDED.regimen,
+            uit_aplicada = EXCLUDED.uit_aplicada,
+            utilidad_contable = EXCLUDED.utilidad_contable,
+            total_adiciones = EXCLUDED.total_adiciones,
+            total_deducciones = EXCLUDED.total_deducciones,
+            renta_neta_antes_perdidas = EXCLUDED.renta_neta_antes_perdidas,
+            sistema_compensacion_perdidas = EXCLUDED.sistema_compensacion_perdidas,
+            perdida_arrastrable_declarada = EXCLUDED.perdida_arrastrable_declarada,
+            perdida_compensada_ejercicio = EXCLUDED.perdida_compensada_ejercicio,
+            renta_neta_imponible = EXCLUDED.renta_neta_imponible,
+            impuesto_renta_calculado = EXCLUDED.impuesto_renta_calculado,
+            pagos_a_cuenta_mensuales = EXCLUDED.pagos_a_cuenta_mensuales,
+            saldo_favor_anterior = EXCLUDED.saldo_favor_anterior,
+            itan_pagado = EXCLUDED.itan_pagado,
+            saldo_por_regularizar = EXCLUDED.saldo_por_regularizar,
+            saldo_a_favor_contribuyente = EXCLUDED.saldo_a_favor_contribuyente,
+            reparos_json = EXCLUDED.reparos_json,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          djId, empresaId, anio, regimen, uit, utilidadContable,
+          totalAdiciones, totalDeducciones, rentaNetaAntesPerdidas,
+          sistemaPerdidas, perdidaDeclarada, perdidaCompensada,
+          rentaNetaImponible, impuestoCalculado, pagosACuentaMensuales,
+          saldoAFavorAnterior, itanPagado, saldoPorRegularizar, saldoAFavorContribuyente,
+          JSON.stringify({ adiciones, deducciones })
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [djRentaAnualService] Error persistiendo DJ Anual en PostgreSQL:', err);
+      }
     }
 
     return resultado;

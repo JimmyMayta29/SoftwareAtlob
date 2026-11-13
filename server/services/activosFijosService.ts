@@ -1,5 +1,13 @@
+import crypto from 'crypto';
+import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { ASIENTOS_MEMORIA, asientoService } from './asientoService';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function toUuid(id?: string): string {
+  if (id && UUID_REGEX.test(id)) return id;
+  return crypto.randomUUID();
+}
 
 export interface ActivoFijoModel {
   id: string;
@@ -71,7 +79,7 @@ export const activosFijosService = {
     vidaUtilMesesFinanciera?: number;
     centroCosto?: string;
   }): Promise<ActivoFijoModel> {
-    const id = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const rawId = `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const moneda = input.moneda || 'PEN';
     const tc = input.tipoCambio || 3.75;
     const valorSoles = moneda === 'USD' 
@@ -99,8 +107,50 @@ export const activosFijosService = {
       cuentaDeprec = '39133';
     }
 
+    let finalId = rawId;
+    if (db.isPostgresConnected()) {
+      try {
+        const uuidVal = toUuid(rawId);
+        const res = await db.query(`
+          INSERT INTO activos_fijos (
+            id, empresa_id, codigo_activo, descripcion, categoria, fecha_adquisicion, fecha_inicio_uso,
+            moneda, valor_adquisicion, tipo_cambio, valor_adquisicion_soles, vida_util_meses_financiera,
+            tasa_depreciacion_tributaria_anual, cuenta_activo_pcge, cuenta_depreciacion_pcge,
+            centro_costo, depreciacion_acumulada_financiera, depreciacion_acumulada_tributaria,
+            valor_neto_en_libros_financiero, valor_neto_en_libros_tributario, estado
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 0, 0, $11, $11, 'ACTIVO')
+          ON CONFLICT (empresa_id, codigo_activo) DO UPDATE SET
+            descripcion = EXCLUDED.descripcion,
+            categoria = EXCLUDED.categoria,
+            fecha_adquisicion = EXCLUDED.fecha_adquisicion,
+            fecha_inicio_uso = EXCLUDED.fecha_inicio_uso,
+            moneda = EXCLUDED.moneda,
+            valor_adquisicion = EXCLUDED.valor_adquisicion,
+            tipo_cambio = EXCLUDED.tipo_cambio,
+            valor_adquisicion_soles = EXCLUDED.valor_adquisicion_soles,
+            vida_util_meses_financiera = EXCLUDED.vida_util_meses_financiera,
+            tasa_depreciacion_tributaria_anual = EXCLUDED.tasa_depreciacion_tributaria_anual,
+            cuenta_activo_pcge = EXCLUDED.cuenta_activo_pcge,
+            cuenta_depreciacion_pcge = EXCLUDED.cuenta_depreciacion_pcge,
+            centro_costo = EXCLUDED.centro_costo,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING id
+        `, [
+          uuidVal, empresaId, input.codigoActivo, input.descripcion, input.categoria,
+          input.fechaAdquisicion, input.fechaInicioUso, moneda, input.valorAdquisicion,
+          tc, valorSoles, vidaUtilFinanciera, tasaTrib, cuentaActivo, cuentaDeprec,
+          input.centroCosto || 'CC-ADMINISTRACION'
+        ]);
+        if (res.rows.length > 0) {
+          finalId = String(res.rows[0].id);
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     const nuevoActivo: ActivoFijoModel = {
-      id,
+      id: finalId,
       empresaId,
       codigoActivo: input.codigoActivo,
       descripcion: input.descripcion,
@@ -127,6 +177,50 @@ export const activosFijosService = {
 
     ACTIVOS_FIJOS_MEMORIA.push(nuevoActivo);
     return nuevoActivo;
+  },
+
+  /**
+   * Lista los activos fijos de la empresa
+   */
+  async listarActivos(empresaId: string): Promise<ActivoFijoModel[]> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          `SELECT * FROM activos_fijos WHERE empresa_id = $1 ORDER BY codigo_activo ASC`,
+          [empresaId]
+        );
+        if (res.rows.length > 0) {
+          return res.rows.map(r => ({
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            codigoActivo: String(r.codigo_activo),
+            descripcion: String(r.descripcion),
+            categoria: r.categoria,
+            fechaAdquisicion: r.fecha_adquisicion instanceof Date ? r.fecha_adquisicion.toISOString().slice(0, 10) : String(r.fecha_adquisicion).slice(0, 10),
+            fechaInicioUso: r.fecha_inicio_uso instanceof Date ? r.fecha_inicio_uso.toISOString().slice(0, 10) : String(r.fecha_inicio_uso).slice(0, 10),
+            moneda: r.moneda,
+            valorAdquisicion: Number(r.valor_adquisicion),
+            tipoCambio: Number(r.tipo_cambio),
+            valorAdquisicionSoles: Number(r.valor_adquisicion_soles),
+            vidaUtilMesesFinanciera: Number(r.vida_util_meses_financiera),
+            tasaDepreciacionTributariaAnual: Number(r.tasa_depreciacion_tributaria_anual),
+            cuentaActivoPCGE: String(r.cuenta_activo_pcge),
+            cuentaDepreciacionPCGE: String(r.cuenta_depreciacion_pcge),
+            centroCosto: String(r.centro_costo),
+            depreciacionAcumuladaFinanciera: Number(r.depreciacion_acumulada_financiera),
+            depreciacionAcumuladaTributaria: Number(r.depreciacion_acumulada_tributaria),
+            valorNetoEnLibrosFinanciero: Number(r.valor_neto_en_libros_financiero),
+            valorNetoEnLibrosTributario: Number(r.valor_neto_en_libros_tributario),
+            estado: r.estado,
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+            updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+          }));
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+    return ACTIVOS_FIJOS_MEMORIA.filter(a => a.empresaId === empresaId);
   },
 
   /**
@@ -290,6 +384,29 @@ export const activosFijosService = {
       act.valorNetoEnLibrosFinanciero = Money.toNumber(Money.sub(act.valorAdquisicionSoles, act.depreciacionAcumuladaFinanciera));
       act.valorNetoEnLibrosTributario = Money.toNumber(Money.sub(act.valorAdquisicionSoles, act.depreciacionAcumuladaTributaria));
       act.updatedAt = new Date().toISOString();
+
+      if (db.isPostgresConnected()) {
+        try {
+          db.query(`
+            UPDATE activos_fijos
+            SET depreciacion_acumulada_financiera = $1,
+                depreciacion_acumulada_tributaria = $2,
+                valor_neto_en_libros_financiero = $3,
+                valor_neto_en_libros_tributario = $4,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE empresa_id = $5 AND codigo_activo = $6
+          `, [
+            act.depreciacionAcumuladaFinanciera,
+            act.depreciacionAcumuladaTributaria,
+            act.valorNetoEnLibrosFinanciero,
+            act.valorNetoEnLibrosTributario,
+            empresaId,
+            act.codigoActivo
+          ]).catch(() => {});
+        } catch {
+          // Fallback
+        }
+      }
     }
 
     return {

@@ -1,4 +1,4 @@
-﻿param(
+param(
   [switch]$Preparar,
   [switch]$Detener,
   [switch]$NoAbrirNavegador

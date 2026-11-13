@@ -71,6 +71,32 @@ export const empresaDemoService = {
       emp = DATOS_EMPRESA_DEMO;
     }
 
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          INSERT INTO empresas (
+            id, tenant_id, codigo_empresa, ruc, razon_social, nombre_comercial,
+            regimen_tributario, domicilio_fiscal, moneda_principal, es_demo, is_active
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, true)
+          ON CONFLICT (id) DO UPDATE SET
+            razon_social = EXCLUDED.razon_social,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          DATOS_EMPRESA_DEMO.id,
+          DATOS_EMPRESA_DEMO.tenantId,
+          DATOS_EMPRESA_DEMO.codigoEmpresa,
+          DATOS_EMPRESA_DEMO.ruc,
+          DATOS_EMPRESA_DEMO.razonSocial,
+          DATOS_EMPRESA_DEMO.nombreComercial,
+          DATOS_EMPRESA_DEMO.regimenTributario,
+          DATOS_EMPRESA_DEMO.domicilioFiscal,
+          DATOS_EMPRESA_DEMO.monedaPrincipal
+        ]);
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     // 3. Crear Períodos del Trimestre (Julio, Agosto, Septiembre 2026)
     const periodos = ['2026-07', '2026-08', '2026-09'];
     for (const p of periodos) {
@@ -415,7 +441,7 @@ export const empresaDemoService = {
     ];
     TRABAJADORES_MEMORIA.push(...trabajadores);
 
-    // Planillas mensuales (07, 08, 09) con cuadre contable en Subdiario 04
+    // Planillas mensuales (07, 08, 09) con cuadre contable en Subdiario 07
     for (let m = 0; m < periodos.length; m++) {
       const per = periodos[m];
       const asientoId = `ast-demo-pln-${per}`;
@@ -465,8 +491,8 @@ export const empresaDemoService = {
         id: asientoId,
         empresaId: EMPRESA_DEMO_ID,
         periodoId: `per-${per}`,
-        subdiarioId: '04',
-        numero: `04${per.substring(5, 7)}0001`,
+        subdiarioId: '07',
+        numero: `07${per.substring(5, 7)}0001`,
         fecha: `${per}-28`,
         glosa: `PLANILLA DE SUELDOS Y APORTES MES ${per}`,
         moneda: 'PEN',

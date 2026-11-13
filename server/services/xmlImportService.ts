@@ -469,7 +469,72 @@ export const xmlImportService = {
     };
 
     COMPROBANTES_XML_MEMORIA.push(registro);
+
+    if (db.isPostgresConnected()) {
+      try {
+        const xmlUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(registro.id)
+          ? registro.id
+          : crypto.randomUUID();
+        db.query(`
+          INSERT INTO comprobantes_xml (
+            id, empresa_id, nombre_archivo, hash_sha256, tamano_bytes,
+            tipo_documento, serie, numero, ruc_emisor, ruc_receptor,
+            fecha_emision, moneda, total, tiene_cdr, cdr_estado, estado_procesamiento
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          ON CONFLICT DO NOTHING
+        `, [
+          xmlUuid, empresaId, registro.nombreArchivo, registro.hashSha256, registro.tamanoBytes,
+          registro.tipoDocumento, registro.serie, registro.numero, registro.rucEmisor, registro.rucReceptor,
+          registro.fechaEmision, registro.moneda, registro.total, registro.tieneCdr,
+          registro.cdrEstado, registro.estadoProcesamiento
+        ]).catch(() => {});
+      } catch {
+        // Fallback a memoria
+      }
+    }
+
     return registro;
+  },
+
+  /**
+   * Lista comprobantes XML importados
+   */
+  async listarComprobantes(empresaId: string): Promise<ComprobanteXmlModel[]> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          `SELECT * FROM comprobantes_xml WHERE empresa_id = $1 ORDER BY created_at DESC`,
+          [empresaId]
+        );
+        if (res.rows.length > 0) {
+          return res.rows.map(r => ({
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            nombreArchivo: String(r.nombre_archivo),
+            hashSha256: String(r.hash_sha256),
+            tamanoBytes: Number(r.tamano_bytes),
+            tipoDocumento: String(r.tipo_documento),
+            serie: String(r.serie),
+            numero: String(r.numero),
+            rucEmisor: String(r.ruc_emisor),
+            razonSocialEmisor: '',
+            rucReceptor: String(r.ruc_receptor),
+            fechaEmision: r.fecha_emision instanceof Date ? r.fecha_emision.toISOString().slice(0, 10) : String(r.fecha_emision).slice(0, 10),
+            moneda: r.moneda,
+            baseGravada: 0,
+            igv: 0,
+            total: Number(r.total),
+            tieneCdr: Boolean(r.tiene_cdr),
+            cdrEstado: String(r.cdr_estado || 'ACEPTADO'),
+            estadoProcesamiento: r.estado_procesamiento,
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+          }));
+        }
+      } catch {
+        // Fallback a memoria
+      }
+    }
+    return COMPROBANTES_XML_MEMORIA.filter(x => x.empresaId === empresaId);
   },
 
   /**

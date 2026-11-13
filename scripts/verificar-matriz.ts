@@ -222,12 +222,16 @@ export function ejecutarVerificacionMatriz(
       }
 
       const totalReal = escDelSub.length;
+      const pgReal = escDelSub.filter(e => e.estado === 'IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL').length;
       const memoria = escDelSub.filter(e => e.estado === 'PROBADO CON MOTOR EN MEMORIA' || e.estado === 'PROBADO SOLO EN pg-mem').length;
       const parcial = escDelSub.filter(e => e.estado === 'PARCIAL').length;
       const noImplementado = escDelSub.filter(e => e.estado === 'NO IMPLEMENTADO').length;
 
       if (filaResumen.total !== totalReal) {
         errores.push(`Subdiario ${numStr}: Total en resumen (${filaResumen.total}) != filas reales (${totalReal})`);
+      }
+      if (filaResumen.pgReal !== pgReal) {
+        errores.push(`Subdiario ${numStr}: PG Real en resumen (${filaResumen.pgReal}) != filas reales (${pgReal})`);
       }
       if (filaResumen.memoria !== memoria) {
         errores.push(`Subdiario ${numStr}: Memoria en resumen (${filaResumen.memoria}) != filas reales (${memoria})`);
@@ -243,12 +247,16 @@ export function ejecutarVerificacionMatriz(
     const totalFila = resumenFilas.find(r => r.subdiario === 'TOTAL GENERAL');
     if (totalFila) {
       const sumTotal = escenarios.length;
+      const sumPgReal = escenarios.filter(e => e.estado === 'IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL').length;
       const sumMemoria = escenarios.filter(e => e.estado === 'PROBADO CON MOTOR EN MEMORIA' || e.estado === 'PROBADO SOLO EN pg-mem').length;
       const sumParcial = escenarios.filter(e => e.estado === 'PARCIAL').length;
       const sumNoImpl = escenarios.filter(e => e.estado === 'NO IMPLEMENTADO').length;
 
       if (totalFila.total !== sumTotal) {
         errores.push(`TOTAL GENERAL: Total (${totalFila.total}) != suma de escenarios (${sumTotal})`);
+      }
+      if (totalFila.pgReal !== sumPgReal) {
+        errores.push(`TOTAL GENERAL: PostgreSQL Real (${totalFila.pgReal}) != suma pgReal (${sumPgReal})`);
       }
       if (totalFila.memoria !== sumMemoria) {
         errores.push(`TOTAL GENERAL: Memoria (${totalFila.memoria}) != suma memoria (${sumMemoria})`);
@@ -326,8 +334,8 @@ export function ejecutarPruebasNegativas(): boolean {
   // Caso Negativo 4: Escenario marcado PROBADO en un archivo sin aserciones
   console.log('4. Probando Caso Negativo 4: Archivo de prueba sin aserciones en el bloque...');
   const contenidoSinAsercion = contenidoOriginal.replace(
-    'server/tests/test_asiento_completo_subdiarios.ts:31-50',
-    'server/tests/fixture_test_sin_aserciones.ts:1-5'
+    'server/tests/real/test_pg_matriz_contable.ts',
+    'server/tests/fixture_test_sin_aserciones.ts'
   );
   const res4 = ejecutarVerificacionMatriz(contenidoSinAsercion);
   if (!res4.valido && res4.errores.some(e => e.includes('ESC-C-1.01') && e.includes('NO contiene aserciones reales'))) {

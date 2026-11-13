@@ -32,6 +32,8 @@ import { auditoriaChainService } from './auditoriaChainService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type OrigenBackup = 'MANUAL' | 'AUTO_ENTRADA' | 'PREVIO_CIERRE' | 'PREVIO_IMPORTACION' | 'PREVIO_RESET_DEMO';
 
 export interface AlcanceBackup {
@@ -320,6 +322,26 @@ export const backupEmpresaService = {
 
     // 5. Aplicar política de retención (rotar últimos N backups)
     BACKUPS_MEMORIA.unshift(metadataItem);
+
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          INSERT INTO reportes_generados (
+            id, empresa_id, tipo_reporte, periodo, parametros, archivo_url, hash_sha256, usuario_id
+          ) VALUES ($1, $2, 'BACKUP', $3, $4, $5, $6, $7)
+        `, [
+          UUID_REGEX.test(backupId) ? backupId : crypto.randomUUID(),
+          empresaId,
+          `${ejercicio}-00`,
+          JSON.stringify({ origen, nombreArchivo: nombreArchivoDescarga }),
+          nombreArchivoDescarga,
+          hashFinalSha256,
+          UUID_REGEX.test(userId) ? userId : null
+        ]);
+      } catch {
+        // Fallback a memoria
+      }
+    }
     const backupsEmpresa = BACKUPS_MEMORIA.filter(b => b.empresaId === empresaId);
     if (backupsEmpresa.length > RETENCION_MAXIMA_BACKUPS) {
       const sobrantes = backupsEmpresa.slice(RETENCION_MAXIMA_BACKUPS);

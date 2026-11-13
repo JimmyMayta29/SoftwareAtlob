@@ -133,7 +133,8 @@ export const compraService = {
   validarCoherencia(input: CompraInput) {
     // 1. Validación de importes no negativos (las notas de crédito tipo '07' admiten importes negativos para ajuste de compras)
     const esNotaCredito = input.tipoComprobante === '07';
-    if (!esNotaCredito) {
+    const esGratuito = Boolean((input as any).esGratuito);
+    if (!esNotaCredito && !esGratuito) {
       if (
         input.total < 0 ||
         input.baseGravada < 0 ||
@@ -151,6 +152,10 @@ export const compraService = {
       }
     }
 
+    if (esGratuito) {
+      return;
+    }
+
     const total = Money.create(input.total);
     const baseGravada = Money.create(input.baseGravada);
     const igv = Money.create(input.igv);
@@ -166,9 +171,30 @@ export const compraService = {
       Money.add(igv, Money.add(noGravada, Money.add(exonerado, Money.add(isc, Money.add(icbper, otros)))))
     );
 
-    const difSumas = Money.sub(total, sumaComponentes).abs();
-    if (difSumas.greaterThan(0.05)) {
-      throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de bases + IGV + tributos (S/ ${sumaComponentes}) difiere del total (S/ ${total}) más allá de la tolerancia de 0.05.`);
+    const esDua = input.tipoComprobante === '50';
+    if (esDua) {
+      const percepcion = Money.create((input as any).percepcionAduanera || input.montoPercepcion || 0);
+      const sumaConPercepcion = Money.add(sumaComponentes, percepcion);
+      const difDua = Money.sub(total, sumaConPercepcion).abs();
+      const difSumas = Money.sub(total, sumaComponentes).abs();
+      if (difDua.greaterThan(0.05) && difSumas.greaterThan(0.05)) {
+        throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de componentes de la DUA (S/ ${sumaConPercepcion}) difiere del total (S/ ${total}).`);
+      }
+    } else if (!esNotaCredito) {
+      const difSumas = Money.sub(total, sumaComponentes).abs();
+      if (difSumas.greaterThan(0.05)) {
+        throw new Error(`COHERENCIA_SUMAS_INVALIDA: La suma de bases + IGV + tributos (S/ ${sumaComponentes}) difiere del total (S/ ${total}) más allá de la tolerancia de 0.05.`);
+      }
+    }
+
+    // ESC-C-1.03: Validación de cuotas de crédito
+    const cuotas = (input as any).cuotas;
+    if (cuotas && Array.isArray(cuotas) && cuotas.length > 0) {
+      const sumCuotas = cuotas.reduce((acc: number, c: any) => acc + (c.importe || 0), 0);
+      const difCuotas = Math.abs(sumCuotas - input.total);
+      if (difCuotas > 0.05) {
+        throw new Error(`CUOTAS_NO_COINCIDEN_CON_TOTAL: La suma de cuotas (S/ ${sumCuotas.toFixed(2)}) difiere del total (S/ ${input.total.toFixed(2)}).`);
+      }
     }
 
     // 3. Tasa de IGV paramétrica con vigencia por fecha de emisión (tabla de tasas)
@@ -619,6 +645,8 @@ export const compraService = {
         docNumero: input.numero,
         fechaEmision: input.fechaEmision,
         fechaContable: input.fechaContable,
+        fechaVencimiento: input.fechaVencimiento || undefined,
+        cuotas: (input as any).cuotas,
         baseImponible: input.baseGravada,
         baseNoGravada: input.baseNoGravada,
         exonerado: input.exonerado,
@@ -638,7 +666,29 @@ export const compraService = {
         montoDetraccion: input.tieneDetraccion ? (input.montoDetraccion || Money.toNumber(Money.mul(input.total, (input.porcentajeDetraccion || 10) / 100))) : undefined,
         tieneRetencion: input.tieneRetencion,
         montoRetencion: input.tieneRetencion ? (input.montoRetencion || Money.toNumber(Money.mul(input.total, ((input as any).porcentajeRetencion || 3) / 100))) : undefined,
-        glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`
+        glosa: input.glosa || `Compra ${input.tipoComprobante} ${input.serie}-${input.numero}`,
+        tasaRetencionRenta: (input as any).tasaRetencionRenta,
+        montoRetencionRenta: (input as any).montoRetencionRenta,
+        montoRetencionIgv: (input as any).montoRetencionIgv,
+        motivoNcNd: (input as any).motivoNcNd,
+        comprobanteModificadoTipo: (input as any).comprobanteModificadoTipo,
+        comprobanteModificadoSerie: (input as any).comprobanteModificadoSerie,
+        comprobanteModificadoNumero: (input as any).comprobanteModificadoNumero,
+        comprobanteModificadoFecha: (input as any).comprobanteModificadoFecha,
+        cuentaDescuentoNc: (input as any).cuentaDescuentoNc,
+        ajustaInventarioFisico: (input as any).ajustaInventarioFisico,
+        valorCif: (input as any).valorCif,
+        adValorem: (input as any).adValorem,
+        igvAduanero: (input as any).igvAduanero,
+        percepcionAduanera: (input as any).percepcionAduanera,
+        paisResidencia: (input as any).paisResidencia,
+        tasaRetencionNoDomiciliado: (input as any).tasaRetencionNoDomiciliado,
+        montoRetencionNoDomiciliado: (input as any).montoRetencionNoDomiciliado,
+        montoIgvUtilizacionServicios: (input as any).montoIgvUtilizacionServicios,
+        esAnticipo: (input as any).esAnticipo,
+        montoAnticipoAplicado: (input as any).montoAnticipoAplicado,
+        esGratuito: (input as any).esGratuito,
+        valorReferencial: (input as any).valorReferencial
       });
     } else {
       prop = await contabilizacionService.generar(empresaId, tipoOp, {

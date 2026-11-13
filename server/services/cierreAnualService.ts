@@ -1,3 +1,4 @@
+import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { ASIENTOS_MEMORIA, asientoService } from './asientoService';
 
@@ -48,6 +49,36 @@ export const cierreAnualService = {
 
     // Calcular saldos acumulados por cuenta contable (Sumas del Mayor)
     const saldosCuentas = new Map<string, { debe: number; haber: number }>();
+
+    if (db.isPostgresConnected()) {
+      try {
+        const adRes = await db.query(`
+          SELECT ad.cuenta_id as codigo_cuenta,
+                 COALESCE(SUM(ad.debe), 0) as debe,
+                 COALESCE(SUM(ad.haber), 0) as haber
+          FROM asiento_detalle ad
+          JOIN asientos a ON a.id = ad.asiento_id
+          WHERE a.empresa_id = $1
+            AND (a.fecha >= $2 AND a.fecha <= $3)
+            AND a.subdiario_id <> '09'
+            AND a.estado = 'CONTABILIZADO'
+          GROUP BY ad.cuenta_id
+        `, [empresaId, `${anio}-01-01`, `${anio}-12-31`]);
+
+        if (adRes.rows.length > 0) {
+          for (const row of adRes.rows) {
+            const cta = String(row.codigo_cuenta).trim();
+            if (!cta) continue;
+            saldosCuentas.set(cta, {
+              debe: Number(row.debe || 0),
+              haber: Number(row.haber || 0)
+            });
+          }
+        }
+      } catch (err) {
+        // fallback
+      }
+    }
 
     for (const a of asientosAnio) {
       const items = a.detalles || a.items || [];

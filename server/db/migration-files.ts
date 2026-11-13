@@ -21,4 +21,5 @@ export const MIGRATION_FILES = [
   'schema_fase16_plan_cuentas_columnas.sql',
   'schema_fase17_plan_cuentas_cierre_tipo.sql',
   'schema_fase18_seguridad_rls_etapas.sql',
+  'schema_fase19_kardex_activos_fijos.sql',
 ] as const;
