@@ -43,7 +43,8 @@ activosKardexRoutes.get('/empresas/:empresaId/activos-fijos/depreciacion', async
 activosKardexRoutes.post('/empresas/:empresaId/activos-fijos/depreciacion/asiento', async (req: Request, res: Response) => {
   try {
     const { empresaId } = req.params;
-    const { periodo, userId } = req.body;
+    const { periodo } = req.body || {};
+    const userId = req.user?.id || req.body?.userId;
     const resultado = await activosFijosService.generarAsientoDepreciacion(empresaId, periodo || '2026-09', userId);
     res.json(resultado);
   } catch (err: any) {

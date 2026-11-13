@@ -33,16 +33,19 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
-router.put('/', requireRol(['ADMIN_ESTUDIO', 'ADMINISTRADOR', 'ADMIN']), async (req: Request, res: Response) => {
+router.put('/', requireRol(['ADMINISTRADOR']), async (req: Request, res: Response) => {
   try {
     const parsed = actualizarCronogramaSchema.safeParse(req.body || {});
     if (!parsed.success) {
       return errorResponse(res, 'Datos de cronograma inválidos', 400, parsed.error.issues);
     }
-    const user = (req as any).user;
-    const rol = (req as any).userRolEnEmpresa || user?.rolGlobal || 'ADMINISTRADOR';
-    const userId = user?.id || 'usr-admin-01';
-    const empresaId = req.empresaId || '00000000-0000-0000-0000-000000000001';
+    const user = req.user;
+    if (!user?.id) {
+      return errorResponse(res, 'AUTENTICACION_REQUERIDA', 401);
+    }
+    const rol = req.userRolEnEmpresa || user.rolGlobal || 'ADMINISTRADOR';
+    const userId = user.id;
+    const empresaId = req.empresaId || user.empresasPermitidas?.[0] || '00000000-0000-0000-0000-000000000001';
 
     const actualizada = await cronogramaVencimientosService.actualizarFilaCronograma(
       parsed.data as { periodo: string; ultimoDigitoRuc: DigitoRucCronograma },

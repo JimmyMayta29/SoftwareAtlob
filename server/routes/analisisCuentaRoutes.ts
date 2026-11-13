@@ -8,20 +8,32 @@ export const analisisCuentaRoutes = Router({ mergeParams: true });
 // Todos los endpoints de análisis de cuentas requieren autenticación
 analisisCuentaRoutes.use(requireAuth);
 
+function resolverEmpresaId(req: Request): string | null {
+  const paramId = (req.params as any)?.empresaId;
+  const contextId = req.empresaId;
+  const target = paramId || contextId;
+  if (!target) return null;
+  const queryId = req.query.empresaId as string | undefined;
+  const bodyId = req.body?.empresaId as string | undefined;
+  if (queryId && queryId !== target) return null;
+  if (bodyId && bodyId !== target) return null;
+  return target;
+}
+
 /**
- * GET /api/empresas/:empresaId/analisis-cuentas/movimientos o /api/analisis-cuentas/movimientos
+ * GET /api/empresas/:empresaId/analisis-cuentas/movimientos
  * Obtiene los movimientos contables, saldo inicial y saldo final con rigor decimal.
  */
 analisisCuentaRoutes.get('/movimientos', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const periodo = (req.query.periodo as string) || '2026-09';
     const codigoCuenta = (req.query.codigoCuenta as string) || (req.query.cuentaDesde as string);
     const cuentaHasta = req.query.cuentaHasta as string | undefined;
     const anexo = req.query.anexo as string | undefined;
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const resultado = await analisisCuentaService.obtenerMovimientosCuenta(
@@ -44,13 +56,13 @@ analisisCuentaRoutes.get('/movimientos', async (req: Request, res: Response) => 
  */
 analisisCuentaRoutes.get('/antiguedad', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const periodo = (req.query.periodo as string) || '2026-09';
     const cuenta = (req.query.cuenta as string) || (req.query.cuentaDesde as string) || '1212';
     const cuentaHasta = req.query.cuentaHasta as string | undefined;
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const resultado = await analisisCuentaService.obtenerAntiguedadSaldos(empresaId, periodo, cuenta, cuentaHasta);
@@ -66,12 +78,12 @@ analisisCuentaRoutes.get('/antiguedad', async (req: Request, res: Response) => {
  */
 analisisCuentaRoutes.get('/comparativo-anual', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const anio = parseInt(req.query.anio as string, 10) || 2026;
     const cuenta = (req.query.cuenta as string) || '12';
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const resultado = await analisisCuentaService.obtenerComparativoAnual(empresaId, anio, cuenta);
@@ -87,11 +99,11 @@ analisisCuentaRoutes.get('/comparativo-anual', async (req: Request, res: Respons
  */
 analisisCuentaRoutes.get('/cuentas-control', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const periodo = (req.query.periodo as string) || '2026-09';
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const resultado = await analisisCuentaService.obtenerCuentasControl(empresaId, periodo);
@@ -107,11 +119,11 @@ analisisCuentaRoutes.get('/cuentas-control', async (req: Request, res: Response)
  */
 analisisCuentaRoutes.get('/alertas', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const periodo = (req.query.periodo as string) || '2026-09';
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const alertas = await analisisCuentaService.obtenerAlertasAuditoria(empresaId, periodo);
@@ -127,11 +139,11 @@ analisisCuentaRoutes.get('/alertas', async (req: Request, res: Response) => {
  */
 analisisCuentaRoutes.get('/marcas/:asientoId', async (req: Request, res: Response) => {
   try {
-    const empresaId = (req.params as any).empresaId || (req.query.empresaId as string);
+    const empresaId = resolverEmpresaId(req);
     const { asientoId } = req.params;
 
     if (!empresaId) {
-      return res.status(400).json({ success: false, error: 'EMPRESA_ID_REQUERIDO' });
+      return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
     }
 
     const marcas = await analisisCuentaService.obtenerMarcasAsiento(empresaId, asientoId);
@@ -144,24 +156,30 @@ analisisCuentaRoutes.get('/marcas/:asientoId', async (req: Request, res: Respons
 /**
  * POST /api/empresas/:empresaId/analisis-cuentas/marcas
  * Crea o actualiza una marca de auditoría.
- * Permite a ADMIN_ESTUDIO, ADMINISTRADOR, CONTADOR y AUDITOR.
  */
 analisisCuentaRoutes.post(
   '/marcas',
-  requireRol(['ADMINISTRADOR', 'ADMIN_ESTUDIO', 'CONTADOR', 'AUDITOR', 'AUDITOR_REVISOR']),
+  requireRol(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE', 'AUDITOR_REVISOR']),
   async (req: Request, res: Response) => {
     try {
-      const empresaId = (req.params as any).empresaId || req.body.empresaId;
+      const empresaId = resolverEmpresaId(req);
       const { asientoId, lineaId, estadoRevision, comentario } = req.body;
 
-      if (!empresaId || !asientoId || !estadoRevision) {
+      if (!empresaId) {
+        return res.status(403).json({ success: false, error: 'ACCESO_DENEGADO_EMPRESA' });
+      }
+
+      if (!asientoId || !estadoRevision) {
         return res.status(400).json({
           success: false,
-          error: 'DATOS_INCOMPLETOS: empresaId, asientoId y estadoRevision son obligatorios',
+          error: 'DATOS_INCOMPLETOS: asientoId y estadoRevision son obligatorios',
         });
       }
 
       const usuarioId = req.user?.id;
+      if (!usuarioId) {
+        return res.status(401).json({ success: false, error: 'AUTENTICACION_REQUERIDA' });
+      }
       const usuarioNombre = req.user?.email || req.user?.nombre || 'Auditor';
 
       const marca = await analisisCuentaService.guardarMarca(empresaId, {

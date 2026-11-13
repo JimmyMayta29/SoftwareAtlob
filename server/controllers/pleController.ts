@@ -117,6 +117,9 @@ export const pleController = {
       const id = req.params.id;
       const exportacion = pleExportService.obtenerExportacion(id);
       if (!exportacion) return errorResponse(res, 'EXPORTACION_NO_ENCONTRADA', 404);
+      if (req.empresaId && exportacion.empresaId && exportacion.empresaId !== req.empresaId) {
+        return errorResponse(res, 'ACCESO_DENEGADO_EMPRESA', 403);
+      }
       return successResponse(res, exportacion);
     } catch (err: any) {
       return errorResponse(res, sanitizarMensaje(err));

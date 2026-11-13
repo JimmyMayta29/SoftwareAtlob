@@ -675,18 +675,27 @@ export const compraService = {
         periodoId = periodoActual.id;
         const { rows: [subdiario] } = await client.query(`
           SELECT id FROM subdiarios
-          WHERE empresa_id = $1 AND (codigo = $2 OR id = $2 OR (tipo_operacion = 'COMPRAS' AND activo = true))
+          WHERE empresa_id = $1 AND (codigo = $2 OR id::text = $2 OR (tipo_operacion = 'COMPRAS' AND activo = true))
           ORDER BY (tipo_operacion = 'COMPRAS') DESC LIMIT 1
         `, [empresaId, subdiarioId]);
         if (!subdiario) throw new Error('SUBDIARIO_NO_ENCONTRADO: Configure el subdiario de compras de la empresa.');
         subdiarioId = subdiario.id;
         const referencias = prop.lineas.map((linea: any) => (linea.cuentaId || linea.codigoCuenta).replace(/^cta-/, ''));
         const { rows } = await client.query<{ id: string; codigo: string }>(`
-          SELECT id, codigo FROM plan_cuentas WHERE empresa_id = $1 AND (codigo = ANY($2::text[]) OR id::text = ANY($2::text[]))
+          SELECT id, codigo FROM plan_cuentas WHERE empresa_id = $1 AND (
+            codigo = ANY($2::text[]) 
+            OR id::text = ANY($2::text[])
+            OR (codigo = '6011' AND '60111' = ANY($2::text[]))
+            OR (codigo = '2011' AND '20111' = ANY($2::text[]))
+            OR (codigo = '6111' AND '61111' = ANY($2::text[]))
+          )
         `, [empresaId, referencias]);
         for (const { id, codigo } of rows) {
           cuentas.set(id, id);
           cuentas.set(codigo, id);
+          if (codigo === '6011' && !cuentas.has('60111')) cuentas.set('60111', id);
+          if (codigo === '2011' && !cuentas.has('20111')) cuentas.set('20111', id);
+          if (codigo === '6111' && !cuentas.has('61111')) cuentas.set('61111', id);
         }
         if (referencias.some((referencia: string) => !cuentas.has(referencia))) {
           throw new Error('CUENTA_NO_ENCONTRADA: Falta una cuenta en el plan contable de la empresa.');

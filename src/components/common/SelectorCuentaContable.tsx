@@ -4,6 +4,7 @@ import { PLAN_CONTABLE_PCGE, CuentaPCGE, buscarCuentaPCGE } from '../../data/pcg
 import { CatalogoCuentasDialog } from '../voucher/CatalogoCuentasDialog';
 
 export interface SelectorCuentaContableProps {
+  label?: string;
   value: string;
   onChange: (codigo: string, denominacion: string, cuenta?: CuentaPCGE) => void;
   placeholder?: string;
@@ -18,6 +19,7 @@ export interface SelectorCuentaContableProps {
 }
 
 export const SelectorCuentaContable: React.FC<SelectorCuentaContableProps> = ({
+  label,
   value,
   onChange,
   placeholder = 'Código o nombre de cuenta...',
@@ -135,6 +137,11 @@ export const SelectorCuentaContable: React.FC<SelectorCuentaContableProps> = ({
 
   return (
     <div ref={contenedorRef} className={`relative flex flex-col ${className}`}>
+      {label && (
+        <label htmlFor={id} className="block text-xs font-semibold text-slate-700 mb-1">
+          {label}
+        </label>
+      )}
       <div className="flex items-center gap-1.5 w-full">
         <div className="relative flex-1 flex items-center">
           <input

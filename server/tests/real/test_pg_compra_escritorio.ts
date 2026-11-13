@@ -104,6 +104,6 @@ async function verificarCompra() {
 }
 
 verificarCompra().catch((error: Error & { code?: string; constraint?: string }) => {
-  console.error('COMPRA_ESCRITORIO_FALLIDA', error.code || error.name, error.constraint || '', error.stack?.split('\n').find(line => line.includes('test_pg_compra_escritorio.ts:'))?.trim() || '');
+  console.error('COMPRA_ESCRITORIO_FALLIDA', error.code || error.name, error.message, error.constraint || '', error.stack?.split('\n').find(line => line.includes('test_pg_compra_escritorio.ts:'))?.trim() || '');
   process.exitCode = 1;
 });

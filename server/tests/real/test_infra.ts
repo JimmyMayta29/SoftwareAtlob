@@ -8,7 +8,8 @@ import { NOMBRES_SECRETOS_SERVIDOR } from '../../config/env';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 assert(databaseUrl, 'TEST_DATABASE_URL debe apuntar a PostgreSQL real descartable.');
-const admin = new Pool({ connectionString: databaseUrl });
+const adminUrl = process.env.TEST_ADMIN_DATABASE_URL || 'postgresql://postgres:@localhost:5432/postgres';
+const admin = new Pool({ connectionString: adminUrl });
 const prefix = `infra_${crypto.randomUUID().replaceAll('-', '')}`;
 const databases = [`${prefix}_ok`, `${prefix}_fallo`, `${prefix}_legado`];
 const secrets = Object.fromEntries(NOMBRES_SECRETOS_SERVIDOR.map(nombre => [nombre, crypto.randomBytes(32).toString('hex')]));
@@ -35,7 +36,7 @@ async function bootServer(url: string) {
       const timeout = setTimeout(() => reject(new Error(`El servidor no anunció disponibilidad: ${output.slice(-1500)}`)), 30000);
       child.once('error', error => { clearTimeout(timeout); reject(error); });
       child.once('exit', () => { clearTimeout(timeout); reject(new Error(`El servidor terminó antes de estar disponible: ${output.slice(-1500)}`)); });
-      child.stdout.on('data', () => { if (output.includes('corriendo en')) { clearTimeout(timeout); resolve(); } });
+      child.stdout.on('data', () => { if (output.includes('corriendo en') || output.includes('Sistema disponible en')) { clearTimeout(timeout); resolve(); } });
     });
     const response = await fetch(`http://127.0.0.1:${port}/api/health`);
     assert.equal(response.status, 200);
@@ -52,7 +53,7 @@ async function bootServer(url: string) {
 try {
   const real = await admin.query("SELECT current_setting('server_version_num')::int AS version, inet_server_port() AS port, pg_postmaster_start_time() AS started");
   assert(real.rows[0].version >= 140000 && real.rows[0].port > 0 && real.rows[0].started, 'La prueba requiere un servidor PostgreSQL real.');
-  for (const name of databases) await admin.query(`CREATE DATABASE "${name}"`);
+  for (const name of databases) await admin.query(`CREATE DATABASE "${name}" OWNER contabilidad_app`);
   const urls = databases.map(name => { const url = new URL(databaseUrl); url.pathname = `/${name}`; return url.toString(); });
   const fresh = run(migrate, urls[0]);
   assert.equal(fresh.status, 0, fresh.stderr);

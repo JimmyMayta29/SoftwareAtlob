@@ -29,7 +29,7 @@ router.post(
 
 router.put(
   '/:id/metodo-inventario',
-  requireRol(['ADMINISTRADOR']),
+  requireEmpresaMembership(['ADMINISTRADOR']),
   empresaController.actualizarMetodoInventario
 );
 

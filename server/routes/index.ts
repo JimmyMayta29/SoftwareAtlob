@@ -86,7 +86,6 @@ router.use('/empresas/:empresaId', requireEmpresaMembership());
 router.use('/empresas/:empresaId/plan-cuentas', pcgeRoutes);
 router.use('/empresas/:empresaId/subdiarios', subdiarioRoutes);
 router.use('/empresas/:empresaId/analisis-cuentas', analisisCuentaRoutes);
-router.use('/analisis-cuentas', analisisCuentaRoutes);
 router.use('/importacion', importacionRoutes);
 router.use('/tipo-cambio', tipoCambioRoutes);
 router.use('/', backupEmpresaRoutes);

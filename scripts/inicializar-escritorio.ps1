@@ -79,6 +79,8 @@ function Initialize-Configuration {
       'JWT_SECRET=' + (New-RandomHex 48)
       'JWT_REFRESH_SECRET=' + (New-RandomHex 48)
       'SUNAT_ENCRYPTION_KEY=' + (New-RandomHex 32)
+      'MFA_SEED_SECRET=' + (New-RandomHex 32)
+      'BACKUP_ENCRYPTION_KEY=' + (New-RandomHex 32)
     ) -join [Environment]::NewLine
     [System.IO.File]::WriteAllText($ConfigPath, $config + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
     $databaseUrl = $null
@@ -90,6 +92,8 @@ function Initialize-Configuration {
   $jwtSecret = Get-ConfigValue 'JWT_SECRET'
   $refreshSecret = Get-ConfigValue 'JWT_REFRESH_SECRET'
   $encryptionKey = Get-ConfigValue 'SUNAT_ENCRYPTION_KEY'
+  $mfaSeedSecret = Get-ConfigValue 'MFA_SEED_SECRET'
+  $backupEncryptionKey = Get-ConfigValue 'BACKUP_ENCRYPTION_KEY'
   $configuredPort = Get-ConfigValue 'PORT'
 
   if (-not $databaseUrl -or $databaseUrl -notmatch '^postgres(ql)?://' -or $databaseUrl -match '[\s#\r\n]') {
@@ -103,6 +107,12 @@ function Initialize-Configuration {
   }
   if (-not $encryptionKey -or $encryptionKey -notmatch '^[a-fA-F0-9]{64}$' -or $encryptionKey -eq '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') {
     throw 'SUNAT_ENCRYPTION_KEY debe ser una clave propia de 32 bytes expresada en hexadecimal.'
+  }
+  if (-not $mfaSeedSecret -or $mfaSeedSecret -notmatch '^[a-fA-F0-9]{64}$' -or $mfaSeedSecret -eq '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') {
+    throw 'MFA_SEED_SECRET debe ser una clave propia de 32 bytes expresada en hexadecimal.'
+  }
+  if (-not $backupEncryptionKey -or $backupEncryptionKey -notmatch '^[a-fA-F0-9]{64}$' -or $backupEncryptionKey -eq '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') {
+    throw 'BACKUP_ENCRYPTION_KEY debe ser una clave propia de 32 bytes expresada en hexadecimal.'
   }
 
   $port = 3000
@@ -121,6 +131,8 @@ function Initialize-Configuration {
   $env:JWT_SECRET = $jwtSecret
   $env:JWT_REFRESH_SECRET = $refreshSecret
   $env:SUNAT_ENCRYPTION_KEY = $encryptionKey
+  $env:MFA_SEED_SECRET = $mfaSeedSecret
+  $env:BACKUP_ENCRYPTION_KEY = $backupEncryptionKey
   return $port
 }
 
