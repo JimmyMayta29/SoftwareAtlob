@@ -55,15 +55,20 @@ export const SimuladorFiscalizacionView: React.FC = () => {
   const [reglas] = useState<ReglaAuditoriaFiscal[]>(REGLAS_INICIALES);
 
   const ejecutarSimulacion = async () => {
+    const empresaId = state.activeEmpresa;
     try {
-      await fetch(`/api/tributario/auditoria-preventiva?periodo=${periodo}`, {
+      const res = await fetch(`/api/tributario/auditoria-preventiva?periodo=${periodo}${empresaId ? `&empresaId=${empresaId}` : ''}`, {
         headers: {
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
       });
-      notify(`Auditoría preventiva de fiscalización ejecutada para ${periodo}`, 'success');
-    } catch {
-      notify('Simulación de fiscalización preventiva completada', 'info');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || 'Error en auditoría fiscal');
+      }
+      notify(`Auditoría preventiva de fiscalización ejecutada para ${periodo} con éxito`, 'success');
+    } catch (err: any) {
+      notify(`Error al ejecutar auditoría preventiva: ${err.message || 'Fallo de conexión'}`, 'error');
     }
   };
 

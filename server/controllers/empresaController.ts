@@ -207,5 +207,15 @@ export const empresaController = {
     } catch (error: any) {
       return errorResponse(res, sanitizarMensaje(error, 'Error al actualizar método de inventario'));
     }
+  },
+
+  async actualizar(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const empresaActualizada = await empresaRepository.actualizar(id, req.body, req.user?.id);
+      return successResponse(res, empresaActualizada, 'Datos de la empresa actualizados exitosamente.');
+    } catch (error: any) {
+      return errorResponse(res, sanitizarMensaje(error, 'Error al actualizar los datos de la empresa'));
+    }
   }
 };

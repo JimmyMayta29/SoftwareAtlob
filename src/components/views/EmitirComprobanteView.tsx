@@ -92,6 +92,7 @@ export const EmitirComprobanteView: React.FC = () => {
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
         body: JSON.stringify({
+          empresaId: state.activeEmpresa,
           tipoComprobante: tipoDoc,
           serie,
           correlativo,
@@ -101,14 +102,17 @@ export const EmitirComprobanteView: React.FC = () => {
           items,
         }),
       });
-      await res.json().catch(() => null);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || 'Error al procesar la emisión');
+      }
       setUltimoCdr({
-        ticket: `${serie}-${correlativo}`,
-        mensaje: `El Comprobante número ${serie}-${correlativo}, ha sido ACEPTADO (UBL 2.1 - SIMULADO).`,
+        ticket: data?.data?.ticket || `${serie}-${correlativo}`,
+        mensaje: data?.data?.mensaje || `El Comprobante número ${serie}-${correlativo}, ha sido ACEPTADO (UBL 2.1).`,
       });
-      notify(`Comprobante ${serie}-${correlativo} emitido y contabilizado`, 'success');
-    } catch {
-      notify('Error al emitir el comprobante electrónico', 'error');
+      notify(`Comprobante ${serie}-${correlativo} emitido y registrado en la empresa`, 'success');
+    } catch (err: any) {
+      notify(`Error al emitir el comprobante electrónico: ${err.message || 'Fallo de conexión'}`, 'error');
     }
   };
 

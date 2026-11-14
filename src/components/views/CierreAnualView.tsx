@@ -69,13 +69,19 @@ export const CierreAnualView: React.FC = () => {
           'Content-Type': 'application/json',
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
-        body: JSON.stringify({ anio: Number(ejercicio) }),
+        body: JSON.stringify({ 
+          anio: Number(ejercicio),
+          empresaId: state.activeEmpresa 
+        }),
       });
-      await res.json().catch(() => null);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || 'Error en la respuesta del servidor');
+      }
       setPasos((prev) => prev.map((p) => ({ ...p, estado: 'GENERADO' })));
-      notify(`Asientos de cierre anual ${ejercicio} (Elemento 8) y apertura ${Number(ejercicio) + 1} generados`, 'success');
-    } catch {
-      notify('Error al ejecutar la secuencia de cierre anual', 'error');
+      notify(`Asientos de cierre anual ${ejercicio} (Elemento 8) y apertura ${Number(ejercicio) + 1} generados con éxito`, 'success');
+    } catch (err: any) {
+      notify(`Error al ejecutar el cierre anual: ${err.message || 'Fallo de conexión'}`, 'error');
     } finally {
       setEjecutando(false);
     }

@@ -21,6 +21,19 @@ tributarioAnualRoutes.get('/empresas/:empresaId/auditoria/preventiva', async (re
   }
 });
 
+tributarioAnualRoutes.get('/tributario/auditoria-preventiva', async (req: Request, res: Response) => {
+  try {
+    const empresaId = req.empresaId || (req.query.empresaId as string) || ((req as any).user?.empresas && (req as any).user.empresas[0]?.empresaId);
+    if (!empresaId) return errorResponse(res, 'EMPRESA_NO_ESPECIFICADA', 400);
+    const periodo = (req.query.periodo as string) || '2026-03';
+    const anio = parseInt(periodo.split('-')[0] || '2026', 10);
+    const diagnostico = await auditoriaTributariaService.ejecutarDiagnostico(empresaId as string, anio);
+    return successResponse(res, diagnostico);
+  } catch (err: any) {
+    return errorResponse(res, err.message, 500);
+  }
+});
+
 // ============================================================================
 // DAOT - DECLARACIÓN ANUAL DE OPERACIONES CON TERCEROS (FV 3500)
 // ============================================================================

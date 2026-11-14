@@ -37,18 +37,21 @@ export const CierreMensualView: React.FC = () => {
           'Content-Type': 'application/json',
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
-        body: JSON.stringify({ periodo, motivo: `Cambio de estado mensual desde Cierre Mensual (${periodo})` }),
+        body: JSON.stringify({ 
+          periodo, 
+          empresaId: state.activeEmpresa,
+          motivo: `Cambio de estado mensual desde Cierre Mensual (${periodo})` 
+        }),
       });
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         setEstadoPeriodo(nuevoEstado);
-        notify(`Período ${periodo} actualizado a ${nuevoEstado}`, 'success');
+        notify(`Período ${periodo} actualizado a ${nuevoEstado} con éxito`, 'success');
       } else {
-        setEstadoPeriodo(nuevoEstado);
-        notify(`Período ${periodo} marcado como ${nuevoEstado}`, 'info');
+        notify(`No se pudo cambiar el estado: ${data?.error || data?.message || 'Error en servidor'}`, 'error');
       }
-    } catch {
-      setEstadoPeriodo(nuevoEstado);
-      notify(`Estado del período ${periodo}: ${nuevoEstado}`, 'info');
+    } catch (err: any) {
+      notify(`Error de comunicación al actualizar el período: ${err.message || 'Fallo de red'}`, 'error');
     } finally {
       setProcesando(false);
     }

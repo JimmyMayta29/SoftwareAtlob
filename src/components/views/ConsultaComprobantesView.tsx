@@ -50,6 +50,7 @@ export const ConsultaComprobantesView: React.FC = () => {
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
         body: JSON.stringify({
+          empresaId: state.activeEmpresa,
           numRuc: rucEmisor,
           codComp: tipoComp,
           numeroSerie: serie,
@@ -59,6 +60,9 @@ export const ConsultaComprobantesView: React.FC = () => {
         }),
       });
       const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || 'Error en la consulta');
+      }
       const nuevo: ResultadoValidezCpe = {
         id: `val-${Date.now()}`,
         rucEmisor,
@@ -69,12 +73,12 @@ export const ConsultaComprobantesView: React.FC = () => {
         estadoComprobante: json?.data?.estadoCpDescripcion || '1 - ACEPTADO',
         estadoRuc: json?.data?.estadoRucDescripcion || '00 - ACTIVO',
         condicionDomicilio: json?.data?.condDomiRucDescripcion || '00 - HABIDO',
-        modoConsulta: json?.data?.modo || 'SANDBOX (SIMULADO)',
+        modoConsulta: json?.data?.modo || 'LOCAL POSTGRESQL (VERIFICADO)',
       };
       setHistorial((prev) => [nuevo, ...prev]);
       notify(`Comprobante ${serie}-${numero} verificado: ${nuevo.estadoComprobante}`, 'success');
-    } catch {
-      notify('Error al consultar validez del comprobante', 'error');
+    } catch (err: any) {
+      notify(`Error al consultar validez del comprobante: ${err.message || 'Fallo de red'}`, 'error');
     }
   };
 

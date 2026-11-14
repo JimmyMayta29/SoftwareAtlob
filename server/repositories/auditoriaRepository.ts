@@ -37,6 +37,16 @@ export const auditoriaRepository = {
     const registro = filtrarRegistro(evento);
     if (db.isPostgresConnected()) {
       try {
+        const VALID_ACCIONES = ['INSERT', 'UPDATE', 'DELETE', 'ANULAR', 'CIERRE_PERIODO', 'LOGIN'];
+        let accionNormalizada = (registro.accion || 'INSERT').toUpperCase();
+        if (!VALID_ACCIONES.includes(accionNormalizada)) {
+          if (accionNormalizada.includes('DELETE') || accionNormalizada.includes('ELIMIN')) accionNormalizada = 'DELETE';
+          else if (accionNormalizada.includes('UPDATE') || accionNormalizada.includes('ACTUALIZ') || accionNormalizada.includes('MODIFIC')) accionNormalizada = 'UPDATE';
+          else if (accionNormalizada.includes('ANUL')) accionNormalizada = 'ANULAR';
+          else if (accionNormalizada.includes('CIERRE')) accionNormalizada = 'CIERRE_PERIODO';
+          else if (accionNormalizada.includes('LOGIN')) accionNormalizada = 'LOGIN';
+          else accionNormalizada = 'INSERT';
+        }
         const sql = `
           INSERT INTO auditoria (
             tenant_id, empresa_id, usuario_id, usuario_email, tabla_afectada,
@@ -50,7 +60,7 @@ export const auditoriaRepository = {
           registro.usuarioEmail || null,
           registro.tablaAfectada || registro.tabla || 'general',
           registro.registroId,
-          registro.accion,
+          accionNormalizada,
           JSON.stringify(registro.datosAnteriores) ?? null,
           JSON.stringify(registro.datosNuevos) ?? null,
           registro.direccionIp || null,

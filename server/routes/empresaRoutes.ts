@@ -33,4 +33,10 @@ router.put(
   empresaController.actualizarMetodoInventario
 );
 
+router.put(
+  '/:id',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  empresaController.actualizar
+);
+
 export const empresaRoutes = router;

@@ -177,6 +177,109 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
   const [ventas, setVentas] = useState<Comprobante[]>(dataState.ventas);
   const [saldoAnteriorIgv, setSaldoAnteriorIgv] = useState<number>(dataState.saldoAnteriorIgv);
 
+  // Sincronización automática de datos reales de PostgreSQL cuando está conectado (incluye actualización cada 4s para operación multiusuario)
+  useEffect(() => {
+    if (!conectado || !empresaActiva?.id) return;
+    let activo = true;
+    const cargarDatosEmpresa = async () => {
+      try {
+        const empId = empresaActiva.id;
+        const token = obtenerAccessToken();
+        const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+        const [resAsientos, resCompras, resVentas] = await Promise.all([
+          fetch(`/api/empresas/${empId}/asientos?periodo=${periodo}`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] })),
+          fetch(`/api/empresas/${empId}/compras`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] })),
+          fetch(`/api/empresas/${empId}/ventas`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] }))
+        ]);
+
+        if (!activo) return;
+
+        if (resAsientos?.data && Array.isArray(resAsientos.data) && resAsientos.data.length > 0) {
+          const mapeados: AsientoContable[] = resAsientos.data.map((a: any) => ({
+            id: a.id,
+            subdiario: a.subdiarioCodigo || a.subdiario || '01',
+            numeroAsiento: a.numero || a.numeroAsiento || a.cuo || '010001',
+            periodo: a.periodoCodigo || a.periodo || periodo,
+            fecha: String(a.fecha).slice(0, 10),
+            moneda: a.moneda || 'PEN',
+            tipoCambio: Number(a.tipoCambio) || 1.0,
+            tipoOperacion: (a.origen || 'COMPRA') as any,
+            glosaGeneral: a.glosa || 'Asiento contable',
+            comprobanteReferencia: a.cuo || undefined,
+            items: (a.detalles || []).map((d: any, idx: number) => ({
+              id: d.id || `it-${idx}`,
+              codigoCuenta: d.cuentaCodigo || d.codigoCuenta || '101',
+              denominacionCuenta: d.cuentaNombre || d.denominacionCuenta || 'Cuenta contable',
+              debe: Number(d.debe) || 0,
+              haber: Number(d.haber) || 0,
+              glosa: d.glosaLinea || a.glosa || ''
+            })),
+            totalDebe: Number(a.totalDebe) || 0,
+            totalHaber: Number(a.totalHaber) || 0,
+            cuadrado: true,
+            origenAutomatico: true
+          }));
+          setAsientos(mapeados);
+        }
+
+        if (resCompras?.data && Array.isArray(resCompras.data) && resCompras.data.length > 0) {
+          const comps: Comprobante[] = resCompras.data.map((c: any) => ({
+            id: c.id,
+            car: c.car || '',
+            tipoDoc: c.tipoComprobante || '01',
+            serie: c.serie || 'F001',
+            numero: c.numero || '000001',
+            fechaEmision: String(c.fechaEmision).slice(0, 10),
+            fechaVencimiento: String(c.fechaVencimiento || c.fechaEmision).slice(0, 10),
+            rucEmisor: c.proveedorRuc || '',
+            razonSocialEmisor: c.proveedorNombre || '',
+            rucReceptor: empresaActiva.ruc,
+            razonSocialReceptor: empresaActiva.razonSocial,
+            moneda: c.moneda || 'PEN',
+            tipoCambio: Number(c.tipoCambio) || 1.0,
+            baseGravada: Number(c.baseGravada) || 0,
+            igv: Number(c.igv) || 0,
+            importeTotal: Number(c.total) || 0,
+            items: []
+          }));
+          setCompras(comps);
+        }
+
+        if (resVentas?.data && Array.isArray(resVentas.data) && resVentas.data.length > 0) {
+          const vtas: Comprobante[] = resVentas.data.map((v: any) => ({
+            id: v.id,
+            car: v.car || '',
+            tipoDoc: v.tipoComprobante || '01',
+            serie: v.serie || 'F001',
+            numero: v.numero || '000001',
+            fechaEmision: String(v.fechaEmision).slice(0, 10),
+            fechaVencimiento: String(v.fechaVencimiento || v.fechaEmision).slice(0, 10),
+            rucEmisor: empresaActiva.ruc,
+            razonSocialEmisor: empresaActiva.razonSocial,
+            rucReceptor: v.clienteRuc || '',
+            razonSocialReceptor: v.clienteNombre || '',
+            moneda: v.moneda || 'PEN',
+            tipoCambio: Number(v.tipoCambio) || 1.0,
+            baseGravada: Number(v.baseGravada) || 0,
+            igv: Number(v.igv) || 0,
+            importeTotal: Number(v.total) || 0,
+            items: []
+          }));
+          setVentas(vtas);
+        }
+      } catch (e) {
+        console.warn('[App] Error al sincronizar registros de empresa:', e);
+      }
+    };
+    void cargarDatosEmpresa();
+    const interval = setInterval(cargarDatosEmpresa, 4000);
+    return () => {
+      activo = false;
+      clearInterval(interval);
+    };
+  }, [conectado, empresaActiva?.id, periodo]);
+
   const liquidacion = useMemo(() => {
     return calcularLiquidacionPDT621(
       compras,
@@ -569,6 +672,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   asientos={asientos}
                   liquidacion={liquidacion}
                   empresa={empresaActual}
+                  periodo={periodo}
                   onNavigate={(mod) => handleTopBarAction(`Estudio › ${mod}`, mod)}
                   onTriggerSync={() => success('Sincronización SIRE ejecutada')}
                   onDownloadSireTxt={() => success('Descargando archivo SIRE TXT')}
@@ -839,7 +943,22 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
           isOpen={isConfigEmpresaOpen}
           empresa={empresaActual}
           onClose={() => setIsConfigEmpresaOpen(false)}
-          onSave={(empActualizada: Partial<EmpresaCliente>) => {
+          onSave={async (empActualizada: Partial<EmpresaCliente>) => {
+            try {
+              if (conectado && empresaActual.id) {
+                const token = obtenerAccessToken();
+                await fetch(`/api/empresas/${empresaActual.id}`, {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                  },
+                  body: JSON.stringify(empActualizada)
+                });
+              }
+            } catch (err) {
+              console.warn('[App] Error al persistir configuracion de empresa:', err);
+            }
             setEmpresasLista(
               empresasLista.map((e) => (e.id === empresaActual.id ? { ...e, ...empActualizada } : e))
             );

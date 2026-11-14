@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { TablaDensa, ColumnaTablaDensa } from '../ui/TablaDensa';
@@ -11,20 +11,46 @@ interface LineaNic7 {
   importePen: number;
 }
 
-const LINEAS_NIC7: LineaNic7[] = [
-  { id: 'ef-1', actividad: 'OPERACIÓN', concepto: 'Cobranzas a clientes por venta de bienes y prestación de servicios', importePen: 168400.0 },
-  { id: 'ef-2', actividad: 'OPERACIÓN', concepto: '(-) Pagos a proveedores de bienes y servicios', importePen: -94200.0 },
-  { id: 'ef-3', actividad: 'OPERACIÓN', concepto: '(-) Pagos a trabajadores y tributos (IGV, Renta, EsSalud, ONP)', importePen: -38500.0 },
-  { id: 'ef-4', actividad: 'INVERSIÓN', concepto: '(-) Adquisición de propiedades, planta y equipo (Equipos de cómputo)', importePen: -8400.0 },
-  { id: 'ef-5', actividad: 'FINANCIAMIENTO', concepto: '(-) Amortización de obligaciones financieras de corto plazo', importePen: -4500.0 },
-  { id: 'ef-6', actividad: 'CONCILIACIÓN', concepto: 'AUMENTO NETO DE EFECTIVO Y EQUIVALENTES DE EFECTIVO DEL PERÍODO', importePen: 22800.0 },
-  { id: 'ef-7', actividad: 'CONCILIACIÓN', concepto: '(+) Saldo de Efectivo y Equivalentes al Inicio del Ejercicio', importePen: 117040.5 },
-  { id: 'ef-8', actividad: 'CONCILIACIÓN', concepto: 'SALDO DE EFECTIVO Y EQUIVALENTES AL FINALIZAR EL PERÍODO (Cta. 10)', importePen: 139840.5 },
-];
-
 export const FlujoEfectivoView: React.FC = () => {
   const { state } = useAppContext();
   const [periodo, setPeriodo] = useState(state.activePeriodo || '2026-03');
+  const [lineas, setLineas] = useState<LineaNic7[]>([]);
+  const [cargando, setCargando] = useState(false);
+
+  const empresaId = typeof state.activeEmpresa === 'string' ? state.activeEmpresa : (state.activeEmpresa as any)?.id;
+
+  const cargarFlujo = async () => {
+    if (!empresaId) return;
+    setCargando(true);
+    try {
+      const res = await fetch(`/api/empresas/${empresaId}/flujo-efectivo?periodo=${periodo}`, {
+        headers: {
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        }
+      });
+      const json = await res.json().catch(() => null);
+      const data = json?.data;
+      if (data && Array.isArray(data.actividades)) {
+        const rows: LineaNic7[] = data.actividades.map((a: any, i: number) => ({
+          id: `fe-${i}`,
+          actividad: a.tipo || 'OPERACIÓN',
+          concepto: a.concepto || 'Actividad operativa',
+          importePen: Number(a.monto) || 0
+        }));
+        setLineas(rows);
+      } else {
+        setLineas([]);
+      }
+    } catch {
+      setLineas([]);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    void cargarFlujo();
+  }, [empresaId, periodo]);
 
   const columnas: ColumnaTablaDensa<LineaNic7>[] = [
     { key: 'actividad', header: 'Actividad NIC 7', width: '145px', render: (r) => <span className="font-bold text-[#1E3A5F] text-[11px]">{r.actividad}</span> },
@@ -43,7 +69,7 @@ export const FlujoEfectivoView: React.FC = () => {
       <div className="flex-1 p-3 overflow-hidden flex flex-col">
         <TablaDensa
           columnas={columnas}
-          datos={LINEAS_NIC7}
+          datos={lineas}
           rowKey={(r) => r.id}
         />
       </div>

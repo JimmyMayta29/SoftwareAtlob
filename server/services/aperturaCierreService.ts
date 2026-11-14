@@ -149,6 +149,42 @@ export const aperturaCierreService = {
           glosaLinea: 'Ajuste negativo por fluctuación de tipo de cambio'
         });
       }
+    } else {
+      if (esGanancia) {
+        lineas.push({
+          linea: 1,
+          codigoCuenta: '4212',
+          denominacionCuenta: 'Facturas por pagar emitidas',
+          debe: Money.toNumber(montoAjuste),
+          haber: 0.00,
+          glosaLinea: 'Ajuste pasivo por disminución de tipo de cambio'
+        });
+        lineas.push({
+          linea: 2,
+          codigoCuenta: '776',
+          denominacionCuenta: 'Diferencia de cambio - Ganancia',
+          debe: 0.00,
+          haber: Money.toNumber(montoAjuste),
+          glosaLinea: 'Ganancia por diferencia de cambio en pasivo'
+        });
+      } else {
+        lineas.push({
+          linea: 1,
+          codigoCuenta: '676',
+          denominacionCuenta: 'Diferencia de cambio - Pérdida',
+          debe: Money.toNumber(montoAjuste),
+          haber: 0.00,
+          glosaLinea: 'Pérdida por diferencia de cambio en pasivo'
+        });
+        lineas.push({
+          linea: 2,
+          codigoCuenta: '4212',
+          denominacionCuenta: 'Facturas por pagar emitidas',
+          debe: 0.00,
+          haber: Money.toNumber(montoAjuste),
+          glosaLinea: 'Ajuste pasivo por aumento de tipo de cambio'
+        });
+      }
     }
 
     return {

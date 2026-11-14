@@ -28,37 +28,8 @@ const PRESETS_CXP = [
   { label: '47 Relacionadas', desde: '47', hasta: '47' },
 ];
 
-const OBLIGACIONES_FALLBACK: ObligacionPorPagar[] = [
-  {
-    id: 'cxp-1',
-    codigoCuenta: '4212',
-    rucProveedor: '20512345678',
-    razonSocial: 'SERVICIOS LOGISTICOS DEL SUR S.A.C.',
-    comprobante: 'F001-0001842',
-    fechaEmision: '2026-03-10',
-    fechaVencimiento: '2026-04-09',
-    importeOriginal: 4500.0,
-    detraccionRetencion: 180.0,
-    netoPagarProveedor: 4320.0,
-    estadoPago: 'PENDIENTE',
-  },
-  {
-    id: 'cxp-2',
-    codigoCuenta: '4212',
-    rucProveedor: '20601122334',
-    razonSocial: 'ASESORIA EMPRESARIAL INTEGRAL S.A.C.',
-    comprobante: 'E001-0000419',
-    fechaEmision: '2026-03-14',
-    fechaVencimiento: '2026-04-13',
-    importeOriginal: 3540.0,
-    detraccionRetencion: 425.0,
-    netoPagarProveedor: 3115.0,
-    estadoPago: 'PENDIENTE',
-  },
-];
-
 export const CuentasPorPagarView: React.FC = () => {
-  const { notify } = useAppContext();
+  const { state, notify } = useAppContext();
   const { empresaId, periodo } = useEmpresaPeriodo();
 
   const [cuentaDesde, setCuentaDesde] = useState('42');
@@ -66,48 +37,72 @@ export const CuentasPorPagarView: React.FC = () => {
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'TODOS' | 'PENDIENTES' | 'PAGADOS'>('TODOS');
   const [cargando, setCargando] = useState(false);
-  const [obligaciones, setObligaciones] = useState<ObligacionPorPagar[]>(OBLIGACIONES_FALLBACK);
+  const [obligaciones, setObligaciones] = useState<ObligacionPorPagar[]>([]);
 
   const cargarObligaciones = async () => {
     if (!empresaId) return;
     setCargando(true);
     try {
-      const res = await analisisCuentasApi.obtenerMovimientos(
-        empresaId,
-        periodo,
-        cuentaDesde,
-        undefined,
-        cuentaHasta !== cuentaDesde ? cuentaHasta : undefined
-      );
+      const res = await fetch(`/api/empresas/${empresaId}/cuentas-por-pagar`, {
+        headers: {
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        }
+      });
+      const json = await res.json().catch(() => null);
+      const saldos = json?.data || [];
 
-      if (res && res.movimientos && res.movimientos.length > 0) {
-        const items: ObligacionPorPagar[] = res.movimientos
-          .filter(m => m.haberPen > 0 || m.debePen > 0)
-          .map((m, idx) => {
-            const comp = m.docSerie && m.docNumero ? `${m.docSerie}-${m.docNumero}` : m.voucherNumero;
-            const original = m.haberPen > 0 ? m.haberPen : m.debePen;
-            const pagado = m.haberPen > 0 ? m.debePen : 0;
-            const saldo = Math.round((original - pagado) * 100) / 100;
-            return {
-              id: m.lineaId || `cxp-${idx}`,
-              codigoCuenta: m.codigoCuenta,
-              rucProveedor: m.anexoNumeroDoc || 'SIN_RUC',
-              razonSocial: m.anexoRazonSocial || m.denominacionCuenta || 'PROVEEDOR DIVERSO',
-              comprobante: comp,
-              fechaEmision: m.fechaContable,
-              fechaVencimiento: m.fechaVencimiento || m.fechaContable,
-              importeOriginal: original,
-              detraccionRetencion: 0,
-              netoPagarProveedor: saldo,
-              estadoPago: saldo <= 0 ? 'CANCELADO' : 'PENDIENTE',
-            };
-          });
+      if (Array.isArray(saldos) && saldos.length > 0) {
+        const items: ObligacionPorPagar[] = saldos.map((s: any, idx: number) => ({
+          id: s.id || `cxp-${idx}`,
+          codigoCuenta: s.codigoCuenta || '4212',
+          rucProveedor: s.anexoRuc || s.proveedorRuc || 'SIN_RUC',
+          razonSocial: s.anexoNombre || s.proveedorNombre || 'PROVEEDOR DIVERSO',
+          comprobante: s.serie && s.numero ? `${s.serie}-${s.numero}` : s.id,
+          fechaEmision: s.fechaEmision ? String(s.fechaEmision).slice(0, 10) : periodo,
+          fechaVencimiento: s.fechaVencimiento ? String(s.fechaVencimiento).slice(0, 10) : periodo,
+          importeOriginal: Number(s.importeOriginal) || 0,
+          detraccionRetencion: 0,
+          netoPagarProveedor: Number(s.saldo) || 0,
+          estadoPago: Number(s.saldo) <= 0 ? 'CANCELADO' : 'PENDIENTE',
+        }));
         setObligaciones(items);
       } else {
-        setObligaciones(OBLIGACIONES_FALLBACK);
+        const resMov = await analisisCuentasApi.obtenerMovimientos(
+          empresaId,
+          periodo,
+          cuentaDesde,
+          undefined,
+          cuentaHasta !== cuentaDesde ? cuentaHasta : undefined
+        );
+        if (resMov && resMov.movimientos && resMov.movimientos.length > 0) {
+          const items: ObligacionPorPagar[] = resMov.movimientos
+            .filter(m => m.haberPen > 0 || m.debePen > 0)
+            .map((m, idx) => {
+              const comp = m.docSerie && m.docNumero ? `${m.docSerie}-${m.docNumero}` : m.voucherNumero;
+              const original = m.haberPen > 0 ? m.haberPen : m.debePen;
+              const pagado = m.haberPen > 0 ? m.debePen : 0;
+              const saldo = Math.round((original - pagado) * 100) / 100;
+              return {
+                id: m.lineaId || `cxp-${idx}`,
+                codigoCuenta: m.codigoCuenta,
+                rucProveedor: m.anexoNumeroDoc || 'SIN_RUC',
+                razonSocial: m.anexoRazonSocial || m.denominacionCuenta || 'PROVEEDOR DIVERSO',
+                comprobante: comp,
+                fechaEmision: m.fechaContable,
+                fechaVencimiento: m.fechaVencimiento || m.fechaContable,
+                importeOriginal: original,
+                detraccionRetencion: 0,
+                netoPagarProveedor: saldo,
+                estadoPago: saldo <= 0 ? 'CANCELADO' : 'PENDIENTE',
+              };
+            });
+          setObligaciones(items);
+        } else {
+          setObligaciones([]);
+        }
       }
     } catch {
-      setObligaciones(OBLIGACIONES_FALLBACK);
+      setObligaciones([]);
     } finally {
       setCargando(false);
     }
@@ -117,11 +112,33 @@ export const CuentasPorPagarView: React.FC = () => {
     void cargarObligaciones();
   }, [empresaId, periodo, cuentaDesde, cuentaHasta]);
 
-  const cancelarObligacion = (ob: ObligacionPorPagar) => {
-    setObligaciones((prev) =>
-      prev.map((o) => (o.id === ob.id ? { ...o, estadoPago: 'CANCELADO', netoPagarProveedor: 0 } : o))
-    );
-    notify(`Pago a proveedor registrado para ${ob.comprobante} (Asiento ${ob.codigoCuenta} contra 1041)`, 'success');
+  const cancelarObligacion = async (ob: ObligacionPorPagar) => {
+    if (!empresaId) return;
+    try {
+      const res = await fetch(`/api/empresas/${empresaId}/aplicaciones-pago`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        },
+        body: JSON.stringify({
+          fechaPago: new Date().toISOString().slice(0, 10),
+          moneda: 'PEN',
+          aplicaciones: [{
+            cuentaPorPagarId: ob.id,
+            importe: ob.netoPagarProveedor
+          }]
+        })
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || 'Error al aplicar pago');
+      }
+      notify(`Pago a proveedor registrado en PostgreSQL para ${ob.comprobante} (Asiento ${ob.codigoCuenta} contra 1041)`, 'success');
+      await cargarObligaciones();
+    } catch (err: any) {
+      notify(`Error al registrar pago: ${err.message || 'Fallo de conexión'}`, 'error');
+    }
   };
 
   const obligacionesFiltradas = useMemo(() => {

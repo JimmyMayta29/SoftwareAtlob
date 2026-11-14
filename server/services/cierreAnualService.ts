@@ -587,8 +587,20 @@ export const cierreAnualService = {
   /**
    * Ejecuta formalmente el cierre anual creando los asientos en el repositorio contable.
    */
-  async ejecutarCierreAnual(empresaId: string, anio: number = 2026): Promise<{ ok: boolean; mensaje: string; asientosCreados: number }> {
+  async ejecutarCierreAnual(empresaId: string, anio: number = 2026, userId?: string): Promise<{ ok: boolean; mensaje: string; asientosCreados: number }> {
     const propuesta = await this.simularCierreAnual(empresaId, anio);
+    const usuarioEfectivo = userId || '00000000-0000-0000-0000-000000000001';
+
+    let perCierreId: string | null = null;
+    if (db.isPostgresConnected()) {
+      const perCheck = await db.query(
+        `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio = $3) ORDER BY mes DESC LIMIT 1`,
+        [empresaId, `${anio}-12`, anio]
+      );
+      if (perCheck.rows.length > 0) {
+        perCierreId = perCheck.rows[0].id;
+      }
+    }
 
     for (const p of propuesta.asientos) {
       const nuevoAsiento = {
@@ -597,7 +609,7 @@ export const cierreAnualService = {
         subdiarioId: '09',
         subdiario: '09',
         numeroAsiento: p.numeroAsiento,
-        periodoId: `${anio}-12`,
+        periodoId: perCierreId || `${anio}-12`,
         periodo: `${anio}-12`,
         fecha: p.fecha,
         moneda: 'PEN',
@@ -613,6 +625,33 @@ export const cierreAnualService = {
       };
 
       ASIENTOS_MEMORIA.unshift(nuevoAsiento);
+
+      if (db.isPostgresConnected()) {
+        try {
+          await asientoService.crearAsiento(
+            empresaId,
+            {
+              periodoId: perCierreId || `${anio}-12`,
+              subdiarioId: '09',
+              fecha: p.fecha,
+              glosa: p.glosa,
+              moneda: 'PEN',
+              tipoCambio: 3.75,
+              origen: 'CIERRE',
+              detalles: p.lineas.map((l, idx) => ({
+                linea: idx + 1,
+                cuentaId: l.codigoCuenta,
+                debe: l.debe,
+                haber: l.haber,
+                glosaLinea: l.glosa
+              }))
+            },
+            usuarioEfectivo
+          );
+        } catch (e) {
+          console.warn('[cierreAnualService] Error al persistir asiento en PostgreSQL:', e);
+        }
+      }
     }
 
     return {
@@ -627,6 +666,20 @@ export const cierreAnualService = {
    */
   async revertirCierreAnual(empresaId: string, anio: number = 2026): Promise<{ ok: boolean; mensaje: string }> {
     let eliminados = 0;
+    if (db.isPostgresConnected()) {
+      try {
+        const delRes = await db.query(`
+          DELETE FROM asientos 
+          WHERE empresa_id = $1 
+            AND subdiario_id IN (SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = '09')
+            AND fecha LIKE $2
+        `, [empresaId, `${anio}%`]);
+        eliminados += (delRes.rowCount || 0);
+      } catch (e) {
+        console.warn('[cierreAnualService] Error al revertir en PostgreSQL:', e);
+      }
+    }
+
     for (let i = ASIENTOS_MEMORIA.length - 1; i >= 0; i--) {
       const a = ASIENTOS_MEMORIA[i];
       if (a.empresaId === empresaId && (a.subdiarioId === '09' || a.subdiario === '09') && (a.id.startsWith(`cierre-${empresaId}-${anio}`) || a.periodoId === `${anio}-12`)) {

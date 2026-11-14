@@ -21,6 +21,9 @@ export interface EmpresaModel {
   contactoNombre?: string;
   contactoTelefono?: string;
   contactoEmail?: string;
+  representanteLegal?: string;
+  contadorNombre?: string;
+  contadorColegiatura?: string;
   monedaPrincipal: 'PEN' | 'USD';
   metodoInventario?: 'PERIODICO' | 'PERMANENTE' | null;
   esDemo?: boolean;
@@ -305,5 +308,87 @@ export const empresaRepository = {
       emp.metodoInventario = metodo;
       emp.updatedAt = new Date().toISOString();
     }
+  },
+
+  async actualizar(
+    empresaId: string,
+    datos: Partial<EmpresaModel>,
+    userId?: string
+  ): Promise<EmpresaModel> {
+    if (db.isPostgresConnected()) {
+      const updates: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (datos.razonSocial !== undefined) {
+        updates.push(`razon_social = $${idx++}`);
+        values.push(datos.razonSocial);
+      }
+      if (datos.nombreComercial !== undefined) {
+        updates.push(`nombre_comercial = $${idx++}`);
+        values.push(datos.nombreComercial);
+      }
+      if (datos.domicilioFiscal !== undefined) {
+        updates.push(`domicilio_fiscal = $${idx++}`);
+        values.push(datos.domicilioFiscal);
+      }
+      if (datos.contactoNombre !== undefined) {
+        updates.push(`contacto_nombre = $${idx++}`);
+        values.push(datos.contactoNombre);
+      }
+      if (datos.contactoTelefono !== undefined) {
+        updates.push(`contacto_telefono = $${idx++}`);
+        values.push(datos.contactoTelefono);
+      }
+      if (datos.contactoEmail !== undefined) {
+        updates.push(`contacto_email = $${idx++}`);
+        values.push(datos.contactoEmail);
+      }
+      if (datos.representanteLegal !== undefined) {
+        updates.push(`representante_legal = $${idx++}`);
+        values.push(datos.representanteLegal);
+      }
+      if (datos.contadorNombre !== undefined) {
+        updates.push(`contador_nombre = $${idx++}`);
+        values.push(datos.contadorNombre);
+      }
+      if (datos.contadorColegiatura !== undefined) {
+        updates.push(`contador_colegiatura = $${idx++}`);
+        values.push(datos.contadorColegiatura);
+      }
+      if (datos.regimenTributario !== undefined) {
+        updates.push(`regimen_tributario = $${idx++}`);
+        values.push(datos.regimenTributario);
+      }
+      if (datos.metodoInventario !== undefined) {
+        updates.push(`metodo_inventario = $${idx++}`);
+        values.push(datos.metodoInventario);
+      }
+      if (datos.monedaPrincipal !== undefined) {
+        updates.push(`moneda_principal = $${idx++}`);
+        values.push(datos.monedaPrincipal);
+      }
+
+      if (updates.length > 0) {
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        values.push(empresaId);
+        const sql = `UPDATE empresas SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
+        const res = await db.query(sql, values);
+        if (res.rows.length === 0) {
+          throw new Error('Empresa no encontrada');
+        }
+      }
+    }
+
+    const emp = EMPRESAS_STORE.find(e => e.id === empresaId);
+    if (emp) {
+      Object.assign(emp, datos);
+      emp.updatedAt = new Date().toISOString();
+      return emp;
+    }
+
+    const encontrada = await this.obtenerPorId(empresaId);
+    if (!encontrada) throw new Error('Empresa no encontrada');
+    return encontrada;
   }
 };

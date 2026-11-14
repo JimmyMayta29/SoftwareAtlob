@@ -28,37 +28,8 @@ const PRESETS_CXC = [
   { label: '16 Diversas Terceros', desde: '16', hasta: '16' },
 ];
 
-const CARTERA_FALLBACK: DocumentoPorCobrar[] = [
-  {
-    id: 'cxc-1',
-    codigoCuenta: '1212',
-    rucCliente: '20100047218',
-    razonSocial: 'CORPORACION COMERCIAL PERUANA S.A.C.',
-    comprobante: 'F001-0001510',
-    fechaEmision: '2026-03-08',
-    fechaVencimiento: '2026-04-07',
-    moneda: 'PEN',
-    importeOriginal: 10030.0,
-    importeCobrado: 4000.0,
-    saldoPendiente: 6030.0,
-  },
-  {
-    id: 'cxc-2',
-    codigoCuenta: '1212',
-    rucCliente: '20498877665',
-    razonSocial: 'DISTRIBUIDORA NACIONAL DEL CENTRO S.R.L.',
-    comprobante: 'F001-0001511',
-    fechaEmision: '2026-03-16',
-    fechaVencimiento: '2026-04-15',
-    moneda: 'PEN',
-    importeOriginal: 4956.0,
-    importeCobrado: 0.0,
-    saldoPendiente: 4956.0,
-  },
-];
-
 export const CuentasPorCobrarView: React.FC = () => {
-  const { notify } = useAppContext();
+  const { state, notify } = useAppContext();
   const { empresaId, periodo } = useEmpresaPeriodo();
 
   const [cuentaDesde, setCuentaDesde] = useState('12');
@@ -66,49 +37,73 @@ export const CuentasPorCobrarView: React.FC = () => {
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'TODOS' | 'PENDIENTES' | 'CANCELADOS'>('TODOS');
   const [cargando, setCargando] = useState(false);
-  const [documentos, setDocumentos] = useState<DocumentoPorCobrar[]>(CARTERA_FALLBACK);
+  const [documentos, setDocumentos] = useState<DocumentoPorCobrar[]>([]);
 
   const cargarCartera = async () => {
     if (!empresaId) return;
     setCargando(true);
     try {
-      const res = await analisisCuentasApi.obtenerMovimientos(
-        empresaId,
-        periodo,
-        cuentaDesde,
-        undefined,
-        cuentaHasta !== cuentaDesde ? cuentaHasta : undefined
-      );
+      const res = await fetch(`/api/empresas/${empresaId}/cuentas-por-cobrar`, {
+        headers: {
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        }
+      });
+      const json = await res.json().catch(() => null);
+      const saldos = json?.data || [];
 
-      if (res && res.movimientos && res.movimientos.length > 0) {
-        // Agrupar o listar partidas individuales por comprobante / anexo
-        const items: DocumentoPorCobrar[] = res.movimientos
-          .filter(m => m.debePen > 0 || m.haberPen > 0)
-          .map((m, idx) => {
-            const comp = m.docSerie && m.docNumero ? `${m.docSerie}-${m.docNumero}` : m.voucherNumero;
-            const original = m.debePen > 0 ? m.debePen : m.haberPen;
-            const cobrado = m.debePen > 0 ? m.haberPen : 0;
-            const saldo = Math.round((original - cobrado) * 100) / 100;
-            return {
-              id: m.lineaId || `cxc-${idx}`,
-              codigoCuenta: m.codigoCuenta,
-              rucCliente: m.anexoNumeroDoc || 'SIN_RUC',
-              razonSocial: m.anexoRazonSocial || m.denominacionCuenta || 'CLIENTE DIVERSO',
-              comprobante: comp,
-              fechaEmision: m.fechaContable,
-              fechaVencimiento: m.fechaVencimiento || m.fechaContable,
-              moneda: (m.debeUsd > 0 || m.haberUsd > 0) ? 'USD' : 'PEN',
-              importeOriginal: original,
-              importeCobrado: cobrado,
-              saldoPendiente: saldo,
-            };
-          });
+      if (Array.isArray(saldos) && saldos.length > 0) {
+        const items: DocumentoPorCobrar[] = saldos.map((s: any, idx: number) => ({
+          id: s.id || `cxc-${idx}`,
+          codigoCuenta: s.codigoCuenta || '1212',
+          rucCliente: s.anexoRuc || s.clienteRuc || 'SIN_RUC',
+          razonSocial: s.anexoNombre || s.clienteNombre || 'CLIENTE DIVERSO',
+          comprobante: s.serie && s.numero ? `${s.serie}-${s.numero}` : s.id,
+          fechaEmision: s.fechaEmision ? String(s.fechaEmision).slice(0, 10) : periodo,
+          fechaVencimiento: s.fechaVencimiento ? String(s.fechaVencimiento).slice(0, 10) : periodo,
+          moneda: s.moneda || 'PEN',
+          importeOriginal: Number(s.importeOriginal) || 0,
+          importeCobrado: Number(s.importeOriginal || 0) - Number(s.saldo || 0),
+          saldoPendiente: Number(s.saldo) || 0,
+        }));
         setDocumentos(items);
       } else {
-        setDocumentos(CARTERA_FALLBACK);
+        // Fallback secundario a analisis de cuentas si no hay documentos en saldos
+        const resMov = await analisisCuentasApi.obtenerMovimientos(
+          empresaId,
+          periodo,
+          cuentaDesde,
+          undefined,
+          cuentaHasta !== cuentaDesde ? cuentaHasta : undefined
+        );
+        if (resMov && resMov.movimientos && resMov.movimientos.length > 0) {
+          const items: DocumentoPorCobrar[] = resMov.movimientos
+            .filter(m => m.debePen > 0 || m.haberPen > 0)
+            .map((m, idx) => {
+              const comp = m.docSerie && m.docNumero ? `${m.docSerie}-${m.docNumero}` : m.voucherNumero;
+              const original = m.debePen > 0 ? m.debePen : m.haberPen;
+              const cobrado = m.debePen > 0 ? m.haberPen : 0;
+              const saldo = Math.round((original - cobrado) * 100) / 100;
+              return {
+                id: m.lineaId || `cxc-${idx}`,
+                codigoCuenta: m.codigoCuenta,
+                rucCliente: m.anexoNumeroDoc || 'SIN_RUC',
+                razonSocial: m.anexoRazonSocial || m.denominacionCuenta || 'CLIENTE DIVERSO',
+                comprobante: comp,
+                fechaEmision: m.fechaContable,
+                fechaVencimiento: m.fechaVencimiento || m.fechaContable,
+                moneda: (m.debeUsd > 0 || m.haberUsd > 0) ? 'USD' : 'PEN',
+                importeOriginal: original,
+                importeCobrado: cobrado,
+                saldoPendiente: saldo,
+              };
+            });
+          setDocumentos(items);
+        } else {
+          setDocumentos([]);
+        }
       }
     } catch {
-      setDocumentos(CARTERA_FALLBACK);
+      setDocumentos([]);
     } finally {
       setCargando(false);
     }
@@ -118,15 +113,33 @@ export const CuentasPorCobrarView: React.FC = () => {
     void cargarCartera();
   }, [empresaId, periodo, cuentaDesde, cuentaHasta]);
 
-  const amortizarCobranza = (doc: DocumentoPorCobrar) => {
-    setDocumentos((prev) =>
-      prev.map((d) =>
-        d.id === doc.id
-          ? { ...d, importeCobrado: d.importeOriginal, saldoPendiente: 0 }
-          : d
-      )
-    );
-    notify(`Cobranza total registrada para ${doc.comprobante} (Asiento 1041 contra ${doc.codigoCuenta})`, 'success');
+  const amortizarCobranza = async (doc: DocumentoPorCobrar) => {
+    if (!empresaId) return;
+    try {
+      const res = await fetch(`/api/empresas/${empresaId}/aplicaciones-cobranza`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        },
+        body: JSON.stringify({
+          fechaCobranza: new Date().toISOString().slice(0, 10),
+          moneda: doc.moneda,
+          aplicaciones: [{
+            cuentaPorCobrarId: doc.id,
+            importe: doc.saldoPendiente
+          }]
+        })
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || 'Error al aplicar cobranza');
+      }
+      notify(`Cobranza total registrada en PostgreSQL para ${doc.comprobante} (Asiento 1041 contra ${doc.codigoCuenta})`, 'success');
+      await cargarCartera();
+    } catch (err: any) {
+      notify(`Error al registrar cobranza: ${err.message || 'Fallo de conexión'}`, 'error');
+    }
   };
 
   const documentosFiltrados = useMemo(() => {

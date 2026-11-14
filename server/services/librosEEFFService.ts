@@ -721,7 +721,8 @@ export const librosEEFFService = {
       const c = f.codigoCuenta;
       const el = f.elemento;
       const meta = mapaCuentas.get(c);
-      const clasif = meta?.clasificacionEeff;
+      const clasifRaw = meta?.clasificacionEeff;
+      const clasif = (clasifRaw && clasifRaw !== 'NO_APLICA') ? clasifRaw : undefined;
       const esCorrectora = meta?.esCorrectora || meta?.signoEeff === -1 || c.startsWith('19') || c.startsWith('29') || c.startsWith('36') || c.startsWith('39');
 
       if (clasif === 'ACTIVO_CORRIENTE' || (!clasif && (el === 1 || el === 2))) {
@@ -1576,7 +1577,7 @@ export const librosEEFFService = {
 
         // CUO oficial del asiento compatible con PLE 5.1
         const cuo = a.cuo || `${codSub}${String(i + 1).padStart(4, '0')}`;
-        const rawFecha = a.fecha || `${periodo}-01`;
+        const rawFecha = a.fecha instanceof Date ? a.fecha.toISOString().split('T')[0] : String(a.fecha || `${periodo}-01`);
         
         let fechaFormateada = rawFecha;
         if (formatoFecha === 'DD/MM/AAAA' && rawFecha.includes('-')) {

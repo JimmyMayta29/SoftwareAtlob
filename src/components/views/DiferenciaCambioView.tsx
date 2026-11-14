@@ -84,19 +84,20 @@ export const DiferenciaCambioView: React.FC = () => {
         },
         body: JSON.stringify({
           periodo,
+          empresaId: state.activeEmpresa,
           tcCompraCierre: tcCompra,
           tcVentaCierre: tcVenta,
         }),
       });
       const json = await res.json();
-      if (json.status === 'success') {
+      if (res.ok && json.status === 'success') {
         setResultadoAsiento({
           numero: json.data?.asiento?.correlativo || '06-0001',
           mensaje: json.message || 'Asiento de diferencia de cambio NIC 21 generado.',
         });
-        notify('Ajuste por diferencia de cambio NIC 21 contabilizado', 'success');
+        notify('Ajuste por diferencia de cambio NIC 21 contabilizado con éxito', 'success');
       } else {
-        notify(json.message || 'No se pudo generar el asiento de diferencia de cambio', 'error');
+        notify(json.message || json.error || 'No se pudo generar el asiento de diferencia de cambio', 'error');
       }
     } catch {
       notify('Error de conexión al ejecutar el ajuste de diferencia de cambio', 'error');

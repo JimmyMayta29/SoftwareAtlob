@@ -43,14 +43,21 @@ export const LibrosElectronicosView: React.FC = () => {
 
   const descargarLibroPle = async (libro: LibroPleConfig) => {
     const nombreArchivo = construirNombrePle33(libro.codigoLibro, libro.registrosDetectados > 0);
+    const empresaId = state.activeEmpresa;
     try {
-      const res = await fetch(`/api/sunat/ple/generar?periodo=${periodo}&codigoLibro=${libro.codigoLibro}`, {
+      const res = await fetch(`/api/sunat/ple/generar?periodo=${periodo}&codigoLibro=${libro.codigoLibro}${empresaId ? `&empresaId=${empresaId}` : ''}`, {
         headers: {
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
         },
       });
       const json = await res.json().catch(() => null);
-      const contenido = json?.data?.contenidoTxt || `${periodo.replace('-', '')}00|CUO-0001|M001|104101|||PEN|||01|F001|0001842|10/03/2026||10/03/2026|OP CONTABLE|1500.00|0.00|||1|\r\n`;
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || 'Error al generar libro PLE');
+      }
+      const contenido = json?.data?.contenidoTxt;
+      if (!contenido) {
+        throw new Error('El servidor no devolvió contenido para el libro solicitado');
+      }
       const blob = new Blob([contenido], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -58,9 +65,9 @@ export const LibrosElectronicosView: React.FC = () => {
       a.download = json?.data?.nombreArchivo || nombreArchivo;
       a.click();
       URL.revokeObjectURL(url);
-      notify(`Archivo oficial PLE 5.2 generado: ${nombreArchivo}`, 'success');
-    } catch {
-      notify('Error al descargar el archivo PLE', 'error');
+      notify(`Archivo oficial PLE 5.2 generado: ${json?.data?.nombreArchivo || nombreArchivo}`, 'success');
+    } catch (err: any) {
+      notify(`Error al descargar el archivo PLE: ${err.message || 'Fallo de conexión'}`, 'error');
     }
   };
 

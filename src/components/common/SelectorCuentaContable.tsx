@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, BookOpen, X, Check, AlertCircle } from 'lucide-react';
 import { PLAN_CONTABLE_PCGE, CuentaPCGE, buscarCuentaPCGE } from '../../data/pcgeAccounts';
 import { CatalogoCuentasDialog } from '../voucher/CatalogoCuentasDialog';
+import { useAppContext } from '../../context/AppContext';
+import { pcgeApi } from '../../api/pcgeApi';
 
 export interface SelectorCuentaContableProps {
   label?: string;
@@ -39,6 +41,52 @@ export const SelectorCuentaContable: React.FC<SelectorCuentaContableProps> = ({
   const contenedorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const { state } = useAppContext();
+  const empresaId = typeof state.activeEmpresa === 'string' ? state.activeEmpresa : (state.activeEmpresa as any)?.id;
+  const [cuentasEmpresa, setCuentasEmpresa] = useState<CuentaPCGE[]>([]);
+
+  useEffect(() => {
+    if (!empresaId) return;
+    let activo = true;
+    pcgeApi.obtenerPlanCuentas(empresaId)
+      .then(res => {
+        if (!activo || !res?.cuentas) return;
+        const transformadas: CuentaPCGE[] = res.cuentas.map(c => ({
+          codigo: c.codigo,
+          nombre: c.nombre,
+          denominacion: c.nombre,
+          elemento: c.elemento,
+          nivel: c.nivel,
+          naturaleza: c.naturalezaSaldo === 'ACREEDORA' ? 'ACREEDORA' : 'DEUDORA',
+          tipo: c.esRegistro ? 'DETALLE' : 'TITULO',
+          tipoNormativo: 'ACTIVO',
+          permiteMovimiento: c.permiteMovimiento,
+          esRegistro: c.esRegistro,
+          requiereAnexo: false,
+          requiereDocumento: false,
+          requiereCentroCosto: false,
+          requiereVencimiento: false,
+          monedaCuenta: 'PEN',
+          clasificacionEeff: c.clasificacionEeff as any,
+          naturalezaSaldo: c.naturalezaSaldo,
+          signoEeff: c.signoEeff,
+          esCorrectora: c.esCorrectora,
+          esInactiva: c.esInactiva
+        } as unknown as CuentaPCGE));
+        setCuentasEmpresa(transformadas);
+      })
+      .catch(() => {});
+    return () => { activo = false; };
+  }, [empresaId]);
+
+  const catalogoCompleto = useMemo(() => {
+    if (cuentasEmpresa.length === 0) return PLAN_CONTABLE_PCGE;
+    const mapa = new Map<string, CuentaPCGE>();
+    for (const c of PLAN_CONTABLE_PCGE) mapa.set(c.codigo, c);
+    for (const c of cuentasEmpresa) mapa.set(c.codigo, c);
+    return Array.from(mapa.values());
+  }, [cuentasEmpresa]);
+
   // Sincronizar texto cuando cambia `value` externamente
   useEffect(() => {
     setTextoBusqueda(value || '');
@@ -47,14 +95,14 @@ export const SelectorCuentaContable: React.FC<SelectorCuentaContableProps> = ({
   // Buscar información de la cuenta actual
   const cuentaActual = useMemo(() => {
     if (!value) return null;
-    return buscarCuentaPCGE(value) || null;
-  }, [value]);
+    return catalogoCompleto.find(c => c.codigo === value) || buscarCuentaPCGE(value) || null;
+  }, [value, catalogoCompleto]);
 
   // Cuentas sugeridas según texto escrito
   const sugerencias = useMemo(() => {
     if (!desplegableAbierto || !textoBusqueda.trim()) return [];
     const q = textoBusqueda.toLowerCase().trim();
-    return PLAN_CONTABLE_PCGE.filter((c) => {
+    return catalogoCompleto.filter((c) => {
       if (filtroPrefijo && !c.codigo.startsWith(filtroPrefijo)) return false;
       if (soloImputables && !permitirMayor && !c.permiteMovimiento) return false;
       return (
@@ -62,7 +110,7 @@ export const SelectorCuentaContable: React.FC<SelectorCuentaContableProps> = ({
         (c.denominacion || c.nombre || '').toLowerCase().includes(q)
       );
     }).slice(0, 10);
-  }, [textoBusqueda, desplegableAbierto, filtroPrefijo, soloImputables, permitirMayor]);
+  }, [textoBusqueda, desplegableAbierto, filtroPrefijo, soloImputables, permitirMayor, catalogoCompleto]);
 
   // Cerrar desplegable si se hace clic fuera
   useEffect(() => {

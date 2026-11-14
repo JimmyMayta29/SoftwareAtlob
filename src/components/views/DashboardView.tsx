@@ -32,6 +32,7 @@ interface DashboardViewProps {
   asientos: AsientoContable[];
   liquidacion: LiquidacionPDT621;
   empresa: EmpresaCliente;
+  periodo?: string;
   onNavigate: (tab: string) => void;
   onTriggerSync: () => void;
   onDownloadSireTxt: () => void;
@@ -44,14 +45,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   asientos,
   liquidacion: legacyLiquidacion,
   empresa,
+  periodo,
   onNavigate,
   onDownloadSireTxt,
   onDownloadSqlDump
 }) => {
   const [modalDetalleOpen, setModalDetalleOpen] = useState(false);
+  const periodoActivo = periodo || '2026-03';
 
   // Hook directo a LiquidacionIGVService en Backend
-  const { data: apiLiquidacion } = useLiquidacionIGV(empresa.id, '2026-09', legacyLiquidacion.saldoFavorPeriodoAnterior || 0);
+  const { data: apiLiquidacion } = useLiquidacionIGV(empresa.id, periodoActivo, legacyLiquidacion.saldoFavorPeriodoAnterior || 0);
   const { data: apiDetracciones = [] } = useDetraccionesList(empresa.id);
   const { data: apiCuentas = [] } = useCuentasFinancieras(empresa.id);
 
@@ -86,7 +89,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-900 text-xs font-bold shadow-xs">
-                Periodo Activo: 2026-09
+                Periodo Activo: {periodoActivo}
               </span>
               <span className="text-xs text-blue-200">
                 Régimen: <strong className="text-white">{empresa.regimenTributario.replace('_', ' ')}</strong>
