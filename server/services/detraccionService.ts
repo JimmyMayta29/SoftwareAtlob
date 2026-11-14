@@ -1,6 +1,9 @@
+import { randomUUID } from 'crypto';
 import { db } from '../config/database';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { Money } from '../utils/decimal';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface DetraccionRegistroModel {
   id: string;
@@ -87,7 +90,7 @@ export const detraccionService = {
     userId: string
   ): Promise<DetraccionRegistroModel> {
     const calculo = this.calcularDetraccion(datos.montoTotalOperacion, datos.codigoBien);
-    const id = `det-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const id = UUID_REGEX.test(empresaId) ? randomUUID() : `det-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
 
     const nueva: DetraccionRegistroModel = {
@@ -106,17 +109,17 @@ export const detraccionService = {
       updatedAt: now
     };
 
-    if (db.isPostgresConnected()) {
+    const compId = nueva.comprobanteCompraId || nueva.comprobanteVentaId || null;
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId) && compId && UUID_REGEX.test(compId) && nueva.monto > 0) {
       await db.query(`
         INSERT INTO detracciones (
-          id, empresa_id, comprobante_id, codigo_bien, porcentaje, monto,
-          cuenta_banco_nacion, estado, permite_credito_fiscal, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          id, empresa_id, tipo_operacion, comprobante_id, codigo_bien_servicio, descripcion_bien,
+          porcentaje, monto, cuenta_banco_nacion, estado, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       `, [
-        nueva.id, nueva.empresaId, nueva.comprobanteCompraId || null,
-        nueva.codigoBien, nueva.porcentaje, nueva.monto,
-        nueva.cuentaBancoNacion, nueva.estado, nueva.permiteCreditoFiscal,
-        nueva.createdAt, nueva.updatedAt
+        nueva.id, nueva.empresaId, nueva.comprobanteVentaId ? 'VENTA' : 'COMPRA', compId,
+        nueva.codigoBien, nueva.descripcionBien, nueva.porcentaje, nueva.monto,
+        nueva.cuentaBancoNacion, nueva.estado, nueva.createdAt, nueva.updatedAt
       ]);
     }
 
@@ -138,16 +141,24 @@ export const detraccionService = {
    * Obtiene una detracción por ID
    */
   async obtenerPorId(empresaId: string, id: string): Promise<DetraccionRegistroModel | null> {
-    if (db.isPostgresConnected()) {
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId) && UUID_REGEX.test(id)) {
       const res = await db.query(`
         SELECT id, empresa_id as "empresaId", comprobante_id as "comprobanteCompraId",
-               codigo_bien as "codigoBien", porcentaje, monto, cuenta_banco_nacion as "cuentaBancoNacion",
-               numero_constancia as "numeroConstancia", fecha_deposito as "fechaDeposito",
-               estado, permite_credito_fiscal as "permiteCreditoFiscal"
+               codigo_bien_servicio as "codigoBien", descripcion_bien as "descripcionBien",
+               porcentaje::numeric as porcentaje, monto::numeric as monto,
+               cuenta_banco_nacion as "cuentaBancoNacion",
+               numero_constancia as "numeroConstancia", fecha_deposito::text as "fechaDeposito",
+               estado, (estado = 'DEPOSITADA' OR estado = 'NO_APLICA') as "permiteCreditoFiscal"
         FROM detracciones
         WHERE empresa_id = $1 AND id = $2
       `, [empresaId, id]);
-      if (res.rows.length > 0) return res.rows[0];
+      if (res.rows.length > 0) {
+        return {
+          ...res.rows[0],
+          porcentaje: Number(res.rows[0].porcentaje),
+          monto: Number(res.rows[0].monto)
+        };
+      }
     }
     return DETRACCIONES_MEMORIA.find(d => d.empresaId === empresaId && d.id === id) || null;
   },
@@ -156,7 +167,7 @@ export const detraccionService = {
    * Lista detracciones pendientes de pago para la empresa
    */
   async listarPendientes(empresaId: string) {
-    if (db.isPostgresConnected()) {
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
       const res = await db.query(`
         SELECT d.*, c.tipo_comprobante, c.serie, c.numero, c.fecha_emision,
                a.razon_social as "proveedorNombre", a.numero_documento as "proveedorRuc"
@@ -192,16 +203,26 @@ export const detraccionService = {
     // Calcular período en que se acredita el crédito fiscal (mes del depósito)
     const periodoAcreditado = fechaDeposito.substring(0, 7);
 
-    if (db.isPostgresConnected()) {
+    const reg = DETRACCIONES_MEMORIA.find(d => d.id === detraccionId && d.empresaId === empresaId);
+    if (reg) {
+      reg.numeroConstancia = numeroConstancia;
+      reg.fechaDeposito = fechaDeposito;
+      reg.estado = 'DEPOSITADA';
+      reg.permiteCreditoFiscal = true;
+      reg.periodoAcreditado = periodoAcreditado;
+      reg.updatedAt = new Date().toISOString();
+    }
+
+    if (db.isPostgresConnected() && UUID_REGEX.test(empresaId) && UUID_REGEX.test(detraccionId)) {
       const res = await db.query(`
         UPDATE detracciones SET
           numero_constancia = $1, fecha_deposito = $2, estado = 'DEPOSITADA',
-          permite_credito_fiscal = TRUE, updated_at = CURRENT_TIMESTAMP
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = $3 AND empresa_id = $4
         RETURNING *
       `, [numeroConstancia, fechaDeposito, detraccionId, empresaId]);
 
-      if (res.rows.length === 0) throw new Error('DETRACCION_NO_ENCONTRADA');
+      if (res.rows.length === 0 && !reg) throw new Error('DETRACCION_NO_ENCONTRADA');
 
       await auditoriaRepository.registrar({
         empresaId,
@@ -212,20 +233,12 @@ export const detraccionService = {
         datosNuevos: { numeroConstancia, fechaDeposito, estado: 'DEPOSITADA' }
       });
 
-      return res.rows[0];
+      return reg || res.rows[0];
     }
 
-    const reg = DETRACCIONES_MEMORIA.find(d => d.id === detraccionId && d.empresaId === empresaId);
     if (!reg) {
       throw new Error('DETRACCION_NO_ENCONTRADA: Registro de detracción no encontrado.');
     }
-
-    reg.numeroConstancia = numeroConstancia;
-    reg.fechaDeposito = fechaDeposito;
-    reg.estado = 'DEPOSITADA';
-    reg.permiteCreditoFiscal = true;
-    reg.periodoAcreditado = periodoAcreditado;
-    reg.updatedAt = new Date().toISOString();
 
     await auditoriaRepository.registrar({
       empresaId,

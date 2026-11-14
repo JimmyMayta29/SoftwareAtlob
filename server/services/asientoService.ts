@@ -479,7 +479,7 @@ export const asientoService = {
           FROM asientos a
           JOIN periodos p ON p.id = a.periodo_id
           JOIN subdiarios s ON s.id = a.subdiario_id
-          WHERE a.id = $1 FOR UPDATE
+          WHERE a.id = $1 FOR UPDATE OF a
         `, [asientoId]);
 
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');

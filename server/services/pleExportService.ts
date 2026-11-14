@@ -81,6 +81,14 @@ export const PLE_LIBROS_CATALOGO: PleLibroConfigModel[] = [
     especificacionNormativa: 'Resolución de Superintendencia N° 286-2009/SUNAT Anexo II y R.S. N° 234-2006/SUNAT.'
   },
   {
+    codigoLibro: '050200',
+    nombreLibro: 'Libro Diario de Formato Simplificado (Formato 5.2)',
+    versionFormato: 'PLE_5.2',
+    validadoOficial: true,
+    totalCamposOficial: 21,
+    especificacionNormativa: 'Resolución de Superintendencia N° 286-2009/SUNAT Anexo II y R.S. N° 234-2006/SUNAT.'
+  },
+  {
     codigoLibro: '060100',
     nombreLibro: 'Libro Mayor (Formato 6.1)',
     versionFormato: 'PLE_5.2',
@@ -219,9 +227,24 @@ export const pleExportService = {
       // Mes sin movimiento: archivo vacío (0 líneas de datos)
     } else if (codigoLibro === '080100') {
       // Registro de Compras 8.1 (42 campos oficiales)
-      const compras = COMPRAS_MEMORIA.filter(
-        c => c.empresaId === empresaId && c.periodoId === `per-${periodo}` && c.estado === 'REGISTRADO'
+      let compras: any[] = COMPRAS_MEMORIA.filter(
+        c => c.empresaId === empresaId && (c.periodoId === `per-${periodo}` || c.periodoId === periodo || String(c.fechaEmision || '').startsWith(periodo)) && c.estado === 'REGISTRADO' && c.tipoComprobante !== '00'
       );
+      if (compras.length === 0 && db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resC = await db.query(`
+          SELECT c.fecha_emision::text as "fechaEmision", c.fecha_vencimiento::text as "fechaVencimiento",
+                 c.tipo_comprobante as "tipoComprobante", c.serie, c.numero,
+                 a.numero_documento as "proveedorRuc", a.razon_social as "proveedorNombre",
+                 c.base_gravada as "baseGravada", c.igv, c.base_no_gravada as "baseNoGravada",
+                 c.total, c.moneda, c.tipo_cambio as "tipoCambio"
+          FROM comprobantes_compra c
+          LEFT JOIN anexos a ON a.id = c.proveedor_id
+          JOIN periodos p ON p.id = c.periodo_id
+          WHERE c.empresa_id = $1 AND p.codigo_periodo = $2 AND c.estado = 'REGISTRADO' AND c.tipo_comprobante <> '00'
+          ORDER BY c.fecha_emision ASC, c.numero ASC
+        `, [empresaId, periodo]);
+        compras = resC.rows;
+      }
 
       let correlativo = 1;
       for (const c of compras) {
@@ -278,9 +301,22 @@ export const pleExportService = {
       }
     } else if (codigoLibro === '080200') {
       // Registro de Compras No Domiciliados 8.2 (36 campos)
-      const comprasNd = COMPRAS_MEMORIA.filter(
-        c => c.empresaId === empresaId && c.periodoId === `per-${periodo}` && c.tipoComprobante === '00'
+      let comprasNd: any[] = COMPRAS_MEMORIA.filter(
+        c => c.empresaId === empresaId && (c.periodoId === `per-${periodo}` || c.periodoId === periodo || String(c.fechaEmision || '').startsWith(periodo)) && c.tipoComprobante === '00'
       );
+      if (comprasNd.length === 0 && db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resNd = await db.query(`
+          SELECT c.fecha_emision::text as "fechaEmision", c.tipo_comprobante as "tipoComprobante",
+                 c.serie, c.numero, c.total, c.moneda, c.tipo_cambio as "tipoCambio",
+                 a.razon_social as "proveedorNombre"
+          FROM comprobantes_compra c
+          LEFT JOIN anexos a ON a.id = c.proveedor_id
+          JOIN periodos p ON p.id = c.periodo_id
+          WHERE c.empresa_id = $1 AND p.codigo_periodo = $2 AND c.tipo_comprobante = '00' AND c.estado <> 'ANULADO'
+          ORDER BY c.fecha_emision ASC, c.numero ASC
+        `, [empresaId, periodo]);
+        comprasNd = resNd.rows;
+      }
       let correlativo = 1;
       for (const c of comprasNd) {
         const cuo = `ND${String(correlativo).padStart(6, '0')}`;
@@ -319,9 +355,23 @@ export const pleExportService = {
       }
     } else if (codigoLibro === '140100') {
       // Registro de Ventas 14.1 (35 campos oficiales)
-      const ventas = VENTAS_MEMORIA.filter(
-        v => v.empresaId === empresaId && v.periodoId === `per-${periodo}` && v.estado === 'REGISTRADO'
+      let ventas: any[] = VENTAS_MEMORIA.filter(
+        v => v.empresaId === empresaId && (v.periodoId === `per-${periodo}` || v.periodoId === periodo || String(v.fechaEmision || '').startsWith(periodo)) && v.estado === 'REGISTRADO'
       );
+      if (ventas.length === 0 && db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resV = await db.query(`
+          SELECT v.fecha_emision::text as "fechaEmision", v.fecha_vencimiento::text as "fechaVencimiento",
+                 v.tipo_comprobante as "tipoComprobante", v.serie, v.numero,
+                 a.numero_documento as "clienteRuc", a.razon_social as "clienteNombre",
+                 v.base_gravada as "baseGravada", v.igv, v.total, v.moneda, v.tipo_cambio as "tipoCambio"
+          FROM comprobantes_venta v
+          LEFT JOIN anexos a ON a.id = v.cliente_id
+          JOIN periodos p ON p.id = v.periodo_id
+          WHERE v.empresa_id = $1 AND p.codigo_periodo = $2 AND v.estado = 'REGISTRADO'
+          ORDER BY v.fecha_emision ASC, v.numero ASC
+        `, [empresaId, periodo]);
+        ventas = resV.rows;
+      }
 
       let correlativo = 1;
       for (const v of ventas) {
@@ -377,11 +427,31 @@ export const pleExportService = {
         lineas.push(campos.join('|') + '|');
         correlativo++;
       }
-    } else if (codigoLibro === '050100') {
-      // Libro Diario 5.1 (21 campos oficiales)
-      const asientos = ASIENTOS_MEMORIA.filter(
-        a => a.empresaId === empresaId && a.periodoId === `per-${periodo}` && a.estado === 'CONTABILIZADO'
+    } else if (codigoLibro === '050100' || codigoLibro === '050200') {
+      // Libro Diario 5.1 y Libro Diario Simplificado 5.2 (21 campos oficiales)
+      let asientos: any[] = ASIENTOS_MEMORIA.filter(
+        a => a.empresaId === empresaId && (a.periodoId === `per-${periodo}` || a.periodoId === periodo || String(a.fecha || '').startsWith(periodo)) && a.estado === 'CONTABILIZADO'
       );
+      if (asientos.length === 0 && db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resA = await db.query(`
+          SELECT a.id, a.numero, a.fecha::text as fecha, a.glosa, a.moneda,
+                 pc.codigo as "cuentaCodigo", ad.debe, ad.haber, ad.glosa_linea as "glosaLinea"
+          FROM asientos a
+          JOIN asiento_detalle ad ON ad.asiento_id = a.id
+          JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
+          JOIN periodos p ON p.id = a.periodo_id
+          WHERE a.empresa_id = $1 AND p.codigo_periodo = $2 AND a.estado = 'CONTABILIZADO'
+          ORDER BY a.fecha ASC, a.numero ASC, ad.orden ASC
+        `, [empresaId, periodo]);
+        const mapA = new Map<string, any>();
+        for (const r of resA.rows) {
+          if (!mapA.has(r.id)) {
+            mapA.set(r.id, { id: r.id, numero: r.numero, fecha: r.fecha, glosa: r.glosa, moneda: r.moneda, detalles: [] });
+          }
+          mapA.get(r.id).detalles.push({ cuentaCodigo: r.cuentaCodigo, debe: Number(r.debe), haber: Number(r.haber), glosaLinea: r.glosaLinea });
+        }
+        asientos = Array.from(mapA.values());
+      }
 
       let correlativoAsiento = 1;
       for (const a of asientos) {
@@ -434,9 +504,29 @@ export const pleExportService = {
       }
     } else if (codigoLibro === '060100') {
       // Libro Mayor 6.1 (16 campos oficiales)
-      const asientos = ASIENTOS_MEMORIA.filter(
-        a => a.empresaId === empresaId && a.periodoId === `per-${periodo}` && a.estado === 'CONTABILIZADO'
+      let asientos: any[] = ASIENTOS_MEMORIA.filter(
+        a => a.empresaId === empresaId && (a.periodoId === `per-${periodo}` || a.periodoId === periodo || String(a.fecha || '').startsWith(periodo)) && a.estado === 'CONTABILIZADO'
       );
+      if (asientos.length === 0 && db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resA = await db.query(`
+          SELECT a.id, a.numero, a.fecha::text as fecha, a.glosa, a.moneda,
+                 pc.codigo as "cuentaCodigo", ad.debe, ad.haber, ad.glosa_linea as "glosaLinea"
+          FROM asientos a
+          JOIN asiento_detalle ad ON ad.asiento_id = a.id
+          JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
+          JOIN periodos p ON p.id = a.periodo_id
+          WHERE a.empresa_id = $1 AND p.codigo_periodo = $2 AND a.estado = 'CONTABILIZADO'
+          ORDER BY pc.codigo ASC, a.fecha ASC, a.numero ASC
+        `, [empresaId, periodo]);
+        const mapA = new Map<string, any>();
+        for (const r of resA.rows) {
+          if (!mapA.has(r.id)) {
+            mapA.set(r.id, { id: r.id, numero: r.numero, fecha: r.fecha, glosa: r.glosa, moneda: r.moneda, detalles: [] });
+          }
+          mapA.get(r.id).detalles.push({ cuentaCodigo: r.cuentaCodigo, debe: Number(r.debe), haber: Number(r.haber), glosaLinea: r.glosaLinea });
+        }
+        asientos = Array.from(mapA.values());
+      }
 
       let correlativoAsiento = 1;
       for (const a of asientos) {

@@ -37,6 +37,16 @@ export const ESPECIFICACION_COLUMNAS_PLE: Record<string, { nombre: string; total
       'FechaOperacion', 'Glosa', 'GlosaReferencial', 'Debe', 'Haber', 'LibroReferencial', 'Estado'
     ]
   },
+  '050200': {
+    nombre: 'Libro Diario de Formato Simplificado (Formato 5.2)',
+    totalCampos: 21,
+    campos: [
+      'Periodo', 'CUO', 'CorrelativoAsiento', 'CuentaContable', 'UnidadOperacion',
+      'CentroCostos', 'Moneda', 'TipoDocTercero', 'NumDocTercero', 'TipoComprobante',
+      'SerieComprobante', 'NumeroComprobante', 'FechaContable', 'FechaVencimiento',
+      'FechaOperacion', 'Glosa', 'GlosaReferencial', 'Debe', 'Haber', 'LibroReferencial', 'Estado'
+    ]
+  },
   '060100': {
     nombre: 'Libro Mayor (Formato 6.1)',
     totalCampos: 16,

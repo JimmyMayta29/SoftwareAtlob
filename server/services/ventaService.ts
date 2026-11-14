@@ -1,4 +1,5 @@
 import { db } from '../config/database';
+import { randomUUID } from 'node:crypto';
 import { Money } from '../utils/decimal';
 import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
@@ -211,13 +212,13 @@ export const ventaService = {
     this.validarCoherencia(input);
     await this.verificarDuplicado(empresaId, input.tipoComprobante, input.serie, input.numero);
 
-    const id = `vent-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const id = db.isPostgresConnected() ? randomUUID() : `vent-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const now = new Date().toISOString();
 
     const borrador: VentaModel = {
       id,
       empresaId,
-      periodoId: input.periodoId,
+      periodoId: (db.isPostgresConnected() && periodo?.id) ? periodo.id : input.periodoId,
       fechaEmision: input.fechaEmision,
       fechaVencimiento: input.fechaVencimiento || null,
       fechaContable: input.fechaContable,
@@ -302,7 +303,7 @@ export const ventaService = {
 
     const actualizado: VentaModel = {
       ...actual,
-      periodoId: input.periodoId,
+      periodoId: (db.isPostgresConnected() && periodo?.id) ? periodo.id : input.periodoId,
       fechaEmision: input.fechaEmision,
       fechaVencimiento: input.fechaVencimiento || null,
       fechaContable: input.fechaContable,
@@ -330,7 +331,7 @@ export const ventaService = {
     };
 
     if (db.isPostgresConnected()) {
-      await db.query(`
+      const resultado = await db.query(`
         UPDATE comprobantes_venta
         SET periodo_id = $1, fecha_emision = $2, fecha_vencimiento = $3, fecha_contable = $4,
             tipo_comprobante = $5, serie = $6, numero = $7, cliente_id = $8,
@@ -349,6 +350,7 @@ export const ventaService = {
         actualizado.diasCredito, actualizado.tieneDetraccion, actualizado.tienePercepcion,
         nuevaVersion, userId, id, empresaId, expectedVersion
       ]);
+      if (resultado.rowCount === 0) throw new Error('VERSION_DESACTUALIZADA: El comprobante ha sido modificado por otro usuario.');
     } else {
       const idx = VENTAS_MEMORIA.findIndex(v => v.id === id && v.empresaId === empresaId);
       if (idx !== -1) VENTAS_MEMORIA[idx] = actualizado;
@@ -527,13 +529,14 @@ export const ventaService = {
 
     const asientoContabilizado = await asientoService.contabilizar(asientoBorrador.id, empresaId, userId);
 
-    const ventaId = existingId || `vent-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const ventaId = existingId || (db.isPostgresConnected() ? randomUUID() : `vent-${Date.now()}-${Math.floor(Math.random() * 1000)}`);
+    const resolvedPeriodoId = (db.isPostgresConnected() && periodo?.id) ? periodo.id : input.periodoId;
     const now = new Date().toISOString();
 
     const ventaRegistrada: VentaModel = {
       id: ventaId,
       empresaId,
-      periodoId: input.periodoId,
+      periodoId: resolvedPeriodoId,
       fechaEmision: input.fechaEmision,
       fechaVencimiento: input.fechaVencimiento || null,
       fechaContable: input.fechaContable,
@@ -590,8 +593,8 @@ export const ventaService = {
             'REGISTRADO', 'MANUAL', $26, $27, 2, $28
           )
         `, [
-          ventaId, empresaId, input.periodoId, input.fechaEmision, input.fechaVencimiento || null, input.fechaContable,
-          input.tipoComprobante, input.serie, input.numero, input.clienteId, moneda, tipoCambio,
+          ventaId, empresaId, resolvedPeriodoId, input.fechaEmision, input.fechaVencimiento || null, input.fechaContable,
+          input.tipoComprobante, input.serie.toUpperCase(), input.numero, input.clienteId, moneda, tipoCambio,
           ventaRegistrada.baseGravada, ventaRegistrada.igv, ventaRegistrada.baseNoGravada, ventaRegistrada.exonerado,
           ventaRegistrada.isc, ventaRegistrada.icbper, ventaRegistrada.otrosTributos, ventaRegistrada.total,
           ventaRegistrada.tipoOperacion, formaPago, ventaRegistrada.diasCredito, ventaRegistrada.tieneDetraccion, ventaRegistrada.tienePercepcion,
@@ -746,7 +749,31 @@ export const ventaService = {
   async obtenerPorId(empresaId: string, id: string): Promise<VentaModel | null> {
     if (db.isPostgresConnected()) {
       const res = await db.query(`
-        SELECT v.*, a.razon_social as "clienteNombre", a.numero_documento as "clienteRuc",
+        SELECT v.*,
+               v.empresa_id as "empresaId",
+               v.periodo_id as "periodoId",
+               v.fecha_emision::text as "fechaEmision",
+               v.fecha_vencimiento::text as "fechaVencimiento",
+               v.fecha_contable::text as "fechaContable",
+               v.tipo_comprobante as "tipoComprobante",
+               v.cliente_id as "clienteId",
+               v.tipo_cambio::float8 as "tipoCambio",
+               v.base_gravada::float8 as "baseGravada",
+               v.igv::float8 as igv,
+               v.base_no_gravada::float8 as "baseNoGravada",
+               v.exonerado::float8 as exonerado,
+               v.isc::float8 as isc,
+               v.icbper::float8 as icbper,
+               v.otros_tributos::float8 as "otrosTributos",
+               v.total::float8 as total,
+               v.tipo_operacion as "tipoOperacion",
+               v.forma_pago as "formaPago",
+               v.dias_credito as "diasCredito",
+               v.tiene_detraccion as "tieneDetraccion",
+               v.tiene_percepcion as "tienePercepcion",
+               v.asiento_id as "asientoId",
+               a.razon_social as "clienteNombre",
+               a.numero_documento as "clienteRuc",
                ast.numero as "asientoNumero"
         FROM comprobantes_venta v
         JOIN anexos a ON a.id = v.cliente_id
@@ -781,7 +808,7 @@ export const ventaService = {
 
       if (params.periodoId) {
         values.push(params.periodoId);
-        where += ` AND v.periodo_id = $${values.length}`;
+        where += ` AND (v.periodo_id::text = $${values.length} OR EXISTS (SELECT 1 FROM periodos p WHERE p.id = v.periodo_id AND p.codigo_periodo = $${values.length}))`;
       }
       if (params.tipoComprobante) {
         values.push(params.tipoComprobante);
@@ -820,7 +847,31 @@ export const ventaService = {
 
       values.push(limit, offset);
       const dataRes = await db.query(`
-        SELECT v.*, a.razon_social as "clienteNombre", a.numero_documento as "clienteRuc",
+        SELECT v.*,
+               v.empresa_id as "empresaId",
+               v.periodo_id as "periodoId",
+               v.fecha_emision::text as "fechaEmision",
+               v.fecha_vencimiento::text as "fechaVencimiento",
+               v.fecha_contable::text as "fechaContable",
+               v.tipo_comprobante as "tipoComprobante",
+               v.cliente_id as "clienteId",
+               v.tipo_cambio::float8 as "tipoCambio",
+               v.base_gravada::float8 as "baseGravada",
+               v.igv::float8 as igv,
+               v.base_no_gravada::float8 as "baseNoGravada",
+               v.exonerado::float8 as exonerado,
+               v.isc::float8 as isc,
+               v.icbper::float8 as icbper,
+               v.otros_tributos::float8 as "otrosTributos",
+               v.total::float8 as total,
+               v.tipo_operacion as "tipoOperacion",
+               v.forma_pago as "formaPago",
+               v.dias_credito as "diasCredito",
+               v.tiene_detraccion as "tieneDetraccion",
+               v.tiene_percepcion as "tienePercepcion",
+               v.asiento_id as "asientoId",
+               a.razon_social as "clienteNombre",
+               a.numero_documento as "clienteRuc",
                ast.numero as "asientoNumero"
         FROM comprobantes_venta v
         JOIN anexos a ON a.id = v.cliente_id
@@ -896,8 +947,10 @@ export const ventaService = {
         SELECT COALESCE(SUM(ad.haber), 0) as total_haber
         FROM asiento_detalle ad
         JOIN asientos a ON a.id = ad.asiento_id
+        JOIN periodos p ON p.id = a.periodo_id AND p.empresa_id = a.empresa_id
+        JOIN subdiarios s ON s.id = a.subdiario_id AND s.empresa_id = a.empresa_id
         JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
-        WHERE a.empresa_id = $1 AND a.periodo_id = $2 AND a.subdiario_id = '02'
+        WHERE a.empresa_id = $1 AND (p.id::text = $2 OR p.codigo_periodo = $2) AND s.codigo = '02'
           AND a.estado = 'CONTABILIZADO' AND pc.codigo LIKE '70%'
       `, [empresaId, periodoId]);
       totalDiarioVentas = parseFloat(res70.rows[0]?.total_haber || '0');
@@ -906,8 +959,10 @@ export const ventaService = {
         SELECT COALESCE(SUM(ad.haber), 0) as total_haber
         FROM asiento_detalle ad
         JOIN asientos a ON a.id = ad.asiento_id
+        JOIN periodos p ON p.id = a.periodo_id AND p.empresa_id = a.empresa_id
+        JOIN subdiarios s ON s.id = a.subdiario_id AND s.empresa_id = a.empresa_id
         JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
-        WHERE a.empresa_id = $1 AND a.periodo_id = $2 AND a.subdiario_id = '02'
+        WHERE a.empresa_id = $1 AND (p.id::text = $2 OR p.codigo_periodo = $2) AND s.codigo = '02'
           AND a.estado = 'CONTABILIZADO' AND pc.codigo LIKE '40111%'
       `, [empresaId, periodoId]);
       totalDiarioIgv = parseFloat(res40.rows[0]?.total_haber || '0');
