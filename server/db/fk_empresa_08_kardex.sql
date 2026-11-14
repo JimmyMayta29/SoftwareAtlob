@@ -33,3 +33,4 @@ $validar_fks$;
 ALTER TABLE public.movimientos_kardex
     DROP CONSTRAINT movimientos_kardex_producto_id_fkey;
 ALTER TABLE public.movimientos_kardex RENAME CONSTRAINT movimientos_kardex_producto_id_fkey_empresa TO movimientos_kardex_producto_id_fkey;
+

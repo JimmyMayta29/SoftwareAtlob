@@ -35,6 +35,10 @@
 | `CORR-20` | `H-03` | B | `server/db/fk_empresa_08_kardex.sql`, `server/tests/real/test_pg_seguridad.ts` | Registro e integración del módulo `08_kardex` con clave foránea compuesta `(empresa_id, articulo_id)` para aislamiento multiempresa. | **APROBADO** | `npm run test:pg` (`test_pg_seguridad.ts`). |
 | `CORR-21` | `H-02`, `H-15` | B | `docs/MATRIZ_COMPLETITUD_ASIENTOS.md` | Actualización de 69/69 escenarios contables a `IMPLEMENTADO Y PROBADO EN POSTGRESQL REAL` con citas a pruebas reales. | **APROBADO** | `scripts/verificar-matriz.ts` aprueba con 0 errores y 4/4 negativas. |
 | `CORR-22` | `H-02`, `H-14`, `H-15` | B | `server/tests/real/test_pg_matriz_contable.ts` | Suite de pruebas contra PostgreSQL 18.6 real que valida los 69 escenarios contables, 50 correlativos concurrentes, servicios especializados y reinicio en frío. | **APROBADO** | `npm run test:pg` aprueba al 100% con código 0. |
+| `CORR-23` | `H-07` | B2 | `server/storage/registroDatosEmpresa.ts`, `server/tests/run_tests_registro_empresa.ts` | Registro declarativo único de 84 tablas del sistema (60 exportables por empresa ordenadas topológicamente) y 7 carpetas físicas de almacenamiento. | **APROBADO** | Comprobación de catálogo real con 173 FKs coincidentes al 100%. |
+| `CORR-24` | `H-07` | B2 | `server/storage/archivosEmpresa.ts` | Servicio de gestión física de archivos empresariales en `storage/empresas/${empresaId}` con extracción SHA-256, limpieza y restauración. | **APROBADO** | `test_pg_backup_b2.ts` valida restauración byte a byte de XML, PDF y adjuntos. |
+| `CORR-25` | `H-07`, `H-17` | B2 | `server/services/backupEmpresaService.ts`, `server/db/schema_fase20_restauracion_backup.sql` | Motor de respaldo ZIP cifrado AES-256-GCM con manifest SHA-256, sesión transaccional `app.restaurando_backup` y restauración atómica en PostgreSQL. | **APROBADO** | `npm run test:pg` (`test_pg_backup_b2.ts`). |
+| `CORR-26` | `H-07`, `H-17` | B2 | `server/tests/real/test_pg_backup_b2.ts` | Suite de pruebas reales en PostgreSQL: ida y vuelta completa, rechazo de 3 tipos de archivos alterados, aislamiento multiempresa y persistencia tras reinicio en frío. | **APROBADO** | 4/4 pruebas aprobadas con código de salida 0. |
 
 ---
 
@@ -48,7 +52,7 @@
 | `H-04` | Múltiples vulnerabilidades IDOR y rutas desprotegidas | CRÍTICA | A | **RESUELTO** | Retiro de `/analisis-cuentas` raíz, validación `resolverEmpresaId`, protección PLE, activos y cronograma. |
 | `H-05` | Error SQLSTATE 23514 al crear empresas por subdiarios | CRÍTICA | A / B | **RESUELTO** | Restricciones `subdiarios_tipo_check` ampliadas a los 15 tipos en schema 18 y 19. |
 | `H-06` | Incompatibilidad normativa tributaria 2026 (UIT, SIRE, DAOT) | ALTA | B | **RESUELTO** | Parámetros tributarios 2026 (UIT S/ 5,500, DAOT 2 UIT S/ 11,000, IGV 18%) en base real. |
-| `H-07` | Respaldos no integrales (exclusión de 36 tablas y archivos) | ALTA | B2 | PENDIENTE | Módulo `archivosEmpresa.ts` y backup ZIP cifrado integral. |
+| `H-07` | Respaldos no integrales (exclusión de 36 tablas y archivos) | ALTA | B2 | **RESUELTO** | Catálogo declarativo único (84 tablas, 60 exportables, 7 carpetas), archivos físicos y backup transaccional. |
 | `H-08` | Desconexión en Cuentas por Cobrar y Cuentas por Pagar | ALTA | C | PENDIENTE | Conexión directa a saldos de comprobantes en PostgreSQL. |
 | `H-09` | Vistas huérfanas con endpoints inexistentes (404) | ALTA | C | PENDIENTE | Conexión de 7 vistas a endpoints reales. |
 | `H-10` | Discrepancia entre orígenes de reportes contables | ALTA | C | PENDIENTE | Conciliación de saldos con S/ 0.00 de diferencia. |
@@ -58,7 +62,7 @@
 | `H-14` | Correlativos concurrentes propensos a colisión | MEDIA | B | **RESUELTO** | Secuencia concurrente probada con 50 hilos sin colisiones en `test_pg_matriz_contable.ts`. |
 | `H-15` | Inconsistencias entre catálogo de subdiarios y asientos | MEDIA | B | **RESUELTO** | Catálogo unificado 00..11 consistente entre base de datos, asientos y reportes. |
 | `H-16` | Secretos de producción omitidos en script de inicialización | MEDIA | A | **RESUELTO** | `inicializar-escritorio.ps1` genera los 5 secretos hex de 32 bytes. |
-| `H-17` | Ausencia de validación de integridad SHA-256 en respaldos | MEDIA | B2 | PENDIENTE | Manifest con SHA-256 y firma criptográfica. |
+| `H-17` | Ausencia de validación de integridad SHA-256 en respaldos | MEDIA | B2 | **RESUELTO** | Manifest con SHA-256 por cada archivo, cifrado AES-256-GCM y rechazo automático ante manipulación. |
 | `H-18` | Desconexión de módulos de cierre contable y diferencia de cambio | BAJA | C | PENDIENTE | Implementación de endpoints de cierre mensual/anual y ajuste TC. |
 | `H-19` | Inconsistencia en filtros de Libro Diario y Mayor | BAJA | C | PENDIENTE | Uniformización de filtros por subdiario, cuenta y moneda. |
 | `H-20` | Falta de script unificado de verificación integral | BAJA | E | PENDIENTE | Creación de comando `npm run verify`. |

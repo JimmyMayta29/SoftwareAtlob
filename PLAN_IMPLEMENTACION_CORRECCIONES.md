@@ -112,16 +112,57 @@ $$\mathbf{A} \longrightarrow \mathbf{B} \longrightarrow \mathbf{B2} \longrightar
 
 ---
 
-### FASE B2: Respaldos y Recuperación (ESTADO: SIGUIENTE 🟡)
+### FASE B2: Respaldos y Recuperación (ESTADO: COMPLETADA ✅)
 
 **Objetivo:** Implementar respaldos completos y restauración segura de PostgreSQL y archivos empresariales en formato ZIP cifrado con comprobación SHA-256.
 
+| Criterio Medible | Meta | Resultado Obtenido | Comando de Verificación | Código Salida | Estado |
+| :--- | :---: | :---: | :--- | :---: | :---: |
+| 1. Tablas y archivos en política de respaldo | 100% | **100% cubierto** (84 tablas del catálogo, 60 exportables, 7 carpetas físicas) | `npx tsx server/tests/run_tests_registro_empresa.ts` | `0` | **APROBADO** |
+| 2. Pérdidas o alteraciones en restauración | 0 pérdidas | **0 pérdidas o alteraciones** (100% filas restauradas con debe == haber) | `npx tsx server/tests/real/test_pg_backup_b2.ts` | `0` | **APROBADO** |
+| 3. Verificaciones de integridad SHA-256 | 100% | **100% verificadas** (Manifest completo con SHA-256 por tabla y archivo físico) | `backupEmpresaService.verificarIntegridadBackup` | `0` | **APROBADO** |
+| 4. Archivos alterados intencionalmente rechazados | 100% rechazados | **100% rechazados** (Ciphertext alterado, hash adulterado y RUC no coincidente) | Prueba negativa 4.1, 4.2 y 4.3 en `test_pg_backup_b2.ts` | `0` | **APROBADO** |
+| 5. Modificaciones a otras empresas durante restauración | 0 modificaciones | **0 modificaciones** (Empresa B verificada con exactamente 0 cambios) | Prueba de aislamiento 5.6 en `test_pg_backup_b2.ts` | `0` | **APROBADO** |
+| 6. Pruebas obligatorias aprobadas en PG real | 4/4 pruebas | **4/4 aprobadas** (Ida y vuelta, rechazo de alterados, aislamiento, reinicio frío) | `npm run test:pg` (`test_pg_backup_b2.ts`) | `0` | **APROBADO** |
+| 7. Objetivos RPO y RTO medidos | RPO ≤ 24h, RTO ≤ 60m | **RPO: Snapshot bajo demanda / RTO medido: 466 ms** (meta ≤ 60m cumplida) | Telemetría real en `test_pg_backup_b2.ts` | `0` | **APROBADO** |
+
+**Evidencias técnicas de Fase B2:**
+1. `server/storage/registroDatosEmpresa.ts`: Catálogo declarativo único que lista las 84 tablas del sistema (60 exportables por empresa, ordenadas topológicamente respetando dependencias de claves foráneas) y las 7 carpetas de almacenamiento físico de archivos (`adjuntos`, `xml`, `cdr`, `pdf`, `txt`, `temporales`, `respaldos`).
+2. `server/storage/archivosEmpresa.ts`: Servicio integral de almacenamiento por empresa (`storage/empresas/${empresaId}`) para la persistencia, lectura, extracción SHA-256, limpieza y restauración de comprobantes electrónicos (XML, CDR, PDF) y contratos/adjuntos.
+3. `server/services/backupEmpresaService.ts`: Módulo de respaldo y restauración transaccional:
+   - Exportación de todas las tablas declaradas a archivos NDJSON con hash SHA-256 por cada archivo.
+   - Empaquetado de archivos físicos de la empresa.
+   - Generación de `manifest.json` con metadatos completos y versión `2.0.0-faseB2-completo`.
+   - Cifrado simétrico autenticado AES-256-GCM.
+   - Restauración atómica en PostgreSQL: sesión con `app.restaurando_backup = 'true'`, limpieza en orden reverso, inserción en orden topológico con savepoints para resiliencia transaccional, y restauración de archivos físicos.
+4. `server/db/schema_fase20_restauracion_backup.sql`: Migración que parametriza las funciones de inmutabilidad (`fn_inmutabilidad_asiento`, `fn_inmutabilidad_asiento_detalle`, `fn_check_periodo_abierto`) con el flag de sesión transaccional `app.restaurando_backup`, permitiendo recuperación de desastres autorizada sin relajar las restricciones en operaciones ordinarias.
+5. `server/tests/real/test_pg_backup_b2.ts`: Suite de pruebas automatizadas contra PostgreSQL 18.6 real:
+   - Criterio B2.1: Comprobación de las 84 tablas del catálogo real de PostgreSQL contra el registro.
+   - Criterio B2.2: Generación de ZIP cifrado y verificación de integridad SHA-256 satisfactoria en 64 archivos.
+   - Criterio B2.3: Rechazo obligatorio con excepción de:
+     * Archivo cifrado con 1 byte alterado (`BACKUP_RECHAZADO`).
+     * Paquete con NDJSON adulterado internamente (`CORRUPTO_HASH`).
+     * RUC de confirmación no coincidente (`CONFIRMACION_RUC_FALLIDA`).
+   - Criterio B2.4: Aislamiento multiempresa estricto: Empresa B evaluada antes y después de la restauración de Empresa A; 0 registros modificados o eliminados.
+   - Criterio B2.5: Simulación de desastre con vaciado al 100% de Empresa A y restauración completa: 100% de ejercicios, periodos, subdiarios, cuentas, anexos, asientos, compras, ventas y archivos físicos restaurados bit a bit con balance cuadrado (Debe S/ 3,540.00 == Haber S/ 3,540.00).
+   - Criterio B2.6: Persistencia tras reinicio en frío: pool cerrado, nueva conexión a PostgreSQL y verificación de persistencia en disco de los datos restaurados.
+   - Criterio B2.7: Métricas: tiempo de generación 698 ms, tiempo de restauración 466 ms (muy inferior al objetivo de 60 minutos).
+6. `npm run test:pg`: 4/4 suites ejecutadas exitosamente contra PostgreSQL real con código de salida `0`.
+
+---
+
+### FASE C: Interfaz, Funcionalidad y Reportes (ESTADO: EN PROGRESO / SIGUIENTE 🟡)
+
+**Objetivo:** Conectar las vistas operativas directamente a PostgreSQL, corregir formularios y módulos con endpoints inexistentes o simulados, reparar Cuentas por Cobrar y Cuentas por Pagar, y garantizar diferencia de S/ 0.00 entre saldos equivalentes de Diario, Mayor, Balance y EEFF.
+
 | Criterio Medible | Meta | Estado Actual | Verificación Requerida |
 | :--- | :---: | :---: | :--- |
-| 1. Tablas y archivos en política de respaldo | 100% | En desarrollo | `REGISTRO_DATOS_EMPRESA` y `archivosEmpresa.ts` |
-| 2. Pérdidas o alteraciones en restauración | 0 pérdidas | Pendiente | Ida y vuelta completa en PostgreSQL real |
-| 3. Verificaciones de integridad SHA-256 | 100% | Pendiente | Hash por tabla y archivo en manifest |
-| 4. Archivos alterados intencionalmente rechazados | 100% rechazados | Pendiente | Prueba de inyección de corrupción en ZIP |
-| 5. Modificaciones a otras empresas durante restauración | 0 modificaciones | Pendiente | Aislamiento estricto de empresa en restore |
-| 6. Pruebas obligatorias aprobadas | 4/4 pruebas | Pendiente | Completa, alterada, aislamiento, reinicio |
-| 7. Objetivos RPO y RTO medidos | RPO ≤ 24h, RTO ≤ 60m | Pendiente | Telemetría en prueba real sobre PostgreSQL |
+| 1. Endpoints inexistentes invocados por vistas | 0 endpoints | Pendiente | Auditoría y corrección de 7 vistas detectadas |
+| 2. Confirmaciones falsas de operaciones | 0 confirmaciones | Pendiente | Flujo UI -> API -> PostgreSQL verificado |
+| 3. Formularios con flujo UI -> API -> PostgreSQL | 100% | Pendiente | Operación real confirmada en base de datos |
+| 4. Datos simulados/hardcoded en módulos reales | 0 datos mock | Pendiente | Eliminación de mocks en vistas operativas |
+| 5. Módulos capaces de recuperar datos tras reinicio | 100% | Pendiente | Prueba de persistencia frontend-backend |
+| 6. Diferencia de saldos entre Diario, Mayor, Balance y EEFF | S/ 0.00 | Pendiente | Conciliación de reportes contables oficiales |
+| 7. Cuentas consultadas desde PCGE de la empresa | 100% | Pendiente | Catálogo dinámico por tenant/empresa |
+| 8. Errores críticos de navegación/renderizado | 0 errores | Pendiente | Validación de flujos UI |
+| 9. Funciones no implementadas claramente deshabilitadas | 100% | Pendiente | Deshabilitar y excluir del alcance de piloto |

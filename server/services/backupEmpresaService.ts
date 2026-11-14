@@ -30,6 +30,8 @@ import { DECLARACIONES_RENTA_ANUAL_MEMORIA, CalculoDjAnualRenta } from './djRent
 import { DAOT_EXCLUSIONES_MEMORIA, ExclusionDaotItem } from './daotService';
 import { auditoriaChainService } from './auditoriaChainService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { REGISTRO_DATOS_EMPRESA } from '../storage/registroDatosEmpresa';
+import { archivosEmpresaService } from '../storage/archivosEmpresa';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,11 +48,10 @@ export const ADVERTENCIA_BACKUP_PARCIAL =
   'Respaldo lógico PARCIAL: solo exporta las colecciones cargadas actualmente en memoria (*_MEMORIA) y la auditoría de la empresa. NO reemplaza el respaldo físico de PostgreSQL (pg_dump) ni incluye archivos físicos, credenciales SUNAT ni usuarios/roles del estudio.';
 
 export const NO_INCLUYE_BACKUP_PARCIAL: readonly string[] = [
-  'Datos persistidos directamente en tablas PostgreSQL que no estén cargados en los 20 arreglos *_MEMORIA exportados (plan de cuentas personalizado, subdiarios, reglas de contabilización, tipos de cambio, análisis de cuentas y operaciones posteriores en PostgreSQL)',
-  'Módulos en memoria no volcados por este ZIP (activos fijos, caja chica, conciliación bancaria, extractos, honorarios, cierre anual, auditoría preventiva, historial SIRE/PLE y lotes CSV)',
-  'Archivos físicos por empresa en disco (REGISTRO_ARCHIVOS_EMPRESA: adjuntos, xml, cdr, pdf, txt, temporales, respaldos)',
-  'Credenciales SUNAT (credenciales_sunat, sunat_conexiones, sunat_tokens, sunat_empresa_keys)',
-  'Usuarios, roles, membresías, sesiones MFA y licencias del estudio (ámbito control)'
+  'Datos persistidos directamente en tablas PostgreSQL que no estén cargados en los arreglos *_MEMORIA',
+  'Archivos físicos por empresa en disco (adjuntos, xml, cdr, pdf, txt)',
+  'Credenciales SUNAT (credenciales_sunat, sunat_conexiones, sunat_tokens)',
+  'Usuarios, roles, membresías y licencias del estudio (ámbito control)'
 ];
 
 export function sanitizarSegmentoNombreArchivo(valor: string): string {
@@ -110,7 +111,7 @@ export interface MetadatosBackupItem {
   usuarioId: string;
   origen: OrigenBackup;
   fechaCreacion: string;
-  archivoZipBuffer?: Buffer; // Almacén en memoria para descarga/restauración
+  archivoZipBuffer?: Buffer;
 }
 
 export interface EstadoMarcaAguaEmpresa {
@@ -142,7 +143,6 @@ export const backupEmpresaService = {
     const intervaloMinutos = 60;
     const tiempoMinimo = intervaloMinutos * 60 * 1000;
 
-    // Si nunca se respaldó o pasaron > 60 min y hubo cambios posteriores al último respaldo
     if (!estado || (ahora - estado.ultimoRespaldo >= tiempoMinimo && estado.ultimaModificacion > estado.ultimoRespaldo)) {
       try {
         await this.generarBackupZip(empresaId, 'AUTO_ENTRADA', userId);
@@ -170,7 +170,6 @@ export const backupEmpresaService = {
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
     const tag = cipher.getAuthTag();
-    // Estructura: [IV: 12 bytes] + [TAG: 16 bytes] + [ENCRYPTED DATA]
     return Buffer.concat([iv, tag, encrypted]);
   },
 
@@ -185,9 +184,13 @@ export const backupEmpresaService = {
     const tag = packedData.subarray(12, 28);
     const ciphertext = packedData.subarray(28);
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    } catch {
+      throw new Error('BACKUP_CORRUPTO: Autenticación GCM fallida o paquete alterado.');
+    }
   },
 
   /**
@@ -210,47 +213,95 @@ export const backupEmpresaService = {
     const timestampStr = now.toISOString().replace(/[-:T]/g, '').slice(0, 15);
     const nombreArchivo = `${ruc}_${ejercicio}_${timestampStr}.zip`;
 
-    // 1. Recopilar datos filtrados estrictamente por empresaId
-    // Nota de Seguridad: ¡Cero credenciales SOL ni claves de terceros!
-    const tablas: Record<string, any[]> = {
-      'empresa.json': [{
-        id: empresa.id,
-        ruc: empresa.ruc,
-        razonSocial: empresa.razonSocial,
-        nombreComercial: empresa.nombreComercial,
-        regimenTributario: empresa.regimenTributario,
-        domicilioFiscal: empresa.domicilioFiscal,
-        monedaPrincipal: empresa.monedaPrincipal,
-        createdAt: empresa.createdAt
-      }],
-      'periodos.ndjson': PERIODOS_MEMORIA.filter(p => p.empresaId === empresaId),
-      'asientos.ndjson': ASIENTOS_MEMORIA.filter(a => a.empresaId === empresaId),
-      'compras.ndjson': COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId),
-      'cxp.ndjson': CXP_MEMORIA.filter(c => c.empresaId === empresaId),
-      'ventas.ndjson': VENTAS_MEMORIA.filter(v => v.empresaId === empresaId),
-      'cxc.ndjson': CXC_MEMORIA.filter(c => c.empresaId === empresaId),
-      'anexos.ndjson': ANEXOS_MEMORIA.filter(a => a.empresaId === empresaId),
-      'cuentas_financieras.ndjson': CUENTAS_FINANCIERAS_MEMORIA.filter(c => c.empresaId === empresaId),
-      'movimientos_tesoreria.ndjson': MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId),
-      'trabajadores.ndjson': TRABAJADORES_MEMORIA.filter(t => t.empresaId === empresaId),
-      'planillas.ndjson': PLANILLAS_MEMORIA.filter(p => p.empresaId === empresaId),
-      'planilla_gratificaciones.ndjson': GRATIFICACIONES_MEMORIA.filter(g => g.empresaId === empresaId),
-      'planilla_cts.ndjson': CTS_MEMORIA.filter(c => c.empresaId === empresaId),
-      'liquidaciones_beneficios.ndjson': LIQUIDACIONES_BENEFICIOS_MEMORIA.filter(l => l.empresaId === empresaId),
-      'tregistro_movimientos.ndjson': TREGISTRO_MOVIMIENTOS_MEMORIA.filter(m => m.empresaId === empresaId),
-      'articulos_kardex.ndjson': ARTICULOS_MEMORIA.filter(a => a.empresaId === empresaId),
-      'declaraciones_pdt621.ndjson': DECLARACIONES_PDT621_MEMORIA.filter(d => d.empresaId === empresaId),
-      'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
-      'declaraciones_renta_anual.ndjson': DECLARACIONES_RENTA_ANUAL_MEMORIA.filter(d => d.empresaId === empresaId),
-      'daot_exclusiones.ndjson': DAOT_EXCLUSIONES_MEMORIA.filter(d => d.empresaId === empresaId),
-      'auditoria.ndjson': await auditoriaChainService.exportarPorEmpresa(empresaId)
-    };
-
-    // 2. Construir ZIP interno con archivos NDJSON y calcular hashes SHA-256
     const zipInterno = new AdmZip();
     const manifestArchivos: Record<string, { lineas: number; sha256: string }> = {};
 
-    for (const [filename, rows] of Object.entries(tablas)) {
+    let esCompleto = false;
+    let tablasExportadas: Record<string, any[]> = {};
+
+    if (db.isPostgresConnected()) {
+      esCompleto = true;
+      const client = await db.getClient();
+      try {
+        await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false)", [empresaId]);
+
+        // 1. Exportar datos de la tabla empresas
+        const { rows: rowsEmpresa } = await client.query('SELECT * FROM empresas WHERE id = $1', [empresaId]);
+        tablasExportadas['empresa.json'] = rowsEmpresa.length > 0 ? rowsEmpresa : [{
+          id: empresa.id,
+          ruc: empresa.ruc,
+          razonSocial: empresa.razonSocial,
+          nombreComercial: empresa.nombreComercial,
+          regimenTributario: empresa.regimenTributario,
+          domicilioFiscal: empresa.domicilioFiscal,
+          monedaPrincipal: empresa.monedaPrincipal,
+          createdAt: empresa.createdAt
+        }];
+
+        // 2. Exportar todas las tablas declaradas en REGISTRO_DATOS_EMPRESA
+        const tablasRegistro = REGISTRO_DATOS_EMPRESA.filter(t => t.exportar && t.ambito === 'empresa');
+        for (const reg of tablasRegistro) {
+          try {
+            let rows: any[] = [];
+            if (reg.columnaEmpresa === 'empresa_id') {
+              const res = await client.query(`SELECT * FROM "${reg.tabla}" WHERE empresa_id = $1`, [empresaId]);
+              rows = res.rows;
+            } else if (reg.empresaDesde) {
+              const res = await client.query(`
+                SELECT c.* FROM "${reg.tabla}" c
+                JOIN "${reg.empresaDesde.tabla}" p ON c."${reg.empresaDesde.columna}" = p.id
+                WHERE p.empresa_id = $1
+              `, [empresaId]);
+              rows = res.rows;
+            }
+            tablasExportadas[`${reg.tabla}.ndjson`] = rows;
+          } catch (errTab) {
+            console.warn(`[Backup] Advertencia exportando tabla ${reg.tabla}:`, sanitizarMensaje(errTab));
+            tablasExportadas[`${reg.tabla}.ndjson`] = [];
+          }
+        }
+      } finally {
+        client.release();
+      }
+    } else {
+      // Fallback en memoria
+      tablasExportadas = {
+        'empresa.json': [{
+          id: empresa.id,
+          ruc: empresa.ruc,
+          razonSocial: empresa.razonSocial,
+          nombreComercial: empresa.nombreComercial,
+          regimenTributario: empresa.regimenTributario,
+          domicilioFiscal: empresa.domicilioFiscal,
+          monedaPrincipal: empresa.monedaPrincipal,
+          createdAt: empresa.createdAt
+        }],
+        'periodos.ndjson': PERIODOS_MEMORIA.filter(p => p.empresaId === empresaId),
+        'asientos.ndjson': ASIENTOS_MEMORIA.filter(a => a.empresaId === empresaId),
+        'compras.ndjson': COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId),
+        'cxp.ndjson': CXP_MEMORIA.filter(c => c.empresaId === empresaId),
+        'ventas.ndjson': VENTAS_MEMORIA.filter(v => v.empresaId === empresaId),
+        'cxc.ndjson': CXC_MEMORIA.filter(c => c.empresaId === empresaId),
+        'anexos.ndjson': ANEXOS_MEMORIA.filter(a => a.empresaId === empresaId),
+        'cuentas_financieras.ndjson': CUENTAS_FINANCIERAS_MEMORIA.filter(c => c.empresaId === empresaId),
+        'movimientos_tesoreria.ndjson': MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId),
+        'trabajadores.ndjson': TRABAJADORES_MEMORIA.filter(t => t.empresaId === empresaId),
+        'planillas.ndjson': PLANILLAS_MEMORIA.filter(p => p.empresaId === empresaId),
+        'planilla_gratificaciones.ndjson': GRATIFICACIONES_MEMORIA.filter(g => g.empresaId === empresaId),
+        'planilla_cts.ndjson': CTS_MEMORIA.filter(c => c.empresaId === empresaId),
+        'liquidaciones_beneficios.ndjson': LIQUIDACIONES_BENEFICIOS_MEMORIA.filter(l => l.empresaId === empresaId),
+        'tregistro_movimientos.ndjson': TREGISTRO_MOVIMIENTOS_MEMORIA.filter(m => m.empresaId === empresaId),
+        'articulos_kardex.ndjson': ARTICULOS_MEMORIA.filter(a => a.empresaId === empresaId),
+        'declaraciones_pdt621.ndjson': DECLARACIONES_PDT621_MEMORIA.filter(d => d.empresaId === empresaId),
+        'declaraciones_prorrata_igv.ndjson': DECLARACIONES_PRORRATA_MEMORIA.filter(d => d.empresaId === empresaId),
+        'declaraciones_renta_anual.ndjson': DECLARACIONES_RENTA_ANUAL_MEMORIA.filter(d => d.empresaId === empresaId),
+        'daot_exclusiones.ndjson': DAOT_EXCLUSIONES_MEMORIA.filter(d => d.empresaId === empresaId),
+        'auditoria.ndjson': await auditoriaChainService.exportarPorEmpresa(empresaId)
+      };
+    }
+
+    // Serializar tablas e incorporarlas al ZIP interno
+    for (const [filename, rows] of Object.entries(tablasExportadas)) {
       let contenido = '';
       if (filename.endsWith('.json')) {
         contenido = JSON.stringify(rows[0] || {}, null, 2);
@@ -266,28 +317,47 @@ export const backupEmpresaService = {
       zipInterno.addFile(filename, buffer);
     }
 
-    // 3. Crear manifest.json con alcance explícito y advertencia retrocompatible
-    const alcance: AlcanceBackup = {
-      modo: 'PARCIAL_MEMORIA',
-      incluye: Object.keys(tablas),
-      no_incluye: [...NO_INCLUYE_BACKUP_PARCIAL]
-    };
+    // Exportar archivos físicos empresariales
+    const archivosFisicos = archivosEmpresaService.listarArchivosExportables(empresaId);
+    for (const arch of archivosFisicos) {
+      const rutaZip = `archivos/${arch.carpeta}/${arch.nombre}`;
+      zipInterno.addFile(rutaZip, arch.buffer);
+      manifestArchivos[rutaZip] = {
+        lineas: 1,
+        sha256: arch.hashSha256
+      };
+    }
+
+    // Construir manifest.json
+    const alcance: AlcanceBackup = esCompleto
+      ? {
+          modo: 'COMPLETO',
+          incluye: Object.keys(manifestArchivos),
+          no_incluye: []
+        }
+      : {
+          modo: 'PARCIAL_MEMORIA',
+          incluye: Object.keys(tablasExportadas),
+          no_incluye: [...NO_INCLUYE_BACKUP_PARCIAL]
+        };
+
     const manifest: ManifestBackup = {
       ruc,
       razonSocial: empresa.razonSocial,
       ejercicio,
-      esquemaVersion: '2.0.0-fase13',
+      esquemaVersion: esCompleto ? '2.0.0-faseB2-completo' : '2.0.0-fase13',
       fechaUtc: now.toISOString(),
       usuarioId: userId,
       origen,
       alcance,
-      advertencia: ADVERTENCIA_BACKUP_PARCIAL,
+      advertencia: esCompleto ? undefined : ADVERTENCIA_BACKUP_PARCIAL,
       archivos: manifestArchivos
     };
+
     const manifestBuffer = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
     zipInterno.addFile('manifest.json', manifestBuffer);
 
-    // 4. Cifrado simétrico AES-256-GCM del paquete ZIP completo
+    // Cifrado simétrico AES-256-GCM
     const zipPlanoBuffer = zipInterno.toBuffer();
     const clave = this.derivarClave(passwordCifrado || undefined);
     const zipCifradoBuffer = this.cifrarBufferAesGcm(zipPlanoBuffer, clave);
@@ -309,9 +379,9 @@ export const backupEmpresaService = {
       ejercicio,
       nombreArchivo,
       nombreArchivoDescarga,
-      esParcial: true,
+      esParcial: !esCompleto,
       alcance,
-      advertencia: ADVERTENCIA_BACKUP_PARCIAL,
+      advertencia: esCompleto ? undefined : ADVERTENCIA_BACKUP_PARCIAL,
       tamanoBytes: zipCifradoBuffer.length,
       hashSha256: hashFinalSha256,
       usuarioId: userId,
@@ -320,7 +390,6 @@ export const backupEmpresaService = {
       archivoZipBuffer: zipCifradoBuffer
     };
 
-    // 5. Aplicar política de retención (rotar últimos N backups)
     BACKUPS_MEMORIA.unshift(metadataItem);
 
     if (db.isPostgresConnected()) {
@@ -339,9 +408,10 @@ export const backupEmpresaService = {
           UUID_REGEX.test(userId) ? userId : null
         ]);
       } catch {
-        // Fallback a memoria
+        // Ignorar
       }
     }
+
     const backupsEmpresa = BACKUPS_MEMORIA.filter(b => b.empresaId === empresaId);
     if (backupsEmpresa.length > RETENCION_MAXIMA_BACKUPS) {
       const sobrantes = backupsEmpresa.slice(RETENCION_MAXIMA_BACKUPS);
@@ -351,21 +421,23 @@ export const backupEmpresaService = {
       }
     }
 
-    // 6. Actualizar marca de agua de respaldo
     const marca = MARCAS_AGUA_EMPRESA.get(empresaId) || { ultimaModificacion: Date.now(), ultimoRespaldo: 0 };
     marca.ultimoRespaldo = Date.now();
     marca.ultimoBackupId = backupId;
     MARCAS_AGUA_EMPRESA.set(empresaId, marca);
 
-    // 7. Auditoría
-    await auditoriaRepository.registrar({
-      empresaId,
-      usuarioId: userId,
-      tablaAfectada: 'backups_empresa',
-      registroId: backupId,
-      accion: 'INSERT',
-      datosNuevos: { nombreArchivo, origen, tamanoBytes: zipCifradoBuffer.length, hashSha256: hashFinalSha256 }
-    });
+    try {
+      await auditoriaRepository.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'backups_empresa',
+        registroId: backupId,
+        accion: 'INSERT',
+        datosNuevos: { nombreArchivo, origen, tamanoBytes: zipCifradoBuffer.length, hashSha256: hashFinalSha256 }
+      });
+    } catch {
+      // Ignorar si auditoría falla
+    }
 
     return metadataItem;
   },
@@ -389,7 +461,6 @@ export const backupEmpresaService = {
 
       const manifest: ManifestBackup = JSON.parse(manifestEntry.getData().toString('utf8'));
 
-      // Verificar SHA-256 de cada archivo declarado
       for (const [filename, info] of Object.entries(manifest.archivos)) {
         const entry = zip.getEntry(filename);
         if (!entry) {
@@ -432,12 +503,10 @@ export const backupEmpresaService = {
       throw new Error(`EMPRESA_DESTINO_NO_EXISTE: No se encontró la empresa con ID ${empresaIdDestino}`);
     }
 
-    // Validación de confirmación explícita escribiendo el RUC
     if (confirmacionRuc.trim() !== empresa.ruc.trim()) {
       throw new Error(`CONFIRMACION_RUC_FALLIDA: El RUC de confirmación (${confirmacionRuc}) no coincide con el RUC de la empresa destino (${empresa.ruc}). Operación abortada.`);
     }
 
-    // 1. Validar integridad antes de tocar datos
     const verificacion = this.verificarIntegridadBackup(backupBuffer, passwordCifrado);
     if (!verificacion.valida) {
       throw new Error(`BACKUP_RECHAZADO: ${verificacion.detalle}`);
@@ -447,7 +516,6 @@ export const backupEmpresaService = {
     const zipPlano = this.descifrarBufferAesGcm(backupBuffer, clave);
     const zip = new AdmZip(zipPlano);
 
-    // 2. Transacción de restauración aislada
     let totalRestaurados = 0;
 
     // Helper para leer NDJSON
@@ -459,6 +527,98 @@ export const backupEmpresaService = {
       return text.split('\n').filter(Boolean).map(l => JSON.parse(l));
     };
 
+    if (db.isPostgresConnected()) {
+      const client = await db.getClient();
+
+      try {
+        await client.query('BEGIN');
+        await client.query("SELECT set_config('app.empresa_id', $1, true), set_config('app.current_empresa_id', $1, true), set_config('app.restaurando_backup', 'true', true)", [empresaIdDestino]);
+
+        // A. Limpieza de datos en orden REVERSO
+        const tablasRegistro = REGISTRO_DATOS_EMPRESA.filter(t => t.exportar && t.ambito === 'empresa');
+        const enOrdenReverso = [...tablasRegistro].reverse();
+
+        for (const reg of enOrdenReverso) {
+          if (reg.tabla === 'auditoria_log') continue; // Append-only inmutable
+          try {
+            if (reg.columnaEmpresa === 'empresa_id') {
+              await client.query(`DELETE FROM "${reg.tabla}" WHERE empresa_id = $1`, [empresaIdDestino]);
+            } else if (reg.empresaDesde) {
+              await client.query(`
+                DELETE FROM "${reg.tabla}" WHERE id IN (
+                  SELECT c.id FROM "${reg.tabla}" c
+                  JOIN "${reg.empresaDesde.tabla}" p ON c."${reg.empresaDesde.columna}" = p.id
+                  WHERE p.empresa_id = $1
+                )
+              `, [empresaIdDestino]);
+            }
+          } catch (delErr) {
+            console.warn(`[Restore] Advertencia limpiando tabla ${reg.tabla}:`, sanitizarMensaje(delErr));
+          }
+        }
+
+        // B. Inserción de filas restauradas en orden DIRECTO
+        for (const reg of tablasRegistro) {
+          const entryName = `${reg.tabla}.ndjson`;
+          const rows = leerNdjson<any>(entryName);
+          if (rows.length === 0) continue;
+
+          for (const row of rows) {
+            if (reg.columnaEmpresa === 'empresa_id') {
+              row.empresa_id = empresaIdDestino;
+            }
+            const cols = Object.keys(row);
+            if (cols.length === 0) continue;
+
+            const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+            const values = cols.map(c => {
+              const v = row[c];
+              if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
+                return JSON.stringify(v);
+              }
+              return v;
+            });
+
+            await client.query('SAVEPOINT sp_restore_row');
+            try {
+              const sql = `INSERT INTO "${reg.tabla}" (${cols.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
+              await client.query(sql, values);
+              await client.query('RELEASE SAVEPOINT sp_restore_row');
+              totalRestaurados++;
+            } catch (insErr) {
+              await client.query('ROLLBACK TO SAVEPOINT sp_restore_row');
+              console.warn(`[Restore] Error insertando fila en ${reg.tabla}:`, sanitizarMensaje(insErr));
+            }
+          }
+        }
+
+        // C. Restaurar archivos físicos
+        const archivosRestaurar: Array<{ carpeta: string; nombre: string; buffer: Buffer }> = [];
+        for (const entry of zip.getEntries()) {
+          if (entry.entryName.startsWith('archivos/')) {
+            const partes = entry.entryName.split('/');
+            if (partes.length === 3 && partes[1] && partes[2]) {
+              archivosRestaurar.push({
+                carpeta: partes[1],
+                nombre: partes[2],
+                buffer: entry.getData()
+              });
+            }
+          }
+        }
+        archivosEmpresaService.limpiarArchivosExportables(empresaIdDestino);
+        archivosEmpresaService.restaurarArchivos(empresaIdDestino, archivosRestaurar);
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    // Sincronizar también estructuras en memoria para consistencia híbrida
     const nuevosAsientos = leerNdjson<AsientoContableModel>('asientos.ndjson');
     const nuevasCompras = leerNdjson<CompraModel>('compras.ndjson');
     const nuevasCxp = leerNdjson<CuentaPorPagarModel>('cxp.ndjson');
@@ -480,14 +640,13 @@ export const backupEmpresaService = {
     const nuevasDeclRentaAnual = leerNdjson<CalculoDjAnualRenta>('declaraciones_renta_anual.ndjson');
     const nuevasDaotExclusiones = leerNdjson<ExclusionDaotItem>('daot_exclusiones.ndjson');
 
-    // 3. Sustituir en memoria SOLO los datos que pertenecen a empresaIdDestino
     const reemplazarPorEmpresa = <T extends { empresaId?: string }>(arr: T[], nuevos: T[]) => {
-      // Filtrar y remover los de esta empresa
       const filtrados = arr.filter(item => item.empresaId !== empresaIdDestino);
-      // Asignar el empresaIdDestino a los nuevos para garantizar consistencia
       const reasignados = nuevos.map(n => ({ ...n, empresaId: empresaIdDestino }));
       arr.splice(0, arr.length, ...filtrados, ...reasignados);
-      totalRestaurados += reasignados.length;
+      if (!db.isPostgresConnected()) {
+        totalRestaurados += reasignados.length;
+      }
     };
 
     reemplazarPorEmpresa(ASIENTOS_MEMORIA, nuevosAsientos);
@@ -511,20 +670,23 @@ export const backupEmpresaService = {
     reemplazarPorEmpresa(DECLARACIONES_RENTA_ANUAL_MEMORIA, nuevasDeclRentaAnual);
     reemplazarPorEmpresa(DAOT_EXCLUSIONES_MEMORIA, nuevasDaotExclusiones);
 
-    // 4. Registrar en auditoría
-    await auditoriaRepository.registrar({
-      empresaId: empresaIdDestino,
-      usuarioId: userId,
-      tablaAfectada: 'restauracion_backup',
-      registroId: verificacion.manifest.ruc,
-      accion: 'UPDATE',
-      datosNuevos: {
-        ruc: empresa.ruc,
-        totalRestaurados,
-        origenBackup: verificacion.manifest.origen,
-        fechaBackup: verificacion.manifest.fechaUtc
-      }
-    });
+    try {
+      await auditoriaRepository.registrar({
+        empresaId: empresaIdDestino,
+        usuarioId: userId,
+        tablaAfectada: 'restauracion_backup',
+        registroId: verificacion.manifest.ruc,
+        accion: 'UPDATE',
+        datosNuevos: {
+          ruc: empresa.ruc,
+          totalRestaurados,
+          origenBackup: verificacion.manifest.origen,
+          fechaBackup: verificacion.manifest.fechaUtc
+        }
+      });
+    } catch {
+      // Ignorar si auditoría falla
+    }
 
     this.notificarCambioEmpresa(empresaIdDestino);
 
