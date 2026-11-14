@@ -2,213 +2,92 @@
 
 ## 1. Evaluación y Decisión de Arquitectura de Despliegue (Presupuesto US$ 0.00)
 
-Para habilitar la operación simultánea de al menos **2 usuarios concurrentes** (por ejemplo, Contador Principal y Asistente Contable) compartiendo la misma base de datos PostgreSQL con visibilidad inmediata y **costo operativo mensual de US$ 0.00**, se evaluaron tres alternativas técnicas:
+Para habilitar la operación simultánea de **1 a 3 usuarios concurrentes** (Administrador / Contador Principal, Contador Senior y Asistente Contable) compartiendo la misma base de datos PostgreSQL 18 con sincronización automática y **costo operativo mensual adicional de US$ 0.00**, se seleccionó la arquitectura de **Servidor Local Centralizado en LAN con Transporte Cifrado HTTPS**.
 
-| Criterio Técnico / Operativo | Opción 1: Servidor Local Centralizado en LAN (Elegida) | Opción 2: Base de Datos en Nube Gratuita (Free Tier) | Opción 3: Túneles Públicos Temporales sobre Host Local |
+| Criterio Técnico / Operativo | Opción 1: Servidor Local Centralizado en LAN + HTTPS (Elegida) | Opción 2: Base de Datos en Nube Gratuita | Opción 3: Túneles Públicos Temporales |
 | :--- | :--- | :--- | :--- |
-| **Costo mensual recurrente** | **US$ 0.00** (infraestructura física ya existente en el estudio) | US$ 0.00 sujeto a recortes de cuota o suspensión por inactividad | US$ 0.00 con URLs efímeras o límites de ancho de banda |
-| **Latencia de red (p95)** | **< 5 ms en red local** (p95 transaccional medido: ~1.11 s bajo ráfaga de 44 operaciones simultáneas) | 80 ms – 350 ms por consulta SQL (degrada cierres y libros mayores) | 60 ms – 250 ms adicionales por salto de retransmisión |
-| **Límites de almacenamiento y conexiones** | **Sin límites artificiales** (capacidad total del disco local y pool configurable) | Límite estricto (0.5 GB – 1 GB y 10–20 conexiones máximas) | Límite de conexiones HTTP por minuto en planes gratuitos |
-| **Soberanía y seguridad de datos** | **100% local en la red privada del estudio**; los datos tributarios nunca salen a terceros | Datos contables alojados en jurisdicciones externas | Exposición de puertos o tráfico a través de intermediarios externos |
-| **Disponibilidad sin Internet** | **100% operativo** incluso ante cortes del proveedor de Internet (ISP) | Inoperativo si falla la conexión a Internet del estudio | Inoperativo si falla la conexión a Internet del estudio |
+| **Costo mensual recurrente** | **US$ 0.00** (infraestructura Windows ya instalada) | Cuotas estrictas / suspensión | Límites de ancho de banda y URLs efímeras |
+| **Latencia transaccional p95** | **282.93 ms medidos** (`npm run verify`, meta ≤ 2,000 ms) | 80–350 ms adicionales por SQL | 60–250 ms por salto externo |
+| **Visibilidad entre usuarios** | **164.95 ms medidos en BD** / polling UI cada 4 s | Dependiente de Internet | Dependiente de túnel externo |
+| **Cifrado de transporte LAN** | **HTTPS TLS con CA interna (`atlob-lan-ca.crt`)** | TLS administrado externo | Terminación en tercero |
+| **Disponibilidad sin Internet** | **100% operativo** en la red privada del estudio | Inoperativo sin Internet | Inoperativo sin Internet |
 
-### Justificación de la arquitectura seleccionada
-Se elige la **Opción 1: Servidor Local Centralizado en Red de Área Local (LAN) con PostgreSQL 18 Local**. En este esquema:
-1. El **Equipo Host (Servidor Principal del Estudio)** ejecuta el motor **PostgreSQL 18** (`127.0.0.1:5432`) y el servidor de aplicación Node.js/Express (`0.0.0.0:3000`).
-2. El **Usuario 1** opera desde el propio Equipo Host o desde su estación de trabajo (`http://<IP_LAN_HOST>:3000`).
-3. El **Usuario 2** accede desde su estación de trabajo conectada a la misma red LAN/Wi-Fi corporativa mediante el navegador web apuntando a `http://<IP_LAN_HOST>:3000`.
-4. Todas las transacciones pasan por el único pool central de conexiones hacia PostgreSQL, garantizando aislamiento por empresa (Row-Level Security), numeración correlativa atómica sin colisiones, bloqueo optimista por versión (`version`) y visibilidad inmediata (< 150 ms) entre usuarios.
+### Topología Real en el Equipo Anfitrión
+1. **Equipo Servidor Windows (`JOSEPHMC`, IPv4 LAN `192.168.1.34`):** Ejecuta PostgreSQL 18 (`127.0.0.1:5432`) y el servidor Node.js/Express (`0.0.0.0`) con HTTP local (`3000`) y HTTPS LAN (`3443`).
+2. **Usuario 1 (Equipo Servidor):** Accede mediante navegador web a `https://127.0.0.1:3443` (o `https://localhost:3443` / aplicación Electron de escritorio).
+3. **Usuarios 2 y 3 (Estaciones en la misma red privada LAN/Wi-Fi):** Instalan una única vez el certificado raíz local `storage/certs/atlob-lan-ca.crt` en Windows y acceden por navegador a **`https://192.168.1.34:3443`**.
 
 ---
 
-## 2. Guía Paso a Paso de Configuración y Puesta en Marcha
+## 2. Configuración y Puesta en Marcha
 
-### Paso 1: Asignar IP local fija al Equipo Host en la LAN
-1. En el equipo principal del estudio (Windows), verificar la dirección IPv4 local:
-   ```powershell
-   ipconfig
-   ```
-   *(Ejemplo de IP local del Host: `192.168.1.50`)*.
-2. Se recomienda reservar dicha IP (`192.168.1.50`) en el router del estudio mediante **DHCP Reservation** (por dirección MAC) o configurarla como IP estática en las propiedades del adaptador de red para que nunca cambie al reiniciar.
-
-### Paso 2: Configuración de PostgreSQL 18 en el Equipo Host
-PostgreSQL debe permanecer escuchando en `localhost` (`127.0.0.1:5432`) porque el servidor Node.js se ejecuta en el mismo Equipo Host y actúa como única puerta de enlace autenticada para los usuarios de la LAN.
-
-1. Verificar que el servicio `postgresql-x64-18` se encuentre activo y con inicio automático:
-   ```powershell
-   Get-Service -Name "postgresql*"
-   Set-Service -Name "postgresql-x64-18" -StartupType Automatic
-   ```
-2. Verificar en `postgresql.conf` los parámetros recomendados para operación multiusuario local:
-   ```ini
-   listen_addresses = 'localhost'
-   port = 5432
-   max_connections = 100
-   shared_buffers = 512MB
-   synchronous_commit = on
-   fsync = on
-   ```
-3. *(Opcional)* Si se requiere que una estación secundaria se conecte directamente al puerto `5432` por herramientas administrativas, agregar en `pg_hba.conf` únicamente la subred local con autenticación `scram-sha-256`:
-   ```text
-   host    all    contabilidad_app    192.168.1.0/24    scram-sha-256
-   ```
-
-### Paso 3: Configuración de variables de entorno (`.env`)
-En la raíz del proyecto (`c:\PROYECTOS SUNAT\Sistema Contable\.env`), configurar las variables de producción local:
-
-```dotenv
-NODE_ENV=production
-PORT=3000
-HOST=0.0.0.0
-
-# Conexión al motor PostgreSQL 18 local
-DATABASE_URL=postgresql://contabilidad_app:<PASSWORD_SEGURO>@localhost:5432/atlob_produccion
-
-# Secretos criptográficos del estudio (mínimo 32 caracteres aleatorios)
-JWT_SECRET=<CADENA_HEX_ALEATORIA_64_CARACTERES>
-BACKUP_ENCRYPTION_KEY=<CADENA_HEX_ALEATORIA_64_CARACTERES>
-SUNAT_CREDENTIALS_SECRET=<CADENA_HEX_ALEATORIA_64_CARACTERES>
-
-# Estilo de reporte por defecto
-REPORT_STYLE=estandar
-```
-
-> **Regla de seguridad:** Nunca incluir el archivo `.env` en el control de versiones ni compartir las claves en texto plano.
-
-### Paso 4: Regla de Firewall en Windows para acceso LAN del Segundo Usuario
-Ejecutar en PowerShell como **Administrador** en el Equipo Host para permitir el acceso de los equipos de la red local (`LocalSubnet`) únicamente al puerto `3000` de la aplicación:
-
+### Paso 1: Verificar PostgreSQL 18 y Dirección IP LAN
+En PowerShell:
 ```powershell
-New-NetFirewallRule `
-  -DisplayName "Sistema Contable - Acceso LAN Multiusuario (TCP 3000)" `
-  -Direction Inbound `
-  -LocalPort 3000 `
-  -Protocol TCP `
-  -Action Allow `
-  -Profile Private `
-  -RemoteAddress LocalSubnet
+Get-Service -Name "postgresql-x64-18"
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }
 ```
+*(Se recomienda reservar la IPv4 `192.168.1.34` en el router del estudio mediante reserva DHCP por MAC).*
 
-### Paso 5: Compilación, Migración y Arranque del Servidor
-1. Aplicar migraciones y verificar el esquema en PostgreSQL:
-   ```powershell
-   npm run db:migrate
-   ```
-2. Compilar el frontend optimizado y verificar integridad del sistema:
-   ```powershell
-   npm run build
-   ```
-3. Iniciar el servidor centralizado:
-   ```powershell
-   npm start
-   ```
-4. **Acceso de los usuarios:**
-   - **Usuario 1 (Equipo Host):** `http://localhost:3000`
-   - **Usuario 2 (Segunda estación en LAN):** `http://192.168.1.50:3000`
+### Paso 2: Variables de Entorno en `.env`
+En la raíz del proyecto, `.env` debe incluir en `production`:
+- `DATABASE_URL=postgresql://contabilidad_app:<PASSWORD>@localhost:5432/sistema_contable`
+- Los 5 secretos hexadecimales independientes de 64 caracteres (32 bytes) validados por `server/config/env.ts`:
+  - `JWT_SECRET`
+  - `JWT_REFRESH_SECRET`
+  - `SUNAT_ENCRYPTION_KEY`
+  - `MFA_SEED_SECRET`
+  - `BACKUP_ENCRYPTION_KEY`
+- Variables LAN opcionales: `HOST=0.0.0.0`, `PORT=3000`, `HTTPS_ENABLED=1`, `HTTPS_PORT=3443`, `SSL_KEY_PATH=storage/certs/atlob-lan.key`, `SSL_CERT_PATH=storage/certs/atlob-lan.crt`.
 
----
-
-## 3. Rutina de Respaldo Diario Firmado (SHA-256 + AES-256-GCM)
-
-El sistema cuenta con dos niveles complementarios de respaldo sin costo adicional:
-
-### 3.1 Respaldo Cifrado por Empresa (Desde la Aplicación o API)
-- **Responsable:** Usuario con rol `ADMINISTRADOR`.
-- **Alcance:** Exporta exclusivamente las 41 tablas declaradas y archivos exportables de la empresa seleccionada en formato `.zip.enc` (cifrado con **AES-256-GCM** y manifiesto `manifest.json` firmado con **SHA-256** por cada archivo NDJSON).
-- **Exclusiones de seguridad:** Excluye credenciales tributarias (`empresas_credenciales_sunat`) y usuarios/roles globales del estudio.
-- **Procedimiento:**
-  1. Ingresar al módulo **Configuración / Respaldo y Restauración**.
-  2. Seleccionar la empresa activa y hacer clic en **Generar Respaldo Cifrado**.
-  3. Almacenar el archivo generado en una carpeta sincronizada fuera del disco principal o unidad externa segura.
-
-### 3.2 Respaldo Completo Automatizado de Base de Datos PostgreSQL (Tarea Programada Diaria)
-Crear el script `scripts/respaldo_diario_lan.ps1` o ejecutar la siguiente rutina diaria mediante el **Programador de tareas de Windows** a las 19:00 hrs:
-
+### Paso 3: Generar Certificados TLS para LAN
 ```powershell
-$Fecha = Get-Date -Format "yyyyMMdd_HHmmss"
-$DestinoDir = "C:\Respaldos_Contabilidad\Diarios"
-New-Item -ItemType Directory -Force -Path $DestinoDir | Out-Null
+npm run cert:lan
+```
+Genera en `storage/certs/` (ignorado por Git): `atlob-lan-ca.crt`, `atlob-lan-ca.key`, `atlob-lan.crt` y `atlob-lan.key` con SAN para `localhost`, `JOSEPHMC`, `127.0.0.1` y `192.168.1.34`.
 
-$ArchivoDump = "$DestinoDir\atlob_produccion_$Fecha.backup"
-$ArchivoHash = "$DestinoDir\atlob_produccion_$Fecha.sha256"
-
-# 1. Generar volcado binario comprimido (formato custom de pg_dump)
-& "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" `
-  --host=localhost `
-  --port=5432 `
-  --username=contabilidad_app `
-  --format=custom `
-  --compress=9 `
-  --file="$ArchivoDump" `
-  atlob_produccion
-
-if ($LASTEXITCODE -ne 0) {
-  Write-Error "FALLO_RESPALDO_PG_DUMP: Código de salida $LASTEXITCODE"
-  exit 1
-}
-
-# 2. Generar huella criptográfica SHA-256 de verificación
-$Hash = (Get-FileHash -Path $ArchivoDump -Algorithm SHA256).Hash
-"$Hash  atlob_produccion_$Fecha.backup" | Set-Content -Path $ArchivoHash -Encoding UTF8
-
-# 3. Retención local: conservar últimos 30 días
-Get-ChildItem -Path $DestinoDir -Filter "*.backup" |
-  Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
-  Remove-Item -Force
+### Paso 4: Regla de Firewall de Windows (Requiere Autorización Previa del Administrador)
+Para inspeccionar qué reglas se crearían (sin modificar nada):
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\configurar-firewall-lan.ps1
+```
+Cuando el administrador autorice la apertura en red Privada, ejecutar en PowerShell como Administrador:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\configurar-firewall-lan.ps1 -ConfirmarFirewall
 ```
 
----
-
-## 4. Procedimiento de Restauración Verificada
-
-### 4.1 Restauración de una Empresa Individual (Aislada)
-1. Verificar primero la integridad criptográfica del paquete `.zip.enc` (el sistema comprueba automáticamente la etiqueta de autenticación AES-GCM y el hash SHA-256 de cada tabla en `manifest.json`; si 1 solo bit fue alterado, rechaza la operación con `BACKUP_RECHAZADO`).
-2. Confirmar el RUC exacto de la empresa de destino.
-3. Ejecutar la restauración desde el panel de Administración. La operación se ejecuta dentro de una única transacción atómica en PostgreSQL sin afectar a ninguna otra empresa del estudio.
-
-### 4.2 Restauración Completa de PostgreSQL ante Desastre de Hardware
-1. Verificar el hash SHA-256 del archivo `.backup` antes de restaurar:
-   ```powershell
-   $Esperado = (Get-Content .\atlob_produccion_YYYYMMDD_HHMMSS.sha256).Split(" ")[0]
-   $Actual = (Get-FileHash .\atlob_produccion_YYYYMMDD_HHMMSS.backup -Algorithm SHA256).Hash
-   if ($Esperado -ne $Actual) { throw "ARCHIVO_CORRUPTO: El hash SHA-256 no coincide." }
-   ```
-2. Restaurar en una base limpia con `pg_restore`:
-   ```powershell
-   & "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" `
-     --host=localhost `
-     --port=5432 `
-     --username=contabilidad_app `
-     --dbname=atlob_produccion `
-     --clean `
-     --if-exists `
-     --single-transaction `
-     .\atlob_produccion_YYYYMMDD_HHMMSS.backup
-   ```
+### Paso 5: Inicio y Parada Seguros por PID
+- **Iniciar servidor centralizado HTTP + HTTPS LAN:**
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\iniciar-servidor-lan.ps1
+  ```
+- **Detener únicamente el proceso registrado de ATLOB ERP (sin afectar otros procesos Node.js):**
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\detener-servidor-lan.ps1
+  ```
 
 ---
 
-## 5. Plan de Reversión (Rollback) ante Fallos Operativos
+## 3. Respaldo Diario Verificado y Política de Exclusiones
+El sistema declara **84 tablas en PostgreSQL** (`server/storage/registroDatosEmpresa.ts`):
+- **64 tablas** de ámbito `empresa` con RLS + FORCE RLS activo (**60 tablas exportables** en los paquetes `.atlob.bak` de empresa + **4 tablas SUNAT excluidas**: `credenciales_sunat`, `sunat_conexiones`, `sunat_empresa_keys`, `sunat_tokens`).
+- **13 tablas** de ámbito `control` (`empresas` se exporta en metadatos de compañía; usuarios, roles, membresías, tokens y configuración quedan excluidos del respaldo por empresa).
+- **7 tablas** de ámbito `compartido` (PCGE base, parámetros y cronogramas).
 
-Si tras una actualización del sistema se detecta cualquier anomalía operativa:
+Ejecutar respaldo cifrado (`AES-256-GCM` + verificación `SHA-256` por archivo y paquete):
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\respaldo-diario.ps1
+```
+*(Guarda `.atlob.bak` + `.sha256` en `storage/respaldos/YYYY-MM-DD/` y registra en `bitacora-respaldos.json`).*
 
-1. **Detener inmediatamente el servicio Node.js** para impedir nuevas escrituras:
-   ```powershell
-   Stop-Process -Name "node" -Force
-   ```
-2. **Revertir el código de la aplicación** al último commit certificado en Git:
-   ```powershell
-   git log --oneline -n 5
-   git checkout <COMMIT_ESTABLE_ANTERIOR>
-   npm ci
-   npm run build
-   ```
-3. **Evaluar estado de la base de datos:**
-   - Si no hubo cambios destructivos de esquema, reiniciar el servidor con `npm start`.
-   - Si una migración falló parcialmente, restaurar el último respaldo verificado con `pg_restore --single-transaction` (Sección 4.2).
-4. **Verificación post-reversión obligatoria:**
-   - Ejecutar la prueba real de concurrencia y persistencia:
-     ```powershell
-     npx tsx server/tests/real/test_pg_fase_d_multiusuario.ts
-     ```
-   - Confirmar código de salida `EXIT=0` antes de reabrir el acceso LAN a los usuarios.
+---
+
+## 4. Actualización y Reversión Segura (Sin Matar Procesos Globales)
+Nunca ejecutar `Stop-Process -Name "node" -Force`. Utilizar siempre los scripts controlados por PID:
+```powershell
+# Actualizar con respaldo previo obligatorio, migraciones idempotentes y build
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\actualizar-sistema.ps1
+
+# Revertir únicamente el código si falló una actualización, conservando el 100% de operaciones en PostgreSQL
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\actualizar-sistema.ps1 -Rollback
+```

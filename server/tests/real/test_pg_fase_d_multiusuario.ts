@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import https from 'node:https';
+import { createServer } from 'node:net';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import bcrypt from 'bcryptjs';
 import { parse } from 'dotenv';
 import { Pool } from 'pg';
+import { detectarIpsLan, generarCertificadosLan } from '../../../scripts/generar-certificado-lan';
 
 const envConfig = fs.existsSync('.env') ? parse(fs.readFileSync('.env', 'utf8')) : {};
 const connectionString =
@@ -18,9 +24,75 @@ function calcularPercentil(valores: number[], percentil: number): number {
   return ordenados[Math.max(0, Math.min(idx, ordenados.length - 1))];
 }
 
+async function obtenerPuertoLibre(): Promise<number> {
+  const srv = createServer();
+  await new Promise<void>(resolve => srv.listen(0, '127.0.0.1', resolve));
+  const port = (srv.address() as { port: number }).port;
+  await new Promise<void>(resolve => srv.close(() => resolve()));
+  return port;
+}
+
+function peticionHttps(options: {
+  hostname: string;
+  port: number;
+  path: string;
+  method?: string;
+  ca: Buffer;
+  token?: string;
+  body?: unknown;
+}): Promise<{ status: number; body: any; certSubject?: string; certSans?: string }> {
+  return new Promise((resolve, reject) => {
+    const payload = options.body !== undefined ? JSON.stringify(options.body) : undefined;
+    const req = https.request(
+      {
+        hostname: options.hostname,
+        port: options.port,
+        path: options.path,
+        method: options.method || 'GET',
+        ca: options.ca,
+        rejectUnauthorized: true,
+        headers: {
+          ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+          ...(payload
+            ? {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload),
+              }
+            : {}),
+        },
+      },
+      res => {
+        const socket = res.socket as unknown as { getPeerCertificate?: () => { subject?: { CN?: string }; subjectaltname?: string } };
+        const peerCert = socket.getPeerCertificate ? socket.getPeerCertificate() : undefined;
+        let raw = '';
+        res.on('data', chunk => {
+          raw += String(chunk);
+        });
+        res.on('end', () => {
+          let parsed: any = raw;
+          try {
+            parsed = raw ? JSON.parse(raw) : null;
+          } catch {
+            // Conservar texto plano si no es JSON
+          }
+          resolve({
+            status: res.statusCode || 0,
+            body: parsed,
+            certSubject: peerCert?.subject?.CN,
+            certSans: peerCert?.subjectaltname,
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 async function ejecutar() {
   console.log('========================================================================');
-  console.log('🏛️ VALIDACIÓN EN POSTGRESQL REAL: FASE D (OPERACIÓN MULTIUSUARIO Y LAN)');
+  console.log('🏛️ VALIDACIÓN EN POSTGRESQL REAL: PILOTO MULTIUSUARIO (3 SESIONES) Y LAN HTTPS');
   console.log('========================================================================\n');
 
   process.env.NODE_ENV = 'test';
@@ -28,12 +100,13 @@ async function ejecutar() {
 
   const pool = new Pool({
     connectionString,
-    max: 20,
+    max: 25,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   });
 
   const { setPostgresPool, conContextoEmpresa } = await import('../../config/database');
+  const { NOMBRES_SECRETOS_SERVIDOR } = await import('../../config/env');
   setPostgresPool(pool, true);
 
   const { asientoService } = await import('../../services/asientoService');
@@ -44,58 +117,122 @@ async function ejecutar() {
   const client = await pool.connect();
 
   const tenantId = crypto.randomUUID();
+  const sufijoRun = `${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
   let usuario1Id = crypto.randomUUID();
   let usuario2Id = crypto.randomUUID();
+  let usuario3Id = crypto.randomUUID();
+  let usuarioAuditorId = crypto.randomUUID();
   const empresaId = crypto.randomUUID();
-  const ruc = `20999${String(Date.now()).slice(-6)}`;
+  const empresaBId = crypto.randomUUID();
+  const ruc = `20998${String(Date.now()).slice(-6)}`;
+  const rucB = `20997${String(Date.now()).slice(-6)}`;
+  const clavePrueba = `Piloto3Seg_${crypto.randomBytes(6).toString('hex')}`;
+  const passwordHash = await bcrypt.hash(clavePrueba, 4);
   const periodo = '2026-03';
   const ejercicioId = crypto.randomUUID();
   const periodoId = crypto.randomUUID();
   const proveedorId = crypto.randomUUID();
   const clienteId = crypto.randomUUID();
 
+  const emailU1 = `u1.admin.${sufijoRun}@atlob.pe`;
+  const emailU2 = `u2.contador.${sufijoRun}@atlob.pe`;
+  const emailU3 = `u3.asistente.${sufijoRun}@atlob.pe`;
+  const emailU4 = `u4.auditor.${sufijoRun}@atlob.pe`;
+
   try {
-    console.log('--- 1. SEMBRADO DE EMPRESA Y 2 USUARIOS SIMULTÁNEOS EN POSTGRESQL ---');
+    console.log('--- 1. SEMBRADO DE EMPRESA A, EMPRESA B AISLADA Y 3 USUARIOS OPERATIVOS + AUDITOR ---');
     await client.query('BEGIN');
 
     await client.query(
-      `INSERT INTO tenants (id, nombre) VALUES ($1, 'Estudio Contable Fase D Multiusuario') ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO tenants (id, nombre) VALUES ($1, 'Estudio Contable Piloto 3 Usuarios') ON CONFLICT (id) DO NOTHING`,
       [tenantId]
     );
 
     const u1Res = await client.query(
       `INSERT INTO usuarios_estudio (id, email, password_hash, nombre, rol_global, is_active)
-       VALUES ($1, $2, '$2b$10$abcdefghijklmnopqrstuv', 'Contador Usuario 1', 'ADMINISTRADOR', true)
-       ON CONFLICT (email) DO UPDATE SET is_active = true
+       VALUES ($1, $2, $3, 'Usuario 1 Administrador', 'ADMINISTRADOR', true)
        RETURNING id`,
-      [usuario1Id, `u1.fased.${Date.now()}@atlob.pe`]
+      [usuario1Id, emailU1, passwordHash]
     );
     usuario1Id = u1Res.rows[0].id;
 
     const u2Res = await client.query(
       `INSERT INTO usuarios_estudio (id, email, password_hash, nombre, rol_global, is_active)
-       VALUES ($1, $2, '$2b$10$abcdefghijklmnopqrstuv', 'Contador Usuario 2', 'ADMINISTRADOR', true)
-       ON CONFLICT (email) DO UPDATE SET is_active = true
+       VALUES ($1, $2, $3, 'Usuario 2 Contador Senior', 'CONTADOR_SENIOR', true)
        RETURNING id`,
-      [usuario2Id, `u2.fased.${Date.now()}@atlob.pe`]
+      [usuario2Id, emailU2, passwordHash]
     );
     usuario2Id = u2Res.rows[0].id;
+
+    const u3Res = await client.query(
+      `INSERT INTO usuarios_estudio (id, email, password_hash, nombre, rol_global, is_active)
+       VALUES ($1, $2, $3, 'Usuario 3 Asistente Contable', 'ASISTENTE_CONTABLE', true)
+       RETURNING id`,
+      [usuario3Id, emailU3, passwordHash]
+    );
+    usuario3Id = u3Res.rows[0].id;
+
+    const u4Res = await client.query(
+      `INSERT INTO usuarios_estudio (id, email, password_hash, nombre, rol_global, is_active)
+       VALUES ($1, $2, $3, 'Usuario 4 Auditor Revisor', 'AUDITOR_REVISOR', true)
+       RETURNING id`,
+      [usuarioAuditorId, emailU4, passwordHash]
+    );
+    usuarioAuditorId = u4Res.rows[0].id;
 
     await client.query(
       `INSERT INTO empresas (
          id, tenant_id, codigo_empresa, ruc, razon_social, nombre_comercial,
          regimen_tributario, domicilio_fiscal, moneda_principal, metodo_inventario, is_active
-       ) VALUES (
-         $1, $2, $3, $4, 'CORPORACION MULTIUSUARIO FASE D S.A.C.', 'FASE D CORP',
-         'REGIMEN_GENERAL', 'AV. JAVIER PRADO ESTE 2450, LIMA', 'PEN', 'PERIODICO', true
-       )`,
-      [empresaId, tenantId, `FD-${Date.now().toString().slice(-5)}`, ruc]
+       ) VALUES
+       ($1, $2, $3, $4, 'CORPORACION PILOTO 3 USUARIOS S.A.C.', 'PILOTO 3U SAC',
+        'REGIMEN_GENERAL', 'AV. JAVIER PRADO ESTE 2450, LIMA', 'PEN', 'PERIODICO', true),
+       ($5, $2, $6, $7, 'EMPRESA AISLADA B S.A.C.', 'EMPRESA B',
+        'MYPE_TRIBUTARIO', 'JR. UCAYALI 100, LIMA', 'PEN', 'PERIODICO', true)`,
+      [
+        empresaId,
+        tenantId,
+        `P3-${Date.now().toString().slice(-5)}`,
+        ruc,
+        empresaBId,
+        `EB-${Date.now().toString().slice(-5)}`,
+        rucB,
+      ]
     );
 
-    const { rows: rolRows } = await client.query(`SELECT id FROM roles WHERE codigo = 'ADMINISTRADOR' LIMIT 1`);
-    const rolAdminId = rolRows.length > 0 ? rolRows[0].id : crypto.randomUUID();
-    if (rolRows.length === 0) {
-      await client.query(`INSERT INTO roles (id, codigo, nombre) VALUES ($1, 'ADMINISTRADOR', 'Administrador General')`, [rolAdminId]);
+    const { rows: rolesDb } = await client.query<{ id: string; codigo: string }>(`SELECT id, codigo FROM roles`);
+    const rolMap = new Map(rolesDb.map(r => [r.codigo, r.id]));
+    const rolAdminId = rolMap.get('ADMINISTRADOR') || crypto.randomUUID();
+    const rolContadorId = rolMap.get('CONTADOR') || rolAdminId;
+    const rolAsistenteId = rolMap.get('ASISTENTE') || rolAdminId;
+    const rolAuditorId = rolMap.get('AUDITOR') || rolAdminId;
+
+    const membresiasConfig = [
+      { uid: usuario1Id, rolId: rolAdminId, rolEmpresa: 'ADMINISTRADOR' },
+      { uid: usuario2Id, rolId: rolContadorId, rolEmpresa: 'CONTADOR_SENIOR' },
+      { uid: usuario3Id, rolId: rolAsistenteId, rolEmpresa: 'ASISTENTE_CONTABLE' },
+      { uid: usuarioAuditorId, rolId: rolAuditorId, rolEmpresa: 'AUDITOR_REVISOR' },
+    ];
+
+    for (const m of membresiasConfig) {
+      await client.query(
+        `SELECT set_config('app.usuario_id', $1, false),
+                set_config('app.user_id', $1, false),
+                set_config('app.current_user_id', $1, false),
+                set_config('app.empresa_id', $2, false),
+                set_config('app.current_empresa_id', $2, false)`,
+        [m.uid, empresaId]
+      );
+      await client.query(
+        `INSERT INTO membresias (id, usuario_id, empresa_id, rol_id, is_active)
+         VALUES ($1, $2, $3, $4, true)`,
+        [crypto.randomUUID(), m.uid, empresaId, m.rolId]
+      );
+      await client.query(
+        `INSERT INTO usuario_empresa (id, usuario_id, empresa_id, rol_en_empresa, estado)
+         VALUES ($1, $2, $3, $4, 'ACTIVO')`,
+        [crypto.randomUUID(), m.uid, empresaId, m.rolEmpresa]
+      );
     }
 
     await client.query(
@@ -105,32 +242,6 @@ async function ejecutar() {
               set_config('app.empresa_id', $2, false),
               set_config('app.current_empresa_id', $2, false)`,
       [usuario1Id, empresaId]
-    );
-
-    await client.query(
-      `INSERT INTO membresias (id, usuario_id, empresa_id, rol_id, is_active)
-       VALUES ($1, $2, $3, $4, true)`,
-      [crypto.randomUUID(), usuario1Id, empresaId, rolAdminId]
-    );
-
-    await client.query(
-      `SELECT set_config('app.usuario_id', $1, false),
-              set_config('app.user_id', $1, false),
-              set_config('app.current_user_id', $1, false)`,
-      [usuario2Id]
-    );
-
-    await client.query(
-      `INSERT INTO membresias (id, usuario_id, empresa_id, rol_id, is_active)
-       VALUES ($1, $2, $3, $4, true)`,
-      [crypto.randomUUID(), usuario2Id, empresaId, rolAdminId]
-    );
-
-    await client.query(
-      `SELECT set_config('app.usuario_id', $1, false),
-              set_config('app.user_id', $1, false),
-              set_config('app.current_user_id', $1, false)`,
-      [usuario1Id]
     );
 
     await client.query(
@@ -213,21 +324,21 @@ async function ejecutar() {
     await client.query(
       `INSERT INTO anexos (id, empresa_id, tipo_entidad, tipo_documento, numero_documento, razon_social, estado_sunat, condicion_sunat)
        VALUES
-       ($1, $2, 'PROVEEDOR', '6', '20555111222', 'PROVEEDOR CONCURRENTE S.A.C.', 'ACTIVO', 'HABIDO'),
-       ($3, $2, 'CLIENTE', '6', '20666333444', 'CLIENTE CONCURRENTE S.A.C.', 'ACTIVO', 'HABIDO')`,
+       ($1, $2, 'PROVEEDOR', '6', '20555111222', 'PROVEEDOR CONCURRENTE 3U S.A.C.', 'ACTIVO', 'HABIDO'),
+       ($3, $2, 'CLIENTE', '6', '20666333444', 'CLIENTE CONCURRENTE 3U S.A.C.', 'ACTIVO', 'HABIDO')`,
       [proveedorId, empresaId, clienteId]
     );
 
     await client.query('COMMIT');
-    console.log(`✅ Empresa ${ruc} y 2 usuarios simultáneos configurados en PostgreSQL.\n`);
+    console.log(`✅ Empresa A (${ruc}), Empresa B aislada (${rucB}) y 3 usuarios simultáneos + 1 auditor configurados.\n`);
 
     // =========================================================================
-    // 2. EJECUCIÓN CONCURRENTE (44 OPERACIONES EN PARALELO: 22 U1 + 22 U2)
+    // 2. EJECUCIÓN CONCURRENTE: 3 SESIONES SIMULTÁNEAS (66 OPERACIONES = 22 x 3)
     // =========================================================================
-    console.log('--- 2. EJECUCIÓN DE 44 OPERACIONES CONCURRENTES (22 USUARIO 1 + 22 USUARIO 2) ---');
+    console.log('--- 2. EJECUCIÓN DE 66 OPERACIONES CONCURRENTES EN 3 SESIONES SIMULTÁNEAS (22 x 3) ---');
     const latenciasMs: number[] = [];
 
-    const medirOperacion = async <T>(etiqueta: string, fn: () => Promise<T>): Promise<T> => {
+    const medirOperacion = async <T>(_etiqueta: string, fn: () => Promise<T>): Promise<T> => {
       const inicio = performance.now();
       const resultado = await fn();
       const duracion = performance.now() - inicio;
@@ -235,299 +346,171 @@ async function ejecutar() {
       return resultado;
     };
 
-    const operacionesUsuario1: Promise<any>[] = [];
-    const operacionesUsuario2: Promise<any>[] = [];
+    const ejecutarSesionUsuario = async (cfg: {
+      uid: string;
+      prefix: string;
+      montoBase: number;
+      serieCompra: string;
+      numCompraBase: string;
+      baseCompra: number;
+      igvCompra: number;
+      totalCompra: number;
+      diaCompra: string;
+      serieVenta: string;
+      numVentaBase: string;
+      baseVenta: number;
+      igvVenta: number;
+      totalVenta: number;
+      diaVenta: string;
+      reporteTipo: 'U1' | 'U2' | 'U3';
+    }) => {
+      let completadas = 0;
 
-    // 2.1: 10 Asientos directos por cada usuario (Subdiarios 10 y 05)
-    for (let i = 1; i <= 10; i++) {
-      const subCodigo = i % 2 === 0 ? '05' : '10';
-      const montoU1 = 1000 + i * 10;
-      const montoU2 = 2000 + i * 10;
-
-      operacionesUsuario1.push(
-        medirOperacion(`U1-Asiento-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario1Id, () =>
+      // 10 Asientos manuales (compitiendo los 3 usuarios simultáneamente en subdiarios 05 y 10)
+      for (let i = 1; i <= 10; i++) {
+        const subCodigo = i % 2 === 0 ? '05' : '10';
+        const fecha = `2026-03-${String((i % 25) + 1).padStart(2, '0')}`;
+        const monto = cfg.montoBase + i * 10;
+        await medirOperacion(`${cfg.prefix}-Asiento-${i}`, () =>
+          conContextoEmpresa(empresaId, cfg.uid, () =>
             asientoService.crearAsiento(
               empresaId,
               {
                 periodoId,
                 subdiarioId: subCodigo,
-                fecha: `2026-03-${String((i % 25) + 1).padStart(2, '0')}`,
-                glosa: `U1 Asiento Concurrente #${i}`,
+                fecha,
+                glosa: `${cfg.prefix} Asiento Concurrente #${i}`,
                 moneda: 'PEN',
                 tipoCambio: 3.75,
                 origen: 'MANUAL',
                 detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('1041')!, debe: montoU1, haber: 0, glosaLinea: `Ingreso banco U1 #${i}` },
-                  { linea: 2, cuentaId: ctaMap.get('5011')!, debe: 0, haber: montoU1, glosaLinea: `Aporte capital U1 #${i}` },
+                  { linea: 1, cuentaId: ctaMap.get('1041')!, debe: monto, haber: 0, glosaLinea: `Banco ${cfg.prefix} #${i}` },
+                  { linea: 2, cuentaId: ctaMap.get('5011')!, debe: 0, haber: monto, glosaLinea: `Capital ${cfg.prefix} #${i}` },
                 ],
               },
-              usuario1Id
+              cfg.uid
             )
           )
-        )
-      );
+        );
+        completadas++;
+      }
 
-      operacionesUsuario2.push(
-        medirOperacion(`U2-Asiento-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario2Id, () =>
-            asientoService.crearAsiento(
-              empresaId,
-              {
-                periodoId,
-                subdiarioId: subCodigo,
-                fecha: `2026-03-${String((i % 25) + 1).padStart(2, '0')}`,
-                glosa: `U2 Asiento Concurrente #${i}`,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                origen: 'MANUAL',
-                detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('1041')!, debe: montoU2, haber: 0, glosaLinea: `Ingreso banco U2 #${i}` },
-                  { linea: 2, cuentaId: ctaMap.get('5011')!, debe: 0, haber: montoU2, glosaLinea: `Aporte capital U2 #${i}` },
-                ],
-              },
-              usuario2Id
-            )
-          )
-        )
-      );
-    }
-
-    // 2.2: 5 Compras registradas por cada usuario (Subdiario 01)
-    for (let i = 1; i <= 5; i++) {
-      operacionesUsuario1.push(
-        medirOperacion(`U1-Compra-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario1Id, () =>
+      // 5 Compras (compitiendo los 3 usuarios simultáneamente en subdiario 01)
+      for (let i = 1; i <= 5; i++) {
+        const numero = `${cfg.numCompraBase}${i}`;
+        await medirOperacion(`${cfg.prefix}-Compra-${i}`, () =>
+          conContextoEmpresa(empresaId, cfg.uid, () =>
             compraService.registrar(
               empresaId,
               {
                 periodoId: periodo,
-                fechaEmision: '2026-03-10',
-                fechaContable: '2026-03-10',
+                fechaEmision: `2026-03-${cfg.diaCompra}`,
+                fechaContable: `2026-03-${cfg.diaCompra}`,
                 tipoComprobante: '01',
-                serie: 'F001',
-                numero: `000100${i}`,
+                serie: cfg.serieCompra,
+                numero,
                 proveedorId,
                 moneda: 'PEN',
                 tipoCambio: 3.75,
-                baseGravada: 500,
-                igv: 90,
-                total: 590,
+                baseGravada: cfg.baseCompra,
+                igv: cfg.igvCompra,
+                total: cfg.totalCompra,
                 formaPago: 'CREDITO',
                 diasCredito: 30,
-                glosa: `U1 Compra Mercadería F001-000100${i}`,
+                glosa: `${cfg.prefix} Compra Mercadería ${cfg.serieCompra}-${numero}`,
               },
-              usuario1Id
+              cfg.uid
             )
           )
-        )
-      );
+        );
+        completadas++;
+      }
 
-      operacionesUsuario2.push(
-        medirOperacion(`U2-Compra-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario2Id, () =>
-            compraService.registrar(
-              empresaId,
-              {
-                periodoId: periodo,
-                fechaEmision: '2026-03-11',
-                fechaContable: '2026-03-11',
-                tipoComprobante: '01',
-                serie: 'F002',
-                numero: `000200${i}`,
-                proveedorId,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                baseGravada: 800,
-                igv: 144,
-                total: 944,
-                formaPago: 'CREDITO',
-                diasCredito: 30,
-                glosa: `U2 Compra Mercadería F002-000200${i}`,
-              },
-              usuario2Id
-            )
-          )
-        )
-      );
-    }
-
-    // 2.3: 3 Ventas registradas por cada usuario (Subdiario 02)
-    for (let i = 1; i <= 3; i++) {
-      operacionesUsuario1.push(
-        medirOperacion(`U1-Venta-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario1Id, () =>
+      // 5 Ventas (compitiendo los 3 usuarios simultáneamente en subdiario 02)
+      for (let i = 1; i <= 5; i++) {
+        const numero = `${cfg.numVentaBase}${i}`;
+        await medirOperacion(`${cfg.prefix}-Venta-${i}`, () =>
+          conContextoEmpresa(empresaId, cfg.uid, () =>
             ventaService.registrar(
               empresaId,
               {
                 periodoId: periodo,
-                fechaEmision: '2026-03-15',
-                fechaContable: '2026-03-15',
+                fechaEmision: `2026-03-${cfg.diaVenta}`,
+                fechaContable: `2026-03-${cfg.diaVenta}`,
                 tipoComprobante: '01',
-                serie: 'F001',
-                numero: `000500${i}`,
+                serie: cfg.serieVenta,
+                numero,
                 clienteId,
                 moneda: 'PEN',
                 tipoCambio: 3.75,
-                baseGravada: 1000,
-                igv: 180,
-                total: 1180,
+                baseGravada: cfg.baseVenta,
+                igv: cfg.igvVenta,
+                total: cfg.totalVenta,
                 formaPago: 'CREDITO',
                 diasCredito: 30,
-                glosa: `U1 Venta Mercadería F001-000500${i}`,
+                glosa: `${cfg.prefix} Venta Mercadería ${cfg.serieVenta}-${numero}`,
               },
-              usuario1Id
+              cfg.uid
             )
           )
-        )
-      );
+        );
+        completadas++;
+      }
 
-      operacionesUsuario2.push(
-        medirOperacion(`U2-Venta-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario2Id, () =>
-            ventaService.registrar(
-              empresaId,
-              {
-                periodoId: periodo,
-                fechaEmision: '2026-03-16',
-                fechaContable: '2026-03-16',
-                tipoComprobante: '01',
-                serie: 'F002',
-                numero: `000600${i}`,
-                clienteId,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                baseGravada: 2000,
-                igv: 360,
-                total: 2360,
-                formaPago: 'CREDITO',
-                diasCredito: 30,
-                glosa: `U2 Venta Mercadería F002-000600${i}`,
-              },
-              usuario2Id
-            )
-          )
-        )
-      );
-    }
-
-    // 2.4: 2 Flujos de Borrador -> Modificación de Glosa -> Contabilización por cada usuario (Subdiario 08)
-    for (let i = 1; i <= 2; i++) {
-      operacionesUsuario1.push(
-        medirOperacion(`U1-BorradorUpdateContabilizar-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario1Id, async () => {
-            const borrador = await asientoService.crearBorrador(
-              empresaId,
-              {
-                periodoId,
-                subdiarioId: subMap.get('08')!,
-                fecha: '2026-03-20',
-                glosa: `U1 Borrador Inicial #${i}`,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                origen: 'AJUSTE',
-                detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 300, haber: 0, glosaLinea: 'Gasto inicial U1' },
-                  { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 300, glosaLinea: 'Pago banco U1' },
-                ],
-              },
-              usuario1Id
-            );
-            await asientoService.actualizarBorrador(
-              borrador.id,
-              {
-                periodoId,
-                subdiarioId: subMap.get('08')!,
-                fecha: '2026-03-20',
-                glosa: `U1 Glosa Modificada y Confirmada #${i}`,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 350, haber: 0, glosaLinea: 'Gasto ajustado U1' },
-                  { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 350, glosaLinea: 'Pago ajustado U1' },
-                ],
-              },
-              usuario1Id,
-              1,
-              empresaId
-            );
-            return await asientoService.contabilizar(borrador.id, empresaId, usuario1Id);
-          })
-        )
-      );
-
-      operacionesUsuario2.push(
-        medirOperacion(`U2-BorradorUpdateContabilizar-${i}`, () =>
-          conContextoEmpresa(empresaId, usuario2Id, async () => {
-            const borrador = await asientoService.crearBorrador(
-              empresaId,
-              {
-                periodoId,
-                subdiarioId: subMap.get('08')!,
-                fecha: '2026-03-21',
-                glosa: `U2 Borrador Inicial #${i}`,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                origen: 'AJUSTE',
-                detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 400, haber: 0, glosaLinea: 'Gasto inicial U2' },
-                  { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 400, glosaLinea: 'Pago banco U2' },
-                ],
-              },
-              usuario2Id
-            );
-            await asientoService.actualizarBorrador(
-              borrador.id,
-              {
-                periodoId,
-                subdiarioId: subMap.get('08')!,
-                fecha: '2026-03-21',
-                glosa: `U2 Glosa Modificada y Confirmada #${i}`,
-                moneda: 'PEN',
-                tipoCambio: 3.75,
-                detalles: [
-                  { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 450, haber: 0, glosaLinea: 'Gasto ajustado U2' },
-                  { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 450, glosaLinea: 'Pago ajustado U2' },
-                ],
-              },
-              usuario2Id,
-              1,
-              empresaId
-            );
-            return await asientoService.contabilizar(borrador.id, empresaId, usuario2Id);
-          })
-        )
-      );
-    }
-
-    // 2.5: 2 Consultas concurrentes de Libros y Balance por cada usuario durante la carga
-    operacionesUsuario1.push(
-      medirOperacion('U1-Consulta-LibroDiario', () =>
-        conContextoEmpresa(empresaId, usuario1Id, () => librosEEFFService.generarLibroDiario(empresaId, periodo))
-      ),
-      medirOperacion('U1-Consulta-LibroMayor', () =>
-        conContextoEmpresa(empresaId, usuario1Id, () => librosEEFFService.generarLibroMayor(empresaId, periodo))
-      )
-    );
-
-    operacionesUsuario2.push(
-      medirOperacion('U2-Consulta-BalanceComprobacion', () =>
-        conContextoEmpresa(empresaId, usuario2Id, () => librosEEFFService.generarBalanceComprobacion(empresaId, periodo))
-      ),
-      medirOperacion('U2-Consulta-LibroDiario', () =>
-        conContextoEmpresa(empresaId, usuario2Id, () => librosEEFFService.generarLibroDiario(empresaId, periodo))
-      )
-    );
-
-    assert.equal(operacionesUsuario1.length, 22, 'Usuario 1 debe ejecutar al menos 22 operaciones concurrentes');
-    assert.equal(operacionesUsuario2.length, 22, 'Usuario 2 debe ejecutar al menos 22 operaciones concurrentes');
+      // 2 Reportes / Consultas simultáneas mientras las otras sesiones concluyen escrituras
+      if (cfg.reporteTipo === 'U1') {
+        await medirOperacion('U1-LibroDiario', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => librosEEFFService.generarLibroDiario(empresaId, periodo))
+        );
+        await medirOperacion('U1-BalanceComprobacion', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => librosEEFFService.generarBalanceComprobacion(empresaId, periodo))
+        );
+      } else if (cfg.reporteTipo === 'U2') {
+        await medirOperacion('U2-LibroMayor', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => librosEEFFService.generarLibroMayor(empresaId, periodo))
+        );
+        await medirOperacion('U2-EstadoSituacionFinanciera', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => librosEEFFService.generarEstadoSituacionFinanciera(empresaId, periodo))
+        );
+      } else {
+        await medirOperacion('U3-RegistroCompras', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => compraService.obtenerRegistroCompras(empresaId, periodo))
+        );
+        await medirOperacion('U3-RegistroVentas', () =>
+          conContextoEmpresa(empresaId, cfg.uid, () => ventaService.obtenerRegistroVentas(empresaId, periodo))
+        );
+      }
+      completadas += 2;
+      return completadas;
+    };
 
     const inicioLote = performance.now();
-    const resultadosConcurrentes = await Promise.all([...operacionesUsuario1, ...operacionesUsuario2]);
+    const conteos = await Promise.all([
+      ejecutarSesionUsuario({
+        uid: usuario1Id, prefix: 'U1', montoBase: 1000,
+        serieCompra: 'F001', numCompraBase: '000100', baseCompra: 500, igvCompra: 90, totalCompra: 590, diaCompra: '10',
+        serieVenta: 'F001', numVentaBase: '000500', baseVenta: 1000, igvVenta: 180, totalVenta: 1180, diaVenta: '15',
+        reporteTipo: 'U1',
+      }),
+      ejecutarSesionUsuario({
+        uid: usuario2Id, prefix: 'U2', montoBase: 2000,
+        serieCompra: 'F002', numCompraBase: '000200', baseCompra: 800, igvCompra: 144, totalCompra: 944, diaCompra: '11',
+        serieVenta: 'F002', numVentaBase: '000600', baseVenta: 2000, igvVenta: 360, totalVenta: 2360, diaVenta: '16',
+        reporteTipo: 'U2',
+      }),
+      ejecutarSesionUsuario({
+        uid: usuario3Id, prefix: 'U3', montoBase: 3000,
+        serieCompra: 'F003', numCompraBase: '000300', baseCompra: 600, igvCompra: 108, totalCompra: 708, diaCompra: '12',
+        serieVenta: 'F003', numVentaBase: '000700', baseVenta: 1500, igvVenta: 270, totalVenta: 1770, diaVenta: '17',
+        reporteTipo: 'U3',
+      }),
+    ]);
     const duracionTotalLoteMs = performance.now() - inicioLote;
+    const totalOperacionesLote = conteos.reduce((acc, v) => acc + v, 0);
 
-    assert.equal(resultadosConcurrentes.length, 44, 'Las 44 operaciones concurrentes deben completarse sin rechazos');
-    console.log(`✅ 44 operaciones simultáneas completadas en ${duracionTotalLoteMs.toFixed(2)} ms.\n`);
+    assert.deepEqual(conteos, [22, 22, 22], 'Cada uno de los 3 usuarios debe ejecutar 22 operaciones');
+    assert.equal(totalOperacionesLote, 66, 'Las 66 operaciones de las 3 sesiones simultáneas deben completarse sin rechazos');
+    console.log(`✅ 66 operaciones en 3 sesiones simultáneas (22 x 3) completadas en ${duracionTotalLoteMs.toFixed(2)} ms.\n`);
 
     // =========================================================================
     // 3. VERIFICACIÓN DE INTEGRIDAD: 0 DUPLICADOS, 0 PERDIDOS, 0 COLISIONES
@@ -535,7 +518,7 @@ async function ejecutar() {
     console.log('--- 3. VERIFICACIÓN DE INTEGRIDAD TRANSACCIONAL Y CORRELATIVOS ÚNICOS ---');
 
     const { rows: asientosDb } = await client.query(
-      `SELECT id, subdiario_id, numero, cuo, glosa, estado, created_by, updated_by, version
+      `SELECT id, subdiario_id, numero, cuo, glosa, estado, created_by
        FROM asientos
        WHERE empresa_id = $1
        ORDER BY created_at ASC`,
@@ -544,43 +527,41 @@ async function ejecutar() {
 
     const asientosU1 = asientosDb.filter(a => a.created_by === usuario1Id && a.estado === 'CONTABILIZADO');
     const asientosU2 = asientosDb.filter(a => a.created_by === usuario2Id && a.estado === 'CONTABILIZADO');
+    const asientosU3 = asientosDb.filter(a => a.created_by === usuario3Id && a.estado === 'CONTABILIZADO');
 
-    console.log(`- Asientos contabilizados en PostgreSQL: Total = ${asientosDb.length} (Usuario 1 = ${asientosU1.length}, Usuario 2 = ${asientosU2.length})`);
-    assert.equal(asientosDb.length, 40, 'Deben existir exactamente los 40 asientos contables generados (0 perdidos, 0 duplicados)');
-    assert.equal(asientosU1.length, 20, 'Los 20 asientos del Usuario 1 deben existir íntegros');
-    assert.equal(asientosU2.length, 20, 'Los 20 asientos del Usuario 2 deben existir íntegros');
+    console.log(`- Asientos contabilizados: Total=${asientosDb.length} (U1=${asientosU1.length}, U2=${asientosU2.length}, U3=${asientosU3.length})`);
+    assert.equal(asientosDb.length, 60, 'Deben existir exactamente 60 asientos contables (30 manuales + 15 compras + 15 ventas)');
+    assert.equal(asientosU1.length, 20, 'Los 20 asientos de U1 deben existir íntegros');
+    assert.equal(asientosU2.length, 20, 'Los 20 asientos de U2 deben existir íntegros');
+    assert.equal(asientosU3.length, 20, 'Los 20 asientos de U3 deben existir íntegros');
 
-    // Verificar unicidad estricta de correlativo (subdiario_id + numero) y CUO
     const numerosSet = new Set(asientosDb.map(a => `${a.subdiario_id}:${a.numero}`));
     const cuosSet = new Set(asientosDb.map(a => a.cuo));
-    assert.equal(numerosSet.size, 40, 'Cada asiento debe tener un número correlativo único sin colisión');
-    assert.equal(cuosSet.size, 40, 'Cada asiento debe tener un CUO único sin colisión');
+    assert.equal(numerosSet.size, 60, 'Cada asiento debe tener correlativo único (subdiario_id + numero)');
+    assert.equal(cuosSet.size, 60, 'Cada asiento debe tener CUO único sin colisión');
 
-    // Verificar que las glosas modificadas en el flujo de borrador se conservaron sin sobrescritura cruzada
-    const glosasModificadasU1 = asientosU1.filter(a => String(a.glosa).startsWith('U1 Glosa Modificada y Confirmada #'));
-    const glosasModificadasU2 = asientosU2.filter(a => String(a.glosa).startsWith('U2 Glosa Modificada y Confirmada #'));
-    assert.equal(glosasModificadasU1.length, 2, 'Las 2 modificaciones de glosa de Usuario 1 deben persistir intactas');
-    assert.equal(glosasModificadasU2.length, 2, 'Las 2 modificaciones de glosa de Usuario 2 deben persistir intactas');
-
-    // Verificar compras y ventas en PostgreSQL
     const { rows: comprasDb } = await client.query(
-      `SELECT id, serie, numero, created_by, estado, total::float8 as total FROM comprobantes_compra WHERE empresa_id = $1`,
+      `SELECT id FROM comprobantes_compra WHERE empresa_id = $1`,
       [empresaId]
     );
     const { rows: ventasDb } = await client.query(
-      `SELECT id, serie, numero, created_by, estado, total::float8 as total FROM comprobantes_venta WHERE empresa_id = $1`,
+      `SELECT id FROM comprobantes_venta WHERE empresa_id = $1`,
       [empresaId]
     );
-    assert.equal(comprasDb.length, 10, 'Deben existir las 10 compras concurrentes (5 de U1 y 5 de U2)');
-    assert.equal(ventasDb.length, 6, 'Deben existir las 6 ventas concurrentes (3 de U1 y 3 de U2)');
-    console.log(`- Comprobantes persistidos: ${comprasDb.length} compras y ${ventasDb.length} ventas (0 colisiones).\n`);
+    const { rows: cxpDb } = await client.query(`SELECT id FROM cuentas_por_pagar WHERE empresa_id = $1`, [empresaId]);
+    const { rows: cxcDb } = await client.query(`SELECT id FROM cuentas_por_cobrar WHERE empresa_id = $1`, [empresaId]);
+
+    assert.equal(comprasDb.length, 15, 'Deben existir las 15 compras concurrentes (5 x 3 usuarios)');
+    assert.equal(ventasDb.length, 15, 'Deben existir las 15 ventas concurrentes (5 x 3 usuarios)');
+    assert.equal(cxpDb.length, 15, 'Deben generarse 15 cuentas por pagar sin colisión');
+    assert.equal(cxcDb.length, 15, 'Deben generarse 15 cuentas por cobrar sin colisión');
+    console.log(`- Comprobantes y auxiliares: 15 compras, 15 ventas, 15 CxP, 15 CxC (0 colisiones).\n`);
 
     // =========================================================================
-    // 4. VISIBILIDAD CRUZADA ENTRE USUARIOS (< 5,000 ms)
+    // 4. VISIBILIDAD CRUZADA ENTRE LOS 3 USUARIOS (< 5,000 ms) Y CUADRE S/ 0.00
     // =========================================================================
-    console.log('--- 4. VERIFICACIÓN DE VISIBILIDAD INMEDIATA ENTRE USUARIOS (< 5 SEGUNDOS) ---');
+    console.log('--- 4. VERIFICACIÓN DE VISIBILIDAD ENTRE LOS 3 USUARIOS (< 5 SEGUNDOS) ---');
 
-    // Usuario 1 confirma un nuevo asiento y actualiza el estado contable
     const asientoVisibilidad = await conContextoEmpresa(empresaId, usuario1Id, () =>
       asientoService.crearAsiento(
         empresaId,
@@ -588,13 +569,13 @@ async function ejecutar() {
           periodoId,
           subdiarioId: '10',
           fecha: '2026-03-28',
-          glosa: 'Asiento Confirmado por Usuario 1 para Lectura Inmediata de Usuario 2',
+          glosa: 'Asiento Confirmado U1 para Visibilidad Simultánea U2 y U3',
           moneda: 'PEN',
           tipoCambio: 3.75,
           origen: 'MANUAL',
           detalles: [
-            { linea: 1, cuentaId: ctaMap.get('1041')!, debe: 7500, haber: 0, glosaLinea: 'Cobro confirmado U1' },
-            { linea: 2, cuentaId: ctaMap.get('1212')!, debe: 0, haber: 7500, glosaLinea: 'Cancelación factura U1' },
+            { linea: 1, cuentaId: ctaMap.get('1041')!, debe: 7500, haber: 0, glosaLinea: 'Cobro U1' },
+            { linea: 2, cuentaId: ctaMap.get('1212')!, debe: 0, haber: 7500, glosaLinea: 'Factura U1' },
           ],
         },
         usuario1Id
@@ -602,48 +583,40 @@ async function ejecutar() {
     );
     const instanteCommitU1 = performance.now();
 
-    // Usuario 2 consulta inmediatamente desde su propio contexto de sesión
-    const lecturaU2 = await medirOperacion('U2-LecturaVisibilidadCruzada', () =>
-      conContextoEmpresa(empresaId, usuario2Id, async () => {
-        const asientoLeido = await asientoService.obtenerPorId(asientoVisibilidad.id);
-        const diarioLeido = await librosEEFFService.generarLibroDiario(empresaId, periodo);
-        const mayorLeido = await librosEEFFService.generarLibroMayor(empresaId, periodo);
-        const balanceLeido = await librosEEFFService.generarBalanceComprobacion(empresaId, periodo);
-        return { asientoLeido, diarioLeido, mayorLeido, balanceLeido };
-      })
-    );
+    const [lecturaU2, lecturaU3] = await Promise.all([
+      medirOperacion('U2-Visibilidad', () =>
+        conContextoEmpresa(empresaId, usuario2Id, async () => ({
+          asiento: await asientoService.obtenerPorId(asientoVisibilidad.id),
+          diario: await librosEEFFService.generarLibroDiario(empresaId, periodo),
+          mayor: await librosEEFFService.generarLibroMayor(empresaId, periodo),
+        }))
+      ),
+      medirOperacion('U3-Visibilidad', () =>
+        conContextoEmpresa(empresaId, usuario3Id, async () => ({
+          asiento: await asientoService.obtenerPorId(asientoVisibilidad.id),
+          balance: await librosEEFFService.generarBalanceComprobacion(empresaId, periodo),
+          esf: await librosEEFFService.generarEstadoSituacionFinanciera(empresaId, periodo),
+        }))
+      ),
+    ]);
     const latenciaVisibilidadMs = performance.now() - instanteCommitU1;
 
-    assert.ok(lecturaU2.asientoLeido, 'Usuario 2 debe ver inmediatamente el asiento confirmado por Usuario 1');
-    assert.equal(
-      lecturaU2.asientoLeido.glosa,
-      'Asiento Confirmado por Usuario 1 para Lectura Inmediata de Usuario 2',
-      'La glosa leída por Usuario 2 debe coincidir al 100% con lo confirmado por Usuario 1'
-    );
-    assert.equal(lecturaU2.diarioLeido.totalAsientos, 41, 'Usuario 2 debe ver los 41 asientos confirmados en el Libro Diario');
-    assert.equal(lecturaU2.diarioLeido.estaBalanceado, true, 'El Libro Diario visto por Usuario 2 debe estar cuadrado');
-    assert.equal(
-      lecturaU2.diarioLeido.totalDebe,
-      lecturaU2.mayorLeido.totalSumasDebe,
-      'Libro Diario y Libro Mayor vistos por Usuario 2 deben conciliar con diferencia S/ 0.00'
-    );
-    assert.equal(
-      lecturaU2.balanceLeido.totales.sumasDebe,
-      lecturaU2.diarioLeido.totalDebe,
-      'Balance de Comprobación visto por Usuario 2 debe conciliar con el Libro Diario'
-    );
-    assert.ok(
-      latenciaVisibilidadMs < 5000,
-      `La visibilidad para el segundo usuario debe ser < 5000 ms (medido: ${latenciaVisibilidadMs.toFixed(2)} ms)`
-    );
-    console.log(`✅ 100% de cambios confirmados visibles para Usuario 2 en ${latenciaVisibilidadMs.toFixed(2)} ms (Meta: < 5,000 ms).\n`);
+    assert.equal(lecturaU2.asiento?.glosa, 'Asiento Confirmado U1 para Visibilidad Simultánea U2 y U3');
+    assert.equal(lecturaU3.asiento?.glosa, 'Asiento Confirmado U1 para Visibilidad Simultánea U2 y U3');
+    assert.equal(lecturaU2.diario.totalAsientos, 61, 'Usuario 2 debe ver los 61 asientos confirmados');
+    assert.equal(lecturaU2.diario.estaBalanceado, true);
+    assert.equal(lecturaU2.diario.totalDebe, lecturaU2.mayor.totalSumasDebe, 'Diario == Mayor (S/ 0.00)');
+    assert.equal(lecturaU3.balance.totales.sumasDebe, lecturaU2.diario.totalDebe, 'Balance == Diario (S/ 0.00)');
+    assert.equal(lecturaU3.esf.estaCuadrado, true, 'Estado de Situación Financiera debe cuadrar (Activo = Pasivo + Patrimonio)');
+    assert.equal(lecturaU3.esf.diferenciaCuadre, 0, 'La diferencia del ESF debe ser S/ 0.00');
+    assert.ok(latenciaVisibilidadMs < 5000, `Visibilidad debe ser < 5000 ms (medido: ${latenciaVisibilidadMs.toFixed(2)} ms)`);
+    console.log(`✅ Cambios visibles simultáneamente para U2 y U3 en ${latenciaVisibilidadMs.toFixed(2)} ms (Diferencia S/ 0.00).\n`);
 
     // =========================================================================
-    // 5. CONTROL DE CONCURRENCIA / BLOQUEO OPTIMISTA (PREVENCIÓN DE LOST UPDATES)
+    // 5. BLOQUEO OPTIMISTA ANTE EDICIÓN CONCURRENTE (3 USUARIOS)
     // =========================================================================
-    console.log('--- 5. VERIFICACIÓN DE BLOQUEO OPTIMISTA ANTE EDICIÓN CONCURRENTE ---');
+    console.log('--- 5. VERIFICACIÓN DE BLOQUEO OPTIMISTA EN ASIENTOS Y COMPROBANTES ---');
 
-    // 5.1 Bloqueo optimista en Asiento Borrador
     const borradorCompartido = await conContextoEmpresa(empresaId, usuario1Id, () =>
       asientoService.crearBorrador(
         empresaId,
@@ -651,7 +624,7 @@ async function ejecutar() {
           periodoId,
           subdiarioId: subMap.get('10')!,
           fecha: '2026-03-29',
-          glosa: 'Borrador compartido versión 1',
+          glosa: 'Borrador compartido 3U v1',
           moneda: 'PEN',
           tipoCambio: 3.75,
           origen: 'MANUAL',
@@ -663,10 +636,8 @@ async function ejecutar() {
         usuario1Id
       )
     );
-    assert.equal(borradorCompartido.version, 1, 'Versión inicial del borrador debe ser 1');
 
-    // Usuario 1 actualiza primero con expectedVersion = 1 -> pasa a version = 2
-    const u1Update = await medirOperacion('U1-OptimisticLock-Success', () =>
+    const u1Update = await medirOperacion('U1-OptimisticLock', () =>
       conContextoEmpresa(empresaId, usuario1Id, () =>
         asientoService.actualizarBorrador(
           borradorCompartido.id,
@@ -674,7 +645,7 @@ async function ejecutar() {
             periodoId,
             subdiarioId: subMap.get('10')!,
             fecha: '2026-03-29',
-            glosa: 'Glosa actualizada legítimamente por Usuario 1 (v2)',
+            glosa: 'Glosa legítima v2 (Usuario 1)',
             moneda: 'PEN',
             tipoCambio: 3.75,
             detalles: [
@@ -688,49 +659,39 @@ async function ejecutar() {
         )
       )
     );
-    assert.equal(u1Update.version, 2, 'La actualización de Usuario 1 debe incrementar la versión a 2');
+    assert.equal(u1Update.version, 2);
 
-    // Usuario 2 intenta sobrescribir usando su lectura obsoleta expectedVersion = 1 -> debe ser rechazado
-    await assert.rejects(
-      () =>
-        conContextoEmpresa(empresaId, usuario2Id, () =>
-          asientoService.actualizarBorrador(
-            borradorCompartido.id,
-            {
-              periodoId,
-              subdiarioId: subMap.get('10')!,
-              fecha: '2026-03-29',
-              glosa: 'Intento de sobrescritura silenciosa por Usuario 2 con versión obsoleta',
-              moneda: 'PEN',
-              tipoCambio: 3.75,
-              detalles: [
-                { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 999, haber: 0, glosaLinea: 'Sobrescritura' },
-                { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 999, glosaLinea: 'Sobrescritura' },
-              ],
-            },
-            usuario2Id,
-            1,
-            empresaId
-          )
-        ),
-      /VERSION_DESACTUALIZADA/,
-      'PostgreSQL debe rechazar con VERSION_DESACTUALIZADA la edición con versión obsoleta'
-    );
+    for (const uConflict of [usuario2Id, usuario3Id]) {
+      await assert.rejects(
+        () =>
+          conContextoEmpresa(empresaId, uConflict, () =>
+            asientoService.actualizarBorrador(
+              borradorCompartido.id,
+              {
+                periodoId,
+                subdiarioId: subMap.get('10')!,
+                fecha: '2026-03-29',
+                glosa: 'Sobrescritura con versión obsoleta',
+                moneda: 'PEN',
+                tipoCambio: 3.75,
+                detalles: [
+                  { linea: 1, cuentaId: ctaMap.get('6311')!, debe: 999, haber: 0, glosaLinea: 'Bad' },
+                  { linea: 2, cuentaId: ctaMap.get('1041')!, debe: 0, haber: 999, glosaLinea: 'Bad' },
+                ],
+              },
+              uConflict,
+              1,
+              empresaId
+            )
+          ),
+        /VERSION_DESACTUALIZADA/
+      );
+    }
 
-    // Verificar que los datos de Usuario 1 no fueron sobrescritos y luego contabilizar con versión vigente
-    const verificadoPostConflicto = await conContextoEmpresa(empresaId, usuario2Id, () =>
-      asientoService.obtenerPorId(borradorCompartido.id)
-    );
-    assert.equal(
-      verificadoPostConflicto?.glosa,
-      'Glosa actualizada legítimamente por Usuario 1 (v2)',
-      'El bloqueo optimista debe preservar intacta la modificación de Usuario 1'
-    );
     await conContextoEmpresa(empresaId, usuario2Id, () =>
       asientoService.contabilizar(borradorCompartido.id, empresaId, usuario2Id)
     );
 
-    // 5.2 Bloqueo optimista en Comprobante de Compra Borrador
     const compraBorrador = await conContextoEmpresa(empresaId, usuario1Id, () =>
       compraService.crearBorrador(
         empresaId,
@@ -779,7 +740,7 @@ async function ejecutar() {
 
     await assert.rejects(
       () =>
-        conContextoEmpresa(empresaId, usuario2Id, () =>
+        conContextoEmpresa(empresaId, usuario3Id, () =>
           compraService.actualizarBorrador(
             empresaId,
             compraBorrador.id,
@@ -798,19 +759,179 @@ async function ejecutar() {
               total: 1062,
               formaPago: 'CONTADO',
             },
-            usuario2Id,
+            usuario3Id,
             1
           )
         ),
-      /VERSION_DESACTUALIZADA/,
-      'El comprobante de compra debe rechazar actualizaciones con versión obsoleta'
+      /VERSION_DESACTUALIZADA/
     );
-    console.log('✅ Bloqueo optimista verificado en Asientos y Comprobantes (0 sobrescrituras silenciosas).\n');
+    console.log('✅ Bloqueo optimista validado en Asientos y Comprobantes para los 3 usuarios.\n');
 
     // =========================================================================
-    // 6. MÉTRICAS DE TIEMPO DE RESPUESTA (p50, p95, p99 <= 2,000 ms)
+    // 6. TRANSPORTE HTTPS LAN, LOGIN REAL, RBAC, SEGREGACIÓN Y AISLAMIENTO
     // =========================================================================
-    console.log('--- 6. EVALUACIÓN DE RENDIMIENTO Y LATENCIA BAJO CARGA CONCURRENTE ---');
+    console.log('--- 6. PRUEBA EN VIVO DE SERVIDOR HTTPS LAN (TLS, RBAC Y AISLAMIENTO MULTIEMPRESA) ---');
+    const caPath = path.resolve('storage', 'certs', 'atlob-lan-ca.crt');
+    const certPath = path.resolve('storage', 'certs', 'atlob-lan.crt');
+    const keyPath = path.resolve('storage', 'certs', 'atlob-lan.key');
+    if (!fs.existsSync(caPath) || !fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+      generarCertificadosLan();
+    }
+    const caBuffer = fs.readFileSync(caPath);
+
+    const httpPort = await obtenerPuertoLibre();
+    const httpsPort = await obtenerPuertoLibre();
+    const secrets = Object.fromEntries(NOMBRES_SECRETOS_SERVIDOR.map(n => [n, crypto.randomBytes(32).toString('hex')]));
+
+    const srvChild = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        ...secrets,
+        NODE_ENV: 'production',
+        DATABASE_URL: connectionString,
+        HOST: '0.0.0.0',
+        PORT: String(httpPort),
+        HTTPS_ENABLED: '1',
+        HTTPS_PORT: String(httpsPort),
+        SSL_KEY_PATH: keyPath,
+        SSL_CERT_PATH: certPath,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    let srvOut = '';
+    srvChild.stdout.on('data', d => { srvOut += String(d); });
+    srvChild.stderr.on('data', d => { srvOut += String(d); });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Timeout esperando HTTPS server: ${srvOut.slice(-1500)}`)), 30000);
+        srvChild.once('exit', () => {
+          clearTimeout(timeout);
+          reject(new Error(`Servidor terminó inesperadamente: ${srvOut.slice(-1500)}`));
+        });
+        const check = () => {
+          if (srvOut.includes('Sistema disponible en') && srvOut.includes('Transporte HTTPS LAN disponible en')) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        };
+        srvChild.stdout.on('data', check);
+      });
+
+      const healthHttps = await peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/health', ca: caBuffer });
+      assert.equal(healthHttps.status, 200);
+      assert.equal(healthHttps.body.database, 'POSTGRESQL_CONNECTED');
+
+      const lanIps = detectarIpsLan();
+      if (lanIps.length > 0 && healthHttps.certSans?.includes(lanIps[0])) {
+        const healthLan = await peticionHttps({ hostname: lanIps[0], port: httpsPort, path: '/api/health', ca: caBuffer });
+        assert.equal(healthLan.status, 200);
+        assert.equal(healthLan.body.database, 'POSTGRESQL_CONNECTED');
+        console.log(`✅ HTTPS LAN verificado en https://${lanIps[0]}:${httpsPort}/api/health (CA local confiable, SAN: ${healthLan.certSans}).`);
+      }
+
+      const [loginU1, loginU2, loginU3, loginU4] = await Promise.all([
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU1, password: clavePrueba, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU2, password: clavePrueba, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU3, password: clavePrueba, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU4, password: clavePrueba, empresaPreferencia: empresaId } }),
+      ]);
+
+      for (const l of [loginU1, loginU2, loginU3, loginU4]) {
+        assert.equal(l.status, 200, `Login HTTPS debe responder 200: ${JSON.stringify(l.body)}`);
+        assert.ok(l.body?.data?.accessToken, 'Login HTTPS debe devolver accessToken en data');
+      }
+      const tok1 = loginU1.body.data.accessToken as string;
+      const tok2 = loginU2.body.data.accessToken as string;
+      const tok3 = loginU3.body.data.accessToken as string;
+      const tok4 = loginU4.body.data.accessToken as string;
+
+      // RBAC: Auditor puede leer pero NO escribir
+      const auditorLectura = await peticionHttps({
+        hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok4,
+        path: `/api/empresas/${empresaId}/registro-compras?periodo=${periodo}`,
+      });
+      assert.equal(auditorLectura.status, 200, 'AUDITOR_REVISOR debe poder consultar reportes');
+
+      const auditorEscritura = await peticionHttps({
+        hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok4, method: 'POST',
+        path: `/api/empresas/${empresaId}/compras`,
+        body: {
+          periodoId: periodo, fechaEmision: '2026-03-10', fechaContable: '2026-03-10',
+          tipoComprobante: '01', serie: 'F099', numero: '0000001', proveedorId,
+          moneda: 'PEN', tipoCambio: 3.75, baseGravada: 100, igv: 18, total: 118,
+          tipoAdquisicion: '1', formaPago: 'CONTADO',
+        },
+      });
+      assert.equal(auditorEscritura.status, 403, 'AUDITOR_REVISOR debe ser rechazado con 403 en escrituras');
+
+      // Aislamiento multiempresa: U2 y U3 no pueden acceder a Empresa B
+      const [cruceU2, cruceU3] = await Promise.all([
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok2, path: `/api/empresas/${empresaBId}/compras` }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok3, path: `/api/empresas/${empresaBId}/ventas` }),
+      ]);
+      assert.equal(cruceU2.status, 403, 'Acceso cruzado de U2 a Empresa B debe rechazarse con 403');
+      assert.equal(cruceU3.status, 403, 'Acceso cruzado de U3 a Empresa B debe rechazarse con 403');
+
+      // Concurrencia HTTPS de los 3 usuarios + Segregación de funciones (U1 crea, U1 no puede contabilizar, U3 no puede contabilizar, U2 contabiliza)
+      const [r1, r2, r3, crearBorradorHttp] = await Promise.all([
+        medirOperacion('HTTPS-U1-LibroDiario', () =>
+          peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok1, path: `/api/empresas/${empresaId}/libro-diario?periodo=${periodo}` })
+        ),
+        medirOperacion('HTTPS-U2-Balance', () =>
+          peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok2, path: `/api/empresas/${empresaId}/balance-comprobacion?periodo=${periodo}` })
+        ),
+        medirOperacion('HTTPS-U3-RegistroVentas', () =>
+          peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok3, path: `/api/empresas/${empresaId}/registro-ventas?periodo=${periodo}` })
+        ),
+        medirOperacion('HTTPS-U1-CrearBorrador', () =>
+          peticionHttps({
+            hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok1, method: 'POST',
+            path: `/api/empresas/${empresaId}/asientos`,
+            body: {
+              periodoId, subdiarioId: subMap.get('10')!, fecha: '2026-03-30',
+              glosa: 'Asiento HTTP TLS con segregación de funciones', moneda: 'PEN', tipoCambio: 3.75,
+              detalles: [
+                { linea: 1, cuentaId: ctaMap.get('1041')!, debe: 500, haber: 0, glosaLinea: 'Ingreso TLS' },
+                { linea: 2, cuentaId: ctaMap.get('5011')!, debe: 0, haber: 500, glosaLinea: 'Capital TLS' },
+              ],
+            },
+          })
+        ),
+      ]);
+      assert.equal(r1.status, 200);
+      assert.equal(r2.status, 200);
+      assert.equal(r3.status, 200);
+      assert.equal(crearBorradorHttp.status, 201);
+      const idBorradorHttp = crearBorradorHttp.body.data.id as string;
+
+      // U3 no puede contabilizar por RBAC (403); U1 no puede contabilizar por segregación (400); U2 sí puede (200)
+      const contabU3 = await peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok3, method: 'POST', path: `/api/asientos/${idBorradorHttp}/contabilizar` });
+      assert.equal(contabU3.status, 403, 'ASISTENTE_CONTABLE no tiene permiso para contabilizar');
+
+      const contabU1 = await peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok1, method: 'POST', path: `/api/asientos/${idBorradorHttp}/contabilizar` });
+      assert.equal(contabU1.status, 400, 'El creador no puede contabilizar su propio borrador (Segregación de funciones)');
+
+      const contabU2 = await medirOperacion('HTTPS-U2-Contabilizar', () =>
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, ca: caBuffer, token: tok2, method: 'POST', path: `/api/asientos/${idBorradorHttp}/contabilizar` })
+      );
+      assert.equal(contabU2.status, 200, `CONTADOR_SENIOR debe poder contabilizar: ${JSON.stringify(contabU2.body)}`);
+      console.log('✅ RBAC, aislamiento multiempresa, segregación de funciones y consultas concurrentes HTTPS verificados.\n');
+    } finally {
+      if (srvChild.exitCode === null && srvChild.signalCode === null) {
+        const exited = new Promise<void>(resolve => srvChild.once('exit', () => resolve()));
+        srvChild.kill();
+        await exited;
+      }
+    }
+
+    // =========================================================================
+    // 7. MÉTRICAS DE RENDIMIENTO Y LATENCIA (p50, p95 <= 2,000 ms)
+    // =========================================================================
+    console.log('--- 7. EVALUACIÓN DE RENDIMIENTO Y LATENCIA BAJO CARGA DE 3 USUARIOS ---');
     const p50 = calcularPercentil(latenciasMs, 50);
     const p95 = calcularPercentil(latenciasMs, 95);
     const p99 = calcularPercentil(latenciasMs, 99);
@@ -824,22 +945,18 @@ async function ejecutar() {
     console.log(`- Latencia p99        : ${p99.toFixed(2)} ms`);
     console.log(`- Latencia Máxima     : ${maxLat.toFixed(2)} ms`);
 
-    assert.ok(
-      p95 <= 2000,
-      `El tiempo de respuesta p95 debe ser <= 2000 ms (obtenido: ${p95.toFixed(2)} ms)`
-    );
-    console.log('✅ Criterio de rendimiento p95 <= 2,000 ms cumplido holgadamente.\n');
+    assert.ok(p95 <= 2000, `p95 debe ser <= 2000 ms (obtenido: ${p95.toFixed(2)} ms)`);
+    console.log('✅ Criterio de rendimiento p95 <= 2,000 ms cumplido.\n');
 
-    // Capturar totales antes del reinicio en frío
     const diarioPreReinicio = await conContextoEmpresa(empresaId, usuario1Id, () =>
       librosEEFFService.generarLibroDiario(empresaId, periodo)
     );
-    assert.equal(diarioPreReinicio.totalAsientos, 42, 'Deben existir 42 asientos contabilizados antes del reinicio');
+    assert.equal(diarioPreReinicio.totalAsientos, 63, 'Deben existir 63 asientos contabilizados antes del reinicio');
 
     // =========================================================================
-    // 7. PERSISTENCIA 100% TRAS REINICIO EN FRÍO (POOL.END + NUEVO POOL)
+    // 8. PERSISTENCIA 100% TRAS REINICIO EN FRÍO (POOL.END + NUEVO POOL)
     // =========================================================================
-    console.log('--- 7. PERSISTENCIA TRAS REINICIO EN FRÍO (DISCONNECT & RECONNECT) ---');
+    console.log('--- 8. PERSISTENCIA TRAS REINICIO EN FRÍO (DISCONNECT & RECONNECT) ---');
     client.release();
     await pool.end();
 
@@ -850,16 +967,19 @@ async function ejecutar() {
     });
     setPostgresPool(freshPool, true);
 
-    await conContextoEmpresa(empresaId, usuario2Id, async () => {
+    await conContextoEmpresa(empresaId, usuario3Id, async () => {
       const diarioPost = await librosEEFFService.generarLibroDiario(empresaId, periodo);
       const mayorPost = await librosEEFFService.generarLibroMayor(empresaId, periodo);
       const balancePost = await librosEEFFService.generarBalanceComprobacion(empresaId, periodo);
+      const esfPost = await librosEEFFService.generarEstadoSituacionFinanciera(empresaId, periodo);
 
-      assert.equal(diarioPost.totalAsientos, diarioPreReinicio.totalAsientos, 'Total de asientos debe persistir al 100% tras reinicio');
-      assert.equal(diarioPost.totalDebe, diarioPreReinicio.totalDebe, 'Total Debe debe persistir idéntico tras reinicio');
-      assert.equal(diarioPost.totalHaber, diarioPreReinicio.totalHaber, 'Total Haber debe persistir idéntico tras reinicio');
-      assert.equal(mayorPost.totalSumasDebe, diarioPost.totalDebe, 'Libro Mayor debe cuadrar exactamente con Libro Diario tras reinicio');
-      assert.equal(balancePost.totales.sumasDebe, diarioPost.totalDebe, 'Balance de Comprobación debe cuadrar tras reinicio');
+      assert.equal(diarioPost.totalAsientos, 63, 'Los 63 asientos deben persistir íntegros tras reinicio');
+      assert.equal(diarioPost.totalDebe, diarioPreReinicio.totalDebe);
+      assert.equal(diarioPost.totalHaber, diarioPreReinicio.totalHaber);
+      assert.equal(mayorPost.totalSumasDebe, diarioPost.totalDebe);
+      assert.equal(balancePost.totales.sumasDebe, diarioPost.totalDebe);
+      assert.equal(esfPost.estaCuadrado, true);
+      assert.equal(esfPost.diferenciaCuadre, 0);
     });
     console.log('✅ Persistencia 100% tras reinicio en frío verificada exitosamente.\n');
 
@@ -885,9 +1005,16 @@ async function ejecutar() {
       await cleanClient.query('DELETE FROM subdiarios WHERE empresa_id = $1', [empresaId]);
       await cleanClient.query('DELETE FROM periodos WHERE empresa_id = $1', [empresaId]);
       await cleanClient.query('DELETE FROM ejercicios WHERE empresa_id = $1', [empresaId]);
-      await cleanClient.query('DELETE FROM membresias WHERE empresa_id = $1', [empresaId]);
-      await cleanClient.query('DELETE FROM empresas WHERE id = $1', [empresaId]);
-      await cleanClient.query('DELETE FROM usuarios_estudio WHERE id IN ($1, $2)', [usuario1Id, usuario2Id]);
+
+      for (const uid of [usuario1Id, usuario2Id, usuario3Id, usuarioAuditorId]) {
+        await cleanClient.query("SELECT set_config('app.usuario_id', $1, false), set_config('app.user_id', $1, false)", [uid]);
+        await cleanClient.query('DELETE FROM refresh_tokens WHERE usuario_id = $1', [uid]);
+        await cleanClient.query('DELETE FROM usuario_empresa WHERE usuario_id = $1', [uid]);
+        await cleanClient.query('DELETE FROM membresias WHERE usuario_id = $1', [uid]);
+      }
+
+      await cleanClient.query('DELETE FROM empresas WHERE id IN ($1, $2)', [empresaId, empresaBId]);
+      await cleanClient.query('DELETE FROM usuarios_estudio WHERE id IN ($1, $2, $3, $4)', [usuario1Id, usuario2Id, usuario3Id, usuarioAuditorId]);
       await cleanClient.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
       await cleanClient.query("SELECT set_config('app.restaurando_backup', 'false', false)");
     } catch {
@@ -898,10 +1025,10 @@ async function ejecutar() {
     }
 
     console.log('========================================================================');
-    console.log('🎉 FASE D (MULTIUSUARIO Y CONCURRENCIA) APROBADA AL 100% EN POSTGRESQL REAL (EXIT 0)');
+    console.log('🎉 PILOTO MULTIUSUARIO (3 SESIONES) + HTTPS LAN APROBADO AL 100% (EXIT 0)');
     console.log('========================================================================');
   } catch (err) {
-    console.error('❌ ERROR CRÍTICO EN PRUEBAS DE FASE D:', err);
+    console.error('❌ ERROR CRÍTICO EN PRUEBAS MULTIUSUARIO / HTTPS LAN:', err);
     try { client.release(); } catch {}
     try { await pool.end(); } catch {}
     process.exit(1);

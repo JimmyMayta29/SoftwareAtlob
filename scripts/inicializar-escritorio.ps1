@@ -76,8 +76,8 @@ function Initialize-Configuration {
       'NODE_ENV=production'
       'PORT=3000'
       'DATABASE_URL=' + $databaseUrl
-      'JWT_SECRET=' + (New-RandomHex 48)
-      'JWT_REFRESH_SECRET=' + (New-RandomHex 48)
+      'JWT_SECRET=' + (New-RandomHex 32)
+      'JWT_REFRESH_SECRET=' + (New-RandomHex 32)
       'SUNAT_ENCRYPTION_KEY=' + (New-RandomHex 32)
       'MFA_SEED_SECRET=' + (New-RandomHex 32)
       'BACKUP_ENCRYPTION_KEY=' + (New-RandomHex 32)
@@ -99,11 +99,11 @@ function Initialize-Configuration {
   if (-not $databaseUrl -or $databaseUrl -notmatch '^postgres(ql)?://' -or $databaseUrl -match '[\s#\r\n]') {
     throw 'DATABASE_URL falta o no es válida en .env. No se iniciará el modo en memoria.'
   }
-  if (-not $jwtSecret -or $jwtSecret.Length -lt 32 -or $jwtSecret.StartsWith('development-only-')) {
-    throw 'JWT_SECRET debe contener al menos 32 caracteres propios de esta instalación.'
+  if (-not $jwtSecret -or $jwtSecret -notmatch '^[a-fA-F0-9]{64}$' -or $jwtSecret.StartsWith('development-only-')) {
+    throw 'JWT_SECRET debe ser una clave propia de 32 bytes expresada en 64 dígitos hexadecimales.'
   }
-  if (-not $refreshSecret -or $refreshSecret.Length -lt 32 -or $refreshSecret.StartsWith('development-only-') -or $refreshSecret -eq $jwtSecret) {
-    throw 'JWT_REFRESH_SECRET debe ser distinto de JWT_SECRET y contener al menos 32 caracteres.'
+  if (-not $refreshSecret -or $refreshSecret -notmatch '^[a-fA-F0-9]{64}$' -or $refreshSecret.StartsWith('development-only-') -or $refreshSecret -eq $jwtSecret) {
+    throw 'JWT_REFRESH_SECRET debe ser distinto de JWT_SECRET y contener 32 bytes expresados en 64 dígitos hexadecimales.'
   }
   if (-not $encryptionKey -or $encryptionKey -notmatch '^[a-fA-F0-9]{64}$' -or $encryptionKey -eq '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') {
     throw 'SUNAT_ENCRYPTION_KEY debe ser una clave propia de 32 bytes expresada en hexadecimal.'

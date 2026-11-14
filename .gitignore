@@ -18,3 +18,6 @@ docs/evidencia/lint.txt
 docs/evidencia/build.txt
 docs/evidencia/npm_test.txt
 storage/empresas/
+storage/certs/
+storage/instancia/
+storage/respaldos/

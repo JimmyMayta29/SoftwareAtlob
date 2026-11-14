@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
 import path from 'path';
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { apiRoutes } from './server/routes';
 import { runMigrations } from './server/db/migrate';
 import { env } from './server/config/env';
@@ -83,6 +85,27 @@ async function startServer() {
   if (!address || typeof address === 'string') throw new Error('DIRECCION_SERVIDOR_INVALIDA');
   origenLocal = `http://${host}:${address.port}`;
 
+  let httpsServer: HttpsServer | null = null;
+  const httpsEnabled = process.env.HTTPS_ENABLED === '1' || process.env.HTTPS_ENABLED === 'true';
+  if (!escritorio && httpsEnabled) {
+    const keyPath = path.resolve(process.env.SSL_KEY_PATH || path.join('storage', 'certs', 'atlob-lan.key'));
+    const certPath = path.resolve(process.env.SSL_CERT_PATH || path.join('storage', 'certs', 'atlob-lan.crt'));
+    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+      const httpsPortRaw = Number(process.env.HTTPS_PORT ?? 3443);
+      const httpsPort = Number.isFinite(httpsPortRaw) && httpsPortRaw >= 0 ? httpsPortRaw : 3443;
+      httpsServer = createHttpsServer({
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath)
+      }, app);
+      await new Promise<void>((resolve, reject) => {
+        httpsServer!.once('error', reject);
+        httpsServer!.listen(httpsPort, host, resolve);
+      });
+    } else {
+      console.warn(`⚠️ [Server] HTTPS_ENABLED=1 pero no se encontraron certificados TLS en ${certPath} / ${keyPath}.`);
+    }
+  }
+
   if (escritorio) {
     parentPort?.on('message', ({ data }) => {
       if (!data || typeof data !== 'object' || !('type' in data) || data.type !== 'shutdown') return;
@@ -92,6 +115,27 @@ async function startServer() {
     parentPort?.postMessage({ type: 'listening', port: address.port });
   } else {
     console.log(`🚀 [Server] Sistema disponible en ${origenLocal}`);
+    if (httpsServer) {
+      const httpsAddress = httpsServer.address();
+      if (httpsAddress && typeof httpsAddress !== 'string') {
+        console.log(`🔒 [Server] Transporte HTTPS LAN disponible en https://${host}:${httpsAddress.port}`);
+      }
+    }
+    const cerrarOrdenado = () => {
+      const tareas: Promise<void>[] = [
+        new Promise<void>(resolve => server.close(() => resolve())),
+      ];
+      if (httpsServer) {
+        tareas.push(new Promise<void>(resolve => httpsServer!.close(() => resolve())));
+      }
+      void Promise.allSettled(tareas).finally(() => {
+        void closeDatabase().finally(() => process.exit(0));
+      });
+      server.closeAllConnections();
+      httpsServer?.closeAllConnections();
+    };
+    process.once('SIGINT', cerrarOrdenado);
+    process.once('SIGTERM', cerrarOrdenado);
   }
 }
 
