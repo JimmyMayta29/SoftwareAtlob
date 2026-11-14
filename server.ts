@@ -12,6 +12,18 @@ import { fileURLToPath } from 'node:url';
 import { sanitizarMensaje } from './server/utils/seguridadDatos';
 
 const escritorio = process.env.ATLOB_DESKTOP === '1';
+
+function esIpPrivadaOLocal(raw?: string): boolean {
+  if (!raw) return false;
+  const ip = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  if (ip.startsWith('172.')) {
+    const segundo = Number(ip.split('.')[1]);
+    return Number.isInteger(segundo) && segundo >= 16 && segundo <= 31;
+  }
+  return false;
+}
 const parentPort = (process as typeof process & {
   parentPort?: { postMessage(message: unknown): void; on(event: 'message', listener: (event: { data: unknown }) => void): void };
 }).parentPort;
@@ -45,6 +57,15 @@ async function startServer() {
       next();
     });
   } else {
+    if (process.env.LAN_ONLY === '1') {
+      app.use((req, res, next) => {
+        if (!esIpPrivadaOLocal(req.socket.remoteAddress)) {
+          res.status(403).json({ success: false, error: 'ACCESO_LAN_PRIVADA_REQUERIDO' });
+          return;
+        }
+        next();
+      });
+    }
     const allowed = process.env.ALLOWED_ORIGIN;
     if (allowed) {
       app.use(cors({ origin: allowed.split(',').map(s => s.trim()), credentials: true }));
@@ -74,19 +95,20 @@ async function startServer() {
     });
   }
 
+  const httpsEnabled = process.env.HTTPS_ENABLED === '1' || process.env.HTTPS_ENABLED === 'true';
   const port = escritorio ? 0 : env.PORT || 3000;
   const host = escritorio ? '127.0.0.1' : process.env.HOST || '0.0.0.0';
+  const httpHost = escritorio || httpsEnabled ? (process.env.HTTP_HOST || '127.0.0.1') : host;
   const server = createServer(app);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, host, resolve);
+    server.listen(port, httpHost, resolve);
   });
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('DIRECCION_SERVIDOR_INVALIDA');
-  origenLocal = `http://${host}:${address.port}`;
+  origenLocal = `http://${httpHost}:${address.port}`;
 
   let httpsServer: HttpsServer | null = null;
-  const httpsEnabled = process.env.HTTPS_ENABLED === '1' || process.env.HTTPS_ENABLED === 'true';
   if (!escritorio && httpsEnabled) {
     const keyPath = path.resolve(process.env.SSL_KEY_PATH || path.join('storage', 'certs', 'atlob-lan.key'));
     const certPath = path.resolve(process.env.SSL_CERT_PATH || path.join('storage', 'certs', 'atlob-lan.crt'));

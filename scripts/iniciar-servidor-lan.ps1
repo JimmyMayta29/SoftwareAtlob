@@ -1,6 +1,7 @@
 param(
   [int]$Port = 3000,
   [int]$HttpsPort = 3443,
+  [string]$DatabaseUrl = '',
   [switch]$Recompilar,
   [switch]$NoAbrirNavegador
 )
@@ -27,6 +28,15 @@ function Get-DotEnvValue([string]$Key) {
   return $val
 }
 
+function Protect-ArchivoPrivado([string]$Ruta) {
+  if (-not (Test-Path -LiteralPath $Ruta)) { return }
+  $usuarioActual = "$($env:USERDOMAIN)\$($env:USERNAME)"
+  & icacls.exe $Ruta /inheritance:r /grant:r "*S-1-5-18:(F)" /grant:r "*S-1-5-32-544:(F)" /grant:r "${usuarioActual}:(F)" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "No se pudieron restringir los permisos NTFS de '$Ruta' mediante icacls."
+  }
+}
+
 try {
   New-Item -ItemType Directory -Path $InstanceDir -Force | Out-Null
 
@@ -43,7 +53,7 @@ try {
     throw 'No se encontró el archivo .env en la raíz del proyecto. Ejecute .\scripts\inicializar-escritorio.ps1 -Preparar primero.'
   }
 
-  $databaseUrl = Get-DotEnvValue 'DATABASE_URL'
+  $databaseUrl = if ($DatabaseUrl) { $DatabaseUrl } else { Get-DotEnvValue 'DATABASE_URL' }
   if (-not $databaseUrl -or $databaseUrl -notmatch '^postgres(ql)?://') {
     throw 'DATABASE_URL no está configurada o no tiene formato postgresql:// válido en .env.'
   }
@@ -99,7 +109,12 @@ try {
     }
   }
 
-  # 5. Configurar variables de red LAN y CORS seguro
+  $caKeyPath = Join-Path $CertDir 'atlob-lan-ca.key'
+  Protect-ArchivoPrivado $EnvPath
+  Protect-ArchivoPrivado $KeyPath
+  Protect-ArchivoPrivado $caKeyPath
+
+  # 5. Configurar variables de red LAN y CORS seguro (HTTP limitado a 127.0.0.1 y LAN privada para HTTPS)
   $lanIps = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
     Select-Object -ExpandProperty IPAddress)
@@ -107,11 +122,12 @@ try {
   $allowedOrigins = @("http://127.0.0.1:$Port", "http://localhost:$Port", "https://127.0.0.1:$HttpsPort", "https://localhost:$HttpsPort")
   foreach ($ip in $lanIps) {
     $allowedOrigins += "https://${ip}:$HttpsPort"
-    $allowedOrigins += "http://${ip}:$Port"
   }
 
   $env:NODE_ENV = 'production'
   $env:HOST = '0.0.0.0'
+  $env:HTTP_HOST = '127.0.0.1'
+  $env:LAN_ONLY = '1'
   $env:PORT = [string]$Port
   $env:HTTPS_ENABLED = '1'
   $env:HTTPS_PORT = [string]$HttpsPort

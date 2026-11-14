@@ -557,7 +557,21 @@ export const backupEmpresaService = {
           }
         }
 
-        // B. Inserción de filas restauradas en orden DIRECTO
+        // B. Inserción de filas restauradas en orden DIRECTO con resolución declarativa de referencias
+        const { rows: rowsUsuarios } = await client.query<{ id: string }>('SELECT id FROM usuarios_estudio');
+        const usuariosExistentes = new Set(rowsUsuarios.map(r => String(r.id)));
+        const fallbackUsuarioId =
+          UUID_REGEX.test(userId) && usuariosExistentes.has(userId)
+            ? userId
+            : rowsUsuarios[0]?.id
+              ? String(rowsUsuarios[0].id)
+              : null;
+
+        const { rows: rowsNoNulas } = await client.query<{ table_name: string; column_name: string }>(
+          "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND is_nullable = 'NO'"
+        );
+        const columnasNoNulas = new Set(rowsNoNulas.map(r => `${r.table_name}.${r.column_name}`));
+
         for (const reg of tablasRegistro) {
           const entryName = `${reg.tabla}.ndjson`;
           const rows = leerNdjson<any>(entryName);
@@ -566,6 +580,18 @@ export const backupEmpresaService = {
           for (const row of rows) {
             if (reg.columnaEmpresa === 'empresa_id') {
               row.empresa_id = empresaIdDestino;
+            }
+            for (const ref of reg.referencias) {
+              if (ref.remapeo === 'empresa_destino') {
+                row[ref.columna] = empresaIdDestino;
+              } else if (ref.remapeo === 'control_destino' && ref.tabla === 'tenants') {
+                row[ref.columna] = empresa.tenantId;
+              } else if (ref.remapeo === 'evidencia_origen' && ref.tabla === 'usuarios_estudio') {
+                const actorOrigen = row[ref.columna];
+                if (actorOrigen !== null && actorOrigen !== undefined && !usuariosExistentes.has(String(actorOrigen))) {
+                  row[ref.columna] = columnasNoNulas.has(`${reg.tabla}.${ref.columna}`) ? fallbackUsuarioId : null;
+                }
+              }
             }
             const cols = Object.keys(row);
             if (cols.length === 0) continue;

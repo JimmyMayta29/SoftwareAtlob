@@ -39,6 +39,27 @@ try {
       throw 'Existen cambios locales sin confirmar. Confirme o limpie antes de ejecutar rollback.'
     }
 
+    # Verificar compatibilidad de esquema PostgreSQL antes de revertir código
+    $migrationSource = (& git show "${targetCommit}:server/db/migration-files.ts" 2>$null) -join "`n"
+    if (-not $migrationSource) {
+      $migrationSource = (& git show "${targetCommit}:server/db/migrate.ts" 2>$null) -join "`n"
+    }
+    $targetMigrations = @([regex]::Matches($migrationSource, "['""]([^'""]+\.sql)['""]") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    if ($targetMigrations.Count -eq 0) {
+      throw "No se pudo verificar la lista de migraciones del commit destino $targetCommit."
+    }
+
+    $dbUrlRollback = Get-DotEnvValue 'DATABASE_URL'
+    if (-not $dbUrlRollback) { throw 'DATABASE_URL ausente en .env.' }
+    $env:DATABASE_URL = $dbUrlRollback
+    $appliedJson = & npx.cmd tsx --input-type=module -e "import { Pool } from 'pg'; const p = new Pool({ connectionString: process.env.DATABASE_URL }); try { const r = await p.query('SELECT nombre FROM schema_migrations ORDER BY nombre'); console.log(JSON.stringify(r.rows.map(x => x.nombre))); } finally { await p.end(); }"
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo consultar schema_migrations en PostgreSQL para validar compatibilidad de rollback.' }
+    $appliedMigrations = @($appliedJson | ConvertFrom-Json)
+    $incompatibles = @($appliedMigrations | Where-Object { $targetMigrations -notcontains $_ })
+    if ($incompatibles.Count -gt 0) {
+      throw "ROLLBACK_BLOQUEADO_ESQUEMA_INCOMPATIBLE: PostgreSQL tiene migraciones posteriores ausentes en $targetCommit ($($incompatibles -join ', ')). Restaure primero el respaldo .atlob.bak correspondiente si necesita retroceder el esquema."
+    }
+
     Write-Host "2/5 Deteniendo servidor LAN de ATLOB ERP..." -ForegroundColor Cyan
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'detener-servidor-lan.ps1')
 

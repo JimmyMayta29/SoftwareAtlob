@@ -184,6 +184,44 @@ export function generarCertificadosLan(opciones: { dir?: string; ipsExtra?: stri
   const caBuffer = fs.readFileSync(caCertPath);
   const huellaServidor = crypto.createHash('sha256').update(certBuffer).digest('hex');
   const huellaCa = crypto.createHash('sha256').update(caBuffer).digest('hex');
+  const opensslCaFingerprint = execFileSync(openssl, ['x509', '-in', caCertPath, '-noout', '-fingerprint', '-sha256'], {
+    encoding: 'utf8',
+  }).trim();
+
+  // Exportar paquete público exclusivo para estaciones cliente (sin ninguna clave privada)
+  const clientDir = path.join(certDir, 'cliente-lan');
+  fs.mkdirSync(clientDir, { recursive: true });
+  for (const existente of fs.readdirSync(clientDir)) {
+    if (existente.toLowerCase().endsWith('.key')) {
+      fs.unlinkSync(path.join(clientDir, existente));
+    }
+  }
+  const clientCaPath = path.join(clientDir, 'atlob-lan-ca.crt');
+  fs.copyFileSync(caCertPath, clientCaPath);
+  const clientVerifPath = path.join(clientDir, 'VERIFICACION-CA-SHA256.txt');
+  fs.writeFileSync(
+    clientVerifPath,
+    [
+      'ATLOB ERP — CERTIFICADO PÚBLICO DE AUTORIDAD CERTIFICADORA LOCAL (SOLO LECTURA PÚBLICA)',
+      `Archivo a instalar en PC cliente: atlob-lan-ca.crt`,
+      `SHA-256 (archivo binario): ${huellaCa}`,
+      `Huella X.509 OpenSSL    : ${opensslCaFingerprint}`,
+      `IP LAN del servidor      : ${ipPrincipal}`,
+      `URL de acceso HTTPS LAN  : https://${ipPrincipal}:3443`,
+      '',
+      'Instrucciones en PC cliente (PC 2 y PC 3):',
+      '1. Copie únicamente esta carpeta (o atlob-lan-ca.crt) a la PC cliente. NO copie archivos .key.',
+      '2. Verifique en PowerShell la huella antes de instalar:',
+      '   Get-FileHash .\\atlob-lan-ca.crt -Algorithm SHA256',
+      '3. Haga doble clic en atlob-lan-ca.crt -> Instalar certificado -> Usuario actual -> Entidades de certificación raíz de confianza.',
+      '4. Reinicie Chrome o Edge e ingrese a https://' + ipPrincipal + ':3443',
+    ].join('\n'),
+    'utf8'
+  );
+  const clavesEnCliente = fs.readdirSync(clientDir).filter(f => f.toLowerCase().endsWith('.key'));
+  if (clavesEnCliente.length > 0) {
+    throw new Error(`SEGURIDAD_CLIENT_DIR: Se detectaron claves privadas en ${clientDir}`);
+  }
 
   const resumen = {
     generadoEn: new Date().toISOString(),
@@ -191,9 +229,11 @@ export function generarCertificadosLan(opciones: { dir?: string; ipsExtra?: stri
     dns: dnsNames,
     ips: [...ips],
     caCertPath,
+    clientCaDir: clientDir,
     serverCertPath,
     serverKeyPath,
     huellaCaSha256: huellaCa,
+    opensslCaFingerprint,
     huellaServidorSha256: huellaServidor,
     verificacionOpenSsl: verificacion,
   };

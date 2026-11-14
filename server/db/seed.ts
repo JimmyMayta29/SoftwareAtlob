@@ -20,8 +20,14 @@ export async function runSeeds(client: Pick<DatabaseService, 'query'> = db) {
     `);
 
     // 4. Parámetros Tributarios Oficiales (Cero hardcoding)
-    const parametros = [
-      { codigo: 'TASA_IGV', desc: 'Tasa General del Impuesto General a las Ventas (18%)', valor: 0.18, cat: 'IGV', desde: '2020-01-01' },
+    const parametros: Array<{ codigo: string; desc: string; valor: number; cat: string; desde: string; hasta?: string | null }> = [
+      { codigo: 'TASA_IGV', desc: 'Tasa General del Impuesto General a las Ventas (16% + 2% IPM = 18%)', valor: 0.18, cat: 'IGV', desde: '2020-01-01' },
+      { codigo: 'TASA_IGV_PURO', desc: 'Tasa Impuesto General a las Ventas sin IPM (16%)', valor: 0.16, cat: 'IGV', desde: '2011-03-01' },
+      { codigo: 'TASA_IPM', desc: 'Tasa Impuesto de Promoción Municipal IPM (2%)', valor: 0.02, cat: 'IGV', desde: '2011-03-01' },
+      { codigo: 'TASA_RETENCION_IGV', desc: 'Tasa Régimen de Retenciones del IGV (3%)', valor: 0.03, cat: 'IGV', desde: '2014-03-01' },
+      { codigo: 'TASA_PERCEPCION_IGV', desc: 'Tasa General Régimen de Percepciones del IGV Venta Interna (2%)', valor: 0.02, cat: 'IGV', desde: '2014-01-01' },
+      { codigo: 'TASA_IGV_ESPECIAL_MYPE_PURO', desc: 'Tasa especial IGV MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2025-2026 (8% sin IPM, Ley 32219)', valor: 0.08, cat: 'IGV', desde: '2025-01-01', hasta: '2026-12-31' },
+      { codigo: 'TASA_IGV_ESPECIAL_MYPE_TOTAL', desc: 'Tasa total IGV (8%) + IPM (2%) = 10% MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2025-2026', valor: 0.10, cat: 'IGV', desde: '2025-01-01', hasta: '2026-12-31' },
       { codigo: 'TASA_ESSALUD', desc: 'Aporte Patronal al Seguro Social de Salud EsSalud (9%)', valor: 0.09, cat: 'LABORAL', desde: '2020-01-01' },
       { codigo: 'TASA_RETENCION_4TA', desc: 'Tasa de Retención del Impuesto a la Renta de 4ta Categoría (8%)', valor: 0.08, cat: 'RENTA', desde: '2020-01-01' },
       { codigo: 'TOPE_RETENCION_4TA', desc: 'Monto a partir del cual aplica retención de 4ta categoría (S/ 1,500)', valor: 1500.00, cat: 'RENTA', desde: '2020-01-01' },
@@ -39,10 +45,10 @@ export async function runSeeds(client: Pick<DatabaseService, 'query'> = db) {
 
     for (const p of parametros) {
       await client.query(`
-        INSERT INTO parametros_tributarios (codigo_parametro, descripcion, valor_numerico, vigente_desde, categoria)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO parametros_tributarios (codigo_parametro, descripcion, valor_numerico, vigente_desde, vigente_hasta, categoria)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (codigo_parametro, vigente_desde) DO NOTHING;
-      `, [p.codigo, p.desc, p.valor, p.desde, p.cat]);
+      `, [p.codigo, p.desc, p.valor, p.desde, p.hasta ?? null, p.cat]);
     }
 
     // 5. Cronograma de Vencimientos SUNAT para 2026-09

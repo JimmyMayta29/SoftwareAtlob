@@ -42,6 +42,10 @@ export const PARAMETROS_IN_MEMORY: ParametroTributario[] = [
   { id: 'prm-igv-18', codigoParametro: 'TASA_IGV', descripcion: 'Tasa General del IGV (16%) + IPM (2%) = 18%', valorNumerico: 0.18, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'TUO Ley del IGV D.S. N° 055-99-EF Art. 17° y Ley N° 29666' },
   { id: 'prm-igv-puro', codigoParametro: 'TASA_IGV_PURO', descripcion: 'Tasa Impuesto General a las Ventas sin IPM (16%)', valorNumerico: 0.16, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'TUO Ley del IGV D.S. N° 055-99-EF Art. 17° y Ley N° 29666' },
   { id: 'prm-ipm-2', codigoParametro: 'TASA_IPM', descripcion: 'Tasa Impuesto de Promoción Municipal IPM (2%)', valorNumerico: 0.02, vigenteDesde: '2011-03-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'D.Leg. N° 776 Art. 76°' },
+  { id: 'prm-igv-mype-esp-puro-2026', codigoParametro: 'TASA_IGV_ESPECIAL_MYPE_PURO', descripcion: 'Tasa especial IGV MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2025-2026 (8%, sin IPM)', valorNumerico: 0.08, vigenteDesde: '2025-01-01', vigenteHasta: '2026-12-31', categoria: 'IGV', normaRespaldo: 'Ley N° 31556 modificada por Ley N° 32219 Arts. 3° y 4°' },
+  { id: 'prm-igv-mype-esp-puro-2027', codigoParametro: 'TASA_IGV_ESPECIAL_MYPE_PURO', descripcion: 'Tasa especial IGV MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2027 (12%, sin IPM)', valorNumerico: 0.12, vigenteDesde: '2027-01-01', vigenteHasta: '2027-12-31', categoria: 'IGV', normaRespaldo: 'Ley N° 31556 modificada por Ley N° 32219 Arts. 3° y 4°' },
+  { id: 'prm-igv-mype-esp-tot-2026', codigoParametro: 'TASA_IGV_ESPECIAL_MYPE_TOTAL', descripcion: 'Tasa total IGV (8%) + IPM (2%) = 10% MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2025-2026', valorNumerico: 0.10, vigenteDesde: '2025-01-01', vigenteHasta: '2026-12-31', categoria: 'IGV', normaRespaldo: 'Ley N° 31556 / Ley N° 32219 Art. 3° + D.Leg. N° 776 Art. 76°' },
+  { id: 'prm-igv-mype-esp-tot-2027', codigoParametro: 'TASA_IGV_ESPECIAL_MYPE_TOTAL', descripcion: 'Tasa total IGV (12%) + IPM (2%) = 14% MYPE Restaurantes, Hoteles y Alojamientos Turísticos 2027', valorNumerico: 0.14, vigenteDesde: '2027-01-01', vigenteHasta: '2027-12-31', categoria: 'IGV', normaRespaldo: 'Ley N° 31556 / Ley N° 32219 Art. 3° + D.Leg. N° 776 Art. 76°' },
   { id: 'prm-ret-igv-3', codigoParametro: 'TASA_RETENCION_IGV', descripcion: 'Tasa Régimen de Retenciones del IGV (3%)', valorNumerico: 0.03, vigenteDesde: '2014-03-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'R.S. N° 037-2002/SUNAT y R.S. N° 033-2014/SUNAT' },
   { id: 'prm-per-igv-2', codigoParametro: 'TASA_PERCEPCION_IGV', descripcion: 'Tasa General Régimen de Percepciones del IGV Venta Interna (2%)', valorNumerico: 0.02, vigenteDesde: '2014-01-01', vigenteHasta: null, categoria: 'IGV', normaRespaldo: 'Ley N° 29173 y D.S. N° 091-2013-EF' },
   { id: 'prm-itf-dec', codigoParametro: 'TASA_ITF', descripcion: 'Tasa Impuesto a las Transacciones Financieras ITF en factor decimal (0.005% = 0.00005)', valorNumerico: 0.00005, vigenteDesde: '2011-04-01', vigenteHasta: null, categoria: 'RENTA', normaRespaldo: 'TUO Ley N° 28194 D.S. N° 150-2007-EF y Ley N° 29667' },
@@ -170,8 +174,19 @@ function esRolAdministradorEstudio(rol?: string): boolean {
   return r === 'ADMIN_ESTUDIO' || r === 'ADMINISTRADOR' || r === 'ADMIN';
 }
 
+function normalizarFechaParametro(valor: unknown): string | null {
+  if (valor === null || valor === undefined) return null;
+  if (valor instanceof Date) return valor.toISOString().slice(0, 10);
+  const texto = String(valor).trim();
+  return texto ? texto.slice(0, 10) : null;
+}
+
 export const parametroRepository = {
   async obtenerParametros(): Promise<ParametroTributario[]> {
+    const combinados = new Map<string, ParametroTributario>();
+    for (const maestro of PARAMETROS_IN_MEMORY) {
+      combinados.set(`${maestro.codigoParametro}|${maestro.vigenteDesde}`, { ...maestro });
+    }
     if (db.isPostgresConnected()) {
       const res = await db.query(`
         SELECT id, codigo_parametro as "codigoParametro", descripcion, valor_numerico as "valorNumerico",
@@ -179,14 +194,24 @@ export const parametroRepository = {
         FROM parametros_tributarios
         ORDER BY categoria, codigo_parametro
       `);
-      if (res.rows.length > 0) {
-        return res.rows.map((r: any) => ({
-          ...r,
-          valorNumerico: Number(r.valorNumerico)
-        }));
+      for (const fila of res.rows as Array<Record<string, unknown>>) {
+        const desde = normalizarFechaParametro(fila.vigenteDesde) || '2020-01-01';
+        const hasta = normalizarFechaParametro(fila.vigenteHasta);
+        const clave = `${String(fila.codigoParametro)}|${desde}`;
+        const previo = combinados.get(clave);
+        combinados.set(clave, {
+          ...previo,
+          id: String(fila.id),
+          codigoParametro: String(fila.codigoParametro),
+          descripcion: String(fila.descripcion),
+          valorNumerico: Number(fila.valorNumerico),
+          vigenteDesde: desde,
+          vigenteHasta: hasta,
+          categoria: String(fila.categoria),
+        });
       }
     }
-    return [...PARAMETROS_IN_MEMORY];
+    return [...combinados.values()];
   },
 
   async obtenerParametroPorCodigo(codigo: string, fechaReferencia = new Date().toISOString().split('T')[0]): Promise<ParametroTributario | null> {
