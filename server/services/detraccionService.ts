@@ -265,9 +265,31 @@ export const detraccionService = {
     motivo: string;
     detraccion?: DetraccionRegistroModel;
   }> {
-    const detraccion = DETRACCIONES_MEMORIA.find(
+    let detraccion = DETRACCIONES_MEMORIA.find(
       d => d.empresaId === empresaId && d.comprobanteCompraId === comprobanteCompraId
     );
+
+    if (!detraccion && db.isPostgresConnected()) {
+      try {
+        const res = await db.query(`
+          SELECT id, empresa_id as "empresaId", comprobante_id as "comprobanteCompraId",
+                 codigo_bien_servicio as "codigoBien", descripcion_bien as "descripcionBien",
+                 porcentaje::numeric as porcentaje, monto::numeric as monto,
+                 cuenta_banco_nacion as "cuentaBancoNacion",
+                 numero_constancia as "numeroConstancia", fecha_deposito::text as "fechaDeposito",
+                 estado, (estado = 'DEPOSITADA' OR estado = 'NO_APLICA') as "permiteCreditoFiscal"
+          FROM detracciones
+          WHERE empresa_id = $1 AND comprobante_id = $2
+        `, [empresaId, comprobanteCompraId]);
+        if (res.rows[0]) {
+          detraccion = {
+            ...res.rows[0],
+            porcentaje: Number(res.rows[0].porcentaje),
+            monto: Number(res.rows[0].monto)
+          };
+        }
+      } catch {}
+    }
 
     if (!detraccion || detraccion.estado === 'NO_APLICA') {
       return { deducible: true, motivo: 'OPERACION_NO_SUJETA_A_SPOT' };

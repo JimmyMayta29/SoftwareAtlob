@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
-import { MOVIMIENTOS_TESORERIA_MEMORIA, CUENTAS_FINANCIERAS_MEMORIA } from './tesoreriaService';
+import { tesoreriaService, MOVIMIENTOS_TESORERIA_MEMORIA, CUENTAS_FINANCIERAS_MEMORIA } from './tesoreriaService';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -96,11 +96,21 @@ export const conciliacionService = {
     }
     const hashArchivo = `hash-${Math.abs(hash)}`;
 
-    const duplicado = EXTRACTOS_MEMORIA.find(
-      e => e.empresaId === empresaId && e.cuentaFinancieraId === cuentaFinancieraId && e.hashArchivo === hashArchivo
-    );
-    if (duplicado) {
-      throw new Error('EXTRACTO_DUPLICADO: Este extracto bancario ya fue importado previamente para esta cuenta.');
+    if (db.isPostgresConnected()) {
+      const dupRes = await db.query(
+        'SELECT id FROM extractos_bancarios WHERE empresa_id = $1 AND cuenta_financiera_id = $2 AND hash_archivo = $3',
+        [empresaId, cuentaFinancieraId, hashArchivo]
+      );
+      if (dupRes.rows.length > 0) {
+        throw new Error('EXTRACTO_DUPLICADO: Este extracto bancario ya fue importado previamente para esta cuenta.');
+      }
+    } else {
+      const duplicado = EXTRACTOS_MEMORIA.find(
+        e => e.empresaId === empresaId && e.cuentaFinancieraId === cuentaFinancieraId && e.hashArchivo === hashArchivo
+      );
+      if (duplicado) {
+        throw new Error('EXTRACTO_DUPLICADO: Este extracto bancario ya fue importado previamente para esta cuenta.');
+      }
     }
 
     const extractoId = UUID_REGEX.test(empresaId) ? randomUUID() : `ext-${Date.now()}`;
@@ -184,24 +194,81 @@ export const conciliacionService = {
     periodoId: string,
     fechaCorte: string
   ) {
-    const cuenta = CUENTAS_FINANCIERAS_MEMORIA.find(c => c.id === cuentaFinancieraId && c.empresaId === empresaId);
+    const cuenta = await tesoreriaService.obtenerCuentaPorId(empresaId, cuentaFinancieraId);
     if (!cuenta) {
       throw new Error('CUENTA_NO_ENCONTRADA: Cuenta financiera no válida.');
     }
 
-    // 1. Obtener movimientos en libros registrados hasta la fecha de corte
-    const movimientosLibros = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => 
-      m.empresaId === empresaId &&
-      m.cuentaFinancieraId === cuentaFinancieraId &&
-      m.estado === 'REGISTRADO' &&
-      m.fecha <= fechaCorte
-    );
+    let movimientosLibros: any[] = [];
+    let lineasExtracto: ExtractoLineaModel[] = [];
+    let saldoBanco = cuenta.saldoInicial;
 
-    // 2. Obtener líneas de extracto bancario cargadas
-    const extractos = EXTRACTOS_MEMORIA.filter(e => 
-      e.empresaId === empresaId && e.cuentaFinancieraId === cuentaFinancieraId
-    );
-    const lineasExtracto = extractos.flatMap(e => e.lineas).filter(l => l.fecha <= fechaCorte);
+    if (db.isPostgresConnected()) {
+      const movRes = await db.query(`
+        SELECT id, empresa_id as "empresaId", periodo_id as "periodoId",
+               cuenta_financiera_id as "cuentaFinancieraId", fecha::text, tipo,
+               medio_pago as "medioPago", numero_operacion as "numeroOperacion",
+               anexo_id as "anexoId", moneda, tipo_cambio::numeric as "tipoCambio",
+               importe::numeric as "importe", importe_me::numeric as "importeMe",
+               saldo_sin_aplicar::numeric as "saldoSinAplicar",
+               glosa, estado, conciliado, asiento_id as "asientoId"
+        FROM movimientos_tesoreria
+        WHERE empresa_id = $1 AND cuenta_financiera_id::text = $2 AND estado = 'REGISTRADO' AND fecha <= $3
+        ORDER BY fecha ASC
+      `, [empresaId, cuentaFinancieraId, fechaCorte]);
+
+      movimientosLibros = movRes.rows.map(r => ({
+        ...r,
+        importe: Number(r.importe || 0),
+        tipoCambio: Number(r.tipoCambio || 1)
+      }));
+
+      const linRes = await db.query(`
+        SELECT id, extracto_id as "extractoId", empresa_id as "empresaId",
+               fecha::text, descripcion, referencia, monto::numeric as "monto",
+               saldo::numeric as "saldo", conciliada,
+               movimiento_tesoreria_id as "movimientoTesoreriaId"
+        FROM extracto_lineas
+        WHERE empresa_id = $1 AND extracto_id IN (
+          SELECT id FROM extractos_bancarios WHERE empresa_id = $1 AND cuenta_financiera_id::text = $2
+        ) AND fecha <= $3
+        ORDER BY fecha ASC
+      `, [empresaId, cuentaFinancieraId, fechaCorte]);
+
+      lineasExtracto = linRes.rows.map(r => ({
+        ...r,
+        monto: Number(r.monto || 0),
+        saldo: r.saldo !== null ? Number(r.saldo) : undefined
+      }));
+
+      const extRes = await db.query(`
+        SELECT saldo_final::numeric as "saldoFinal"
+        FROM extractos_bancarios
+        WHERE empresa_id = $1 AND cuenta_financiera_id::text = $2
+        ORDER BY fecha_corte_hasta DESC
+        LIMIT 1
+      `, [empresaId, cuentaFinancieraId]);
+
+      if (extRes.rows[0]) {
+        saldoBanco = Number(extRes.rows[0].saldoFinal || 0);
+      } else {
+        saldoBanco = cuenta.saldoInicial + lineasExtracto.reduce((acc, l) => acc + l.monto, 0);
+      }
+    } else {
+      movimientosLibros = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => 
+        m.empresaId === empresaId &&
+        m.cuentaFinancieraId === cuentaFinancieraId &&
+        m.estado === 'REGISTRADO' &&
+        m.fecha <= fechaCorte
+      );
+
+      const extractos = EXTRACTOS_MEMORIA.filter(e => 
+        e.empresaId === empresaId && e.cuentaFinancieraId === cuentaFinancieraId
+      );
+      lineasExtracto = extractos.flatMap(e => e.lineas).filter(l => l.fecha <= fechaCorte);
+      const ultimoExtracto = extractos[extractos.length - 1];
+      saldoBanco = ultimoExtracto?.saldoFinal ?? (cuenta.saldoInicial + lineasExtracto.reduce((acc, l) => acc + l.monto, 0));
+    }
 
     // 3. Sugerencia de Coincidencias Automáticas
     // Coincidencia: Mismo importe exacto (tomando signo), fecha cercana (+- 3 días) y/o coincidencia de referencia
@@ -256,10 +323,6 @@ export const conciliacionService = {
       else saldoLibros -= m.importe;
     }
 
-    // Saldo según banco (del último extracto o sumatoria de abonos y cargos)
-    const ultimoExtracto = extractos[extractos.length - 1];
-    let saldoBanco = ultimoExtracto?.saldoFinal ?? (cuenta.saldoInicial + lineasExtracto.reduce((acc, l) => acc + l.monto, 0));
-
     // Partidas conciliadas
     const lineasConciliadas = lineasExtracto.filter(l => l.conciliada);
     const partidasConciliadas = lineasConciliadas.reduce((acc, l) => acc + l.monto, 0);
@@ -301,51 +364,66 @@ export const conciliacionService = {
   // --------------------------------------------------------------------------
   async conciliar(empresaId: string, extractoLineaId: string, movimientoId: string, userId: string) {
     const extracto = EXTRACTOS_MEMORIA.find(e => e.empresaId === empresaId && e.lineas.some(l => l.id === extractoLineaId));
-    if (!extracto) throw new Error('LINEA_EXTRACTO_NO_ENCONTRADA');
+    if (extracto) {
+      const linea = extracto.lineas.find(l => l.id === extractoLineaId)!;
+      linea.conciliada = true;
+      linea.movimientoTesoreriaId = movimientoId;
+    }
 
-    const linea = extracto.lineas.find(l => l.id === extractoLineaId)!;
     const movimiento = MOVIMIENTOS_TESORERIA_MEMORIA.find(m => m.id === movimientoId && m.empresaId === empresaId);
-    if (!movimiento) throw new Error('MOVIMIENTO_NO_ENCONTRADO');
+    if (movimiento) {
+      movimiento.conciliado = true;
+    }
 
-    linea.conciliada = true;
-    linea.movimientoTesoreriaId = movimientoId;
-    movimiento.conciliado = true;
-
-    if (db.isPostgresConnected() && UUID_REGEX.test(extractoLineaId)) {
+    if (db.isPostgresConnected()) {
       try {
         await db.query(
-          'UPDATE extracto_lineas SET conciliada = true, movimiento_tesoreria_id = $1 WHERE id = $2',
-          [UUID_REGEX.test(movimientoId) ? movimientoId : null, extractoLineaId]
+          'UPDATE extracto_lineas SET conciliada = true, movimiento_tesoreria_id = $1 WHERE id::text = $2 AND empresa_id = $3',
+          [UUID_REGEX.test(movimientoId) ? movimientoId : null, extractoLineaId, empresaId]
         );
         if (UUID_REGEX.test(movimientoId)) {
-          await db.query('UPDATE movimientos_tesoreria SET conciliado = true WHERE id = $1', [movimientoId]);
+          await db.query('UPDATE movimientos_tesoreria SET conciliado = true WHERE id::text = $1 AND empresa_id = $2', [movimientoId, empresaId]);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('⚠️ [conciliacionService] Error actualizando conciliación en PostgreSQL:', err);
+      }
     }
 
     return { success: true, message: 'Partida conciliada exitosamente' };
   },
 
   async desconciliar(empresaId: string, extractoLineaId: string, userId: string) {
+    let movId: string | undefined;
     const extracto = EXTRACTOS_MEMORIA.find(e => e.empresaId === empresaId && e.lineas.some(l => l.id === extractoLineaId));
-    if (!extracto) throw new Error('LINEA_EXTRACTO_NO_ENCONTRADA');
-
-    const linea = extracto.lineas.find(l => l.id === extractoLineaId)!;
-    if (linea.movimientoTesoreriaId) {
-      const movimiento = MOVIMIENTOS_TESORERIA_MEMORIA.find(m => m.id === linea.movimientoTesoreriaId);
-      if (movimiento) movimiento.conciliado = false;
+    if (extracto) {
+      const linea = extracto.lineas.find(l => l.id === extractoLineaId)!;
+      movId = linea.movimientoTesoreriaId;
+      linea.conciliada = false;
+      linea.movimientoTesoreriaId = undefined;
+      if (movId) {
+        const movimiento = MOVIMIENTOS_TESORERIA_MEMORIA.find(m => m.id === movId);
+        if (movimiento) movimiento.conciliado = false;
+      }
     }
 
-    linea.conciliada = false;
-    linea.movimientoTesoreriaId = undefined;
-
-    if (db.isPostgresConnected() && UUID_REGEX.test(extractoLineaId)) {
+    if (db.isPostgresConnected()) {
       try {
-        await db.query(
-          'UPDATE extracto_lineas SET conciliada = false, movimiento_tesoreria_id = null WHERE id = $1',
-          [extractoLineaId]
+        const linRes = await db.query(
+          'SELECT movimiento_tesoreria_id FROM extracto_lineas WHERE id::text = $1 AND empresa_id = $2',
+          [extractoLineaId, empresaId]
         );
-      } catch {}
+        const pgMovId = linRes.rows[0]?.movimiento_tesoreria_id || movId;
+
+        await db.query(
+          'UPDATE extracto_lineas SET conciliada = false, movimiento_tesoreria_id = null WHERE id::text = $1 AND empresa_id = $2',
+          [extractoLineaId, empresaId]
+        );
+        if (pgMovId) {
+          await db.query('UPDATE movimientos_tesoreria SET conciliado = false WHERE id::text = $1 AND empresa_id = $2', [pgMovId, empresaId]);
+        }
+      } catch (err) {
+        console.warn('⚠️ [conciliacionService] Error desconciliando en PostgreSQL:', err);
+      }
     }
 
     return { success: true, message: 'Partida desconciliada' };

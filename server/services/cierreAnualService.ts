@@ -53,16 +53,17 @@ export const cierreAnualService = {
     if (db.isPostgresConnected()) {
       try {
         const adRes = await db.query(`
-          SELECT ad.cuenta_id as codigo_cuenta,
+          SELECT pc.codigo as codigo_cuenta,
                  COALESCE(SUM(ad.debe), 0) as debe,
                  COALESCE(SUM(ad.haber), 0) as haber
           FROM asiento_detalle ad
           JOIN asientos a ON a.id = ad.asiento_id
+          JOIN plan_cuentas pc ON pc.id = ad.cuenta_id
           WHERE a.empresa_id = $1
             AND (a.fecha >= $2 AND a.fecha <= $3)
-            AND a.subdiario_id <> '09'
+            AND a.subdiario_id NOT IN (SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = '09')
             AND a.estado = 'CONTABILIZADO'
-          GROUP BY ad.cuenta_id
+          GROUP BY pc.codigo
         `, [empresaId, `${anio}-01-01`, `${anio}-12-31`]);
 
         if (adRes.rows.length > 0) {
@@ -672,8 +673,8 @@ export const cierreAnualService = {
           DELETE FROM asientos 
           WHERE empresa_id = $1 
             AND subdiario_id IN (SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = '09')
-            AND fecha LIKE $2
-        `, [empresaId, `${anio}%`]);
+            AND fecha >= $2 AND fecha <= $3
+        `, [empresaId, `${anio}-01-01`, `${anio}-12-31`]);
         eliminados += (delRes.rowCount || 0);
       } catch (e) {
         console.warn('[cierreAnualService] Error al revertir en PostgreSQL:', e);

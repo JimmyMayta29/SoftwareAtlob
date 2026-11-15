@@ -163,7 +163,7 @@ export const periodoService = {
 
   async obtenerPorCodigo(empresaId: string, codigoPeriodo: string): Promise<PeriodoModel | null> {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
+      let res = await db.query(`
         SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
                anio, mes, codigo_periodo as "codigoPeriodo", estado,
                fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
@@ -172,6 +172,20 @@ export const periodoService = {
         LIMIT 1
       `, [empresaId, codigoPeriodo]);
       if (res.rows.length > 0) return res.rows[0];
+
+      if (/^\d{4}-\d{2}$/.test(codigoPeriodo)) {
+        const anio = parseInt(codigoPeriodo.split('-')[0], 10);
+        await this.listar(empresaId, anio);
+        res = await db.query(`
+          SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
+                 anio, mes, codigo_periodo as "codigoPeriodo", estado,
+                 fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
+          FROM periodos
+          WHERE empresa_id = $1 AND (codigo_periodo = $2 OR id::text = $2)
+          LIMIT 1
+        `, [empresaId, codigoPeriodo]);
+        if (res.rows.length > 0) return res.rows[0];
+      }
     }
 
     let p = PERIODOS_MEMORIA.find(p => p.empresaId === empresaId && (p.codigoPeriodo === codigoPeriodo || p.id === codigoPeriodo));

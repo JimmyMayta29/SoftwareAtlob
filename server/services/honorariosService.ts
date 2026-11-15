@@ -359,7 +359,24 @@ export const honorariosService = {
   },
 
   async anularRecibo(empresaId: string, id: string, motivo: string, userId: string) {
-    const recibo = HONORARIOS_MEMORIA.find(r => r.id === id && r.empresaId === empresaId);
+    let recibo = HONORARIOS_MEMORIA.find(r => r.id === id && r.empresaId === empresaId);
+    if (!recibo && db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          'SELECT id, empresa_id as "empresaId", periodo_id as "periodoId", proveedor_id as "proveedorId", serie, numero, fecha_emision::text as "fechaEmision", fecha_pago::text as "fechaPago", moneda, tipo_cambio::numeric as "tipoCambio", importe_bruto::numeric as "importeBruto", retencion_cuarta::numeric as "retencionCuarta", total_neto::numeric as "totalNeto", descripcion_servicio as "descripcionServicio", estado, asiento_id as "asientoId" FROM recibos_honorarios WHERE id::text = $1 AND empresa_id = $2',
+          [id, empresaId]
+        );
+        if (res.rows[0]) {
+          recibo = {
+            ...res.rows[0],
+            tipoCambio: Number(res.rows[0].tipoCambio || 1),
+            importeBruto: Number(res.rows[0].importeBruto || 0),
+            retencionCuarta: Number(res.rows[0].retencionCuarta || 0),
+            totalNeto: Number(res.rows[0].totalNeto || 0)
+          };
+        }
+      } catch {}
+    }
     if (!recibo) throw new Error('RECIBO_NO_ENCONTRADO');
     if (recibo.estado === 'ANULADO') throw new Error('RECIBO_YA_ANULADO');
 

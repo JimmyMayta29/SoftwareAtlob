@@ -1,4 +1,4 @@
-import { db } from '../config/database';
+import { db, establecerContextoEmpresa } from '../config/database';
 import { PLAN_CONTABLE_PCGE, buscarCuentaPCGE } from '../../src/data/pcgeAccounts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -259,6 +259,7 @@ export const pcgeService = {
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
+        await establecerContextoEmpresa(client, empresaId);
 
         // Contar cuentas antes
         const { rows: [antes] } = await client.query('SELECT count(*)::int as total FROM plan_cuentas WHERE empresa_id = $1', [empresaId]);

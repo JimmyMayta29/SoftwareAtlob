@@ -388,7 +388,7 @@ export const liquidacionIGVService = {
       }
     }
 
-    // 2. Leer Ventas desde comprobantes_venta (VENTAS_MEMORIA y/o PostgreSQL)
+    // 2. Leer Ventas desde comprobantes_venta (PostgreSQL prioritario, fallback a memoria)
     let ventasBrutasGravadas = Money.create(0);
     let igvVentasBrutas = Money.create(0);
     let descuentosVentasBase = Money.create(0);
@@ -397,11 +397,45 @@ export const liquidacionIGVService = {
     let ventasNoGravadas = Money.create(0);
     let totalVentas = Money.create(0);
 
-    const ventasMemoria = VENTAS_MEMORIA.filter(
-      v => v.empresaId === empresaId && v.estado !== 'ANULADO' && coincidePeriodo(v.periodoId, v.fechaContable || v.fechaEmision, periodo)
-    );
+    if (db.isPostgresConnected()) {
+      const vRes = await db.query(`
+        SELECT tipo_comprobante,
+               base_gravada::numeric as bg,
+               igv::numeric as igv,
+               base_no_gravada::numeric as inaf,
+               exonerado::numeric as exon,
+               (CASE WHEN tipo_operacion = 'EXPORTACION' THEN base_gravada ELSE 0 END)::numeric as exp,
+               total::numeric as tot
+        FROM comprobantes_venta
+        WHERE empresa_id = $1
+          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
+               OR to_char(fecha_emision, 'YYYY-MM') = $2)
+          AND estado <> 'ANULADO'
+      `, [empresaId, periodo]);
 
-    if (ventasMemoria.length > 0) {
+      for (const v of vRes.rows) {
+        const bg = Math.abs(Number(v.bg || 0));
+        const igv = Math.abs(Number(v.igv || 0));
+        const exp = Math.abs(Number(v.exp || 0));
+        const bng = Math.abs(Number(v.inaf || 0) + Number(v.exon || 0));
+        const tot = Math.abs(Number(v.tot || 0));
+
+        if (v.tipo_comprobante === '07') {
+          descuentosVentasBase = Money.add(descuentosVentasBase, bg);
+          descuentosVentasIgv = Money.add(descuentosVentasIgv, igv);
+          totalVentas = Money.sub(totalVentas, tot);
+        } else {
+          ventasBrutasGravadas = Money.add(ventasBrutasGravadas, bg);
+          igvVentasBrutas = Money.add(igvVentasBrutas, igv);
+          exportaciones = Money.add(exportaciones, exp);
+          ventasNoGravadas = Money.add(ventasNoGravadas, bng);
+          totalVentas = Money.add(totalVentas, tot);
+        }
+      }
+    } else {
+      const ventasMemoria = VENTAS_MEMORIA.filter(
+        v => v.empresaId === empresaId && v.estado !== 'ANULADO' && coincidePeriodo(v.periodoId, v.fechaContable || v.fechaEmision, periodo)
+      );
       for (const v of ventasMemoria) {
         const bg = Math.abs(Number((v as any).baseGravada ?? (v as any).baseImponible ?? 0));
         const igv = Math.abs(Number(v.igv || 0));
@@ -421,47 +455,60 @@ export const liquidacionIGVService = {
           totalVentas = Money.add(totalVentas, tot);
         }
       }
-    } else if (db.isPostgresConnected()) {
-      const vRes = await db.query(`
-        SELECT COALESCE(SUM(base_gravada), 0) as bg,
-               COALESCE(SUM(igv), 0) as igv,
-               COALESCE(SUM(base_no_gravada + exonerado), 0) as bng,
-               COALESCE(SUM(total), 0) as tot
-        FROM comprobantes_venta
-        WHERE empresa_id = $1
-          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
-               OR to_char(fecha_emision, 'YYYY-MM') = $2)
-          AND estado <> 'ANULADO'
-      `, [empresaId, periodo]);
-
-      if (vRes.rows.length > 0) {
-        ventasBrutasGravadas = Money.create(vRes.rows[0].bg);
-        igvVentasBrutas = Money.create(vRes.rows[0].igv);
-        ventasNoGravadas = Money.create(vRes.rows[0].bng);
-        totalVentas = Money.create(vRes.rows[0].tot);
-      }
     }
 
     const ventasGravadasNetas = Money.sub(ventasBrutasGravadas, descuentosVentasBase);
     const debitoFiscal = Money.sub(igvVentasBrutas, descuentosVentasIgv);
 
-    // 3. Leer Compras desde comprobantes_compra (COMPRAS_MEMORIA y/o PostgreSQL)
-    // Solo comprobantes que dan derecho a crédito fiscal, separando destino '1', '2' y '3'/'4'
+    // 3. Leer Compras desde comprobantes_compra (PostgreSQL prioritario, fallback a memoria)
     let comprasCreditoTotal = Money.create(0);
     let igvComprasDestino1 = Money.create(0);
     let comprasCreditoProrrata = Money.create(0);
     let igvComprasDestino2Bruto = Money.create(0);
     let comprasSinCredito = Money.create(0);
 
-    const comprasMemoria = COMPRAS_MEMORIA.filter(
-      c => c.empresaId === empresaId && c.estado !== 'ANULADO' && coincidePeriodo(c.periodoId, c.fechaContable || c.fechaEmision, periodo)
-    );
+    if (db.isPostgresConnected()) {
+      const cRes = await db.query(`
+        SELECT tipo_comprobante,
+               tipo_adquisicion,
+               base_gravada::numeric as bg,
+               igv::numeric as igv,
+               base_no_gravada::numeric as bng,
+               exonerado::numeric as exon
+        FROM comprobantes_compra
+        WHERE empresa_id = $1
+          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
+               OR to_char(fecha_emision, 'YYYY-MM') = $2)
+          AND estado <> 'ANULADO'
+      `, [empresaId, periodo]);
 
-    if (comprasMemoria.length > 0) {
+      for (const row of cRes.rows) {
+        const signo = row.tipo_comprobante === '07' ? -1 : 1;
+        const destino = String(row.tipo_adquisicion || '1');
+        const bg = Number(row.bg || 0) * signo;
+        const igv = Number(row.igv || 0) * signo;
+        const bng = (Number(row.bng || 0) + Number(row.exon || 0)) * signo;
+
+        if (destino === '3' || destino === '4') {
+          comprasSinCredito = Money.add(comprasSinCredito, bg + bng);
+        } else if (destino === '2') {
+          comprasCreditoProrrata = Money.add(comprasCreditoProrrata, bg);
+          igvComprasDestino2Bruto = Money.add(igvComprasDestino2Bruto, igv);
+          if (bng !== 0) comprasSinCredito = Money.add(comprasSinCredito, bng);
+        } else {
+          comprasCreditoTotal = Money.add(comprasCreditoTotal, bg);
+          igvComprasDestino1 = Money.add(igvComprasDestino1, igv);
+          if (bng !== 0) comprasSinCredito = Money.add(comprasSinCredito, bng);
+        }
+      }
+    } else {
+      const comprasMemoria = COMPRAS_MEMORIA.filter(
+        c => c.empresaId === empresaId && c.estado !== 'ANULADO' && coincidePeriodo(c.periodoId, c.fechaContable || c.fechaEmision, periodo)
+      );
+
       for (const c of comprasMemoria) {
         const signo = c.tipoComprobante === '07' ? -1 : 1;
         const destino = String(c.tipoAdquisicion || (c as any).codigoDestinoIgv || '1');
-        // Comprobantes tipo '02' (Recibo por Honorarios) o con derechoCreditoFiscal === false van a sin derecho a crédito
         const daDerechoCf = (c as any).derechoCreditoFiscal !== false && c.tipoComprobante !== '02';
         const bg = Number((c as any).baseGravada ?? (c as any).baseImponible ?? 0) * signo;
         const igv = Number(c.igv || 0) * signo;
@@ -474,40 +521,15 @@ export const liquidacionIGVService = {
           igvComprasDestino2Bruto = Money.add(igvComprasDestino2Bruto, igv);
           if (bng !== 0) comprasSinCredito = Money.add(comprasSinCredito, bng);
         } else {
-          // Destino '1': Destinado exclusivamente a operaciones gravadas
           comprasCreditoTotal = Money.add(comprasCreditoTotal, bg);
           igvComprasDestino1 = Money.add(igvComprasDestino1, igv);
           if (bng !== 0) comprasSinCredito = Money.add(comprasSinCredito, bng);
         }
       }
-    } else if (db.isPostgresConnected()) {
-      const cRes = await db.query(`
-        SELECT tipo_adquisicion,
-               COALESCE(SUM(base_gravada), 0) as bg,
-               COALESCE(SUM(igv), 0) as igv
-        FROM comprobantes_compra
-        WHERE empresa_id = $1
-          AND (periodo_id IN (SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2))
-               OR to_char(fecha_emision, 'YYYY-MM') = $2)
-          AND estado <> 'ANULADO'
-        GROUP BY tipo_adquisicion
-      `, [empresaId, periodo]);
-
-      cRes.rows.forEach((row: any) => {
-        if (row.tipo_adquisicion === '1') {
-          comprasCreditoTotal = Money.add(comprasCreditoTotal, row.bg);
-          igvComprasDestino1 = Money.add(igvComprasDestino1, row.igv);
-        } else if (row.tipo_adquisicion === '2') {
-          comprasCreditoProrrata = Money.add(comprasCreditoProrrata, row.bg);
-          igvComprasDestino2Bruto = Money.add(igvComprasDestino2Bruto, row.igv);
-        } else {
-          comprasSinCredito = Money.add(comprasSinCredito, row.bg);
-        }
-      });
     }
 
     // 4. Evaluar integración con Prorrata del IGV para las compras de destino común ('2')
-    const prorrataGuardada = prorrataIgvService.obtenerGuardada(empresaId, periodo);
+    const prorrataGuardada = await prorrataIgvService.obtenerGuardada(empresaId, periodo);
     const hayVentasNoGravadas = ventasNoGravadas.greaterThan(0);
     const hayComprasProrrata = comprasCreditoProrrata.greaterThan(0);
     const requiereProrrata = hayVentasNoGravadas && hayComprasProrrata;
@@ -1066,6 +1088,7 @@ export const liquidacionIGVService = {
       throw new Error('FECHA_PRESENTACION_REQUERIDA: Debe ingresar la fecha de presentación.');
     }
 
+    await this.cargarDesdePostgres(empresaId, periodo);
     let decl = this.obtenerDeclaracionActiva(empresaId, periodo);
     if (!decl) {
       decl = await this.preliquidar(empresaId, periodo, usuarioId, rolUsuario);
@@ -1123,6 +1146,7 @@ export const liquidacionIGVService = {
   ): Promise<{ rectificatoria: LiquidacionIGVResultado; versionAnteriorConservada: LiquidacionIGVResultado }> {
     validarPermisoOperativoTributos(rolUsuario);
 
+    await this.cargarDesdePostgres(empresaId, periodo);
     let anterior = this.obtenerDeclaracionActiva(empresaId, periodo);
     if (!anterior) {
       anterior = await this.preliquidar(empresaId, periodo, usuarioId, rolUsuario);

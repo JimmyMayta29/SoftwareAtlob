@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import { db } from '../config/database';
+import { db, contexto } from '../config/database';
 import { Money } from '../utils/decimal';
-import { ASIENTOS_MEMORIA } from './asientoService';
+import { asientoService, ASIENTOS_MEMORIA } from './asientoService';
 
 export interface ProductoKardexModel {
   id: string;
@@ -179,7 +179,38 @@ export const kardexService = {
     costoUnitario?: number; // Requerido para entradas
     glosa?: string;
   }): Promise<MovimientoKardexModel> {
-    const prod = PRODUCTOS_KARDEX_MEMORIA.find(p => p.id === input.productoId && p.empresaId === empresaId);
+    let prod = PRODUCTOS_KARDEX_MEMORIA.find(p => (p.id === input.productoId || p.codigoProducto === input.productoId) && p.empresaId === empresaId);
+    if (!prod && db.isPostgresConnected()) {
+      try {
+        const pRes = await db.query(
+          `SELECT * FROM articulos_kardex WHERE empresa_id = $1 AND (id::text = $2 OR codigo_producto = $2) LIMIT 1`,
+          [empresaId, input.productoId]
+        );
+        if (pRes.rows.length > 0) {
+          const r = pRes.rows[0];
+          prod = {
+            id: String(r.id),
+            empresaId: String(r.empresa_id),
+            codigoProducto: String(r.codigo_producto),
+            descripcion: String(r.descripcion),
+            unidadMedidaSUNAT: String(r.unidad_medida_sunat || 'NIU'),
+            tipoExistenciaSUNAT: String(r.tipo_existencia_sunat || '01'),
+            metodoValuacion: String(r.metodo_valuacion || 'PROMEDIO_PONDERADO') as any,
+            cuentaExistenciasPCGE: String(r.cuenta_existencias_pcge || '20111'),
+            cuentaCostoVentasPCGE: String(r.cuenta_costo_ventas_pcge || '69111'),
+            cuentaVariacionPCGE: '6111',
+            stockActual: Number(r.stock_actual || 0),
+            costoUnitarioActual: Number(r.costo_unitario_actual || 0),
+            costoTotalValorado: Number(r.costo_total_valorado || 0),
+            createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+            updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+          };
+          PRODUCTOS_KARDEX_MEMORIA.push(prod);
+        }
+      } catch {
+        // Fallback
+      }
+    }
     if (!prod) {
       throw new Error(`Producto con ID ${input.productoId} no encontrado.`);
     }
@@ -395,19 +426,31 @@ export const kardexService = {
    * Cargo: 69111 Costo de ventas
    * Abono: 20111 Mercaderías manufacturadas
    */
-  async generarAsientoCostoVentas(empresaId: string, periodo: string): Promise<{
+  async generarAsientoCostoVentas(empresaId: string, periodo: string, userId?: string): Promise<{
     asientoId: string;
     numeroAsiento: string;
     costoVentasTotal: number;
     mensaje: string;
   }> {
-    const salidasPeriodo = MOVIMIENTOS_KARDEX_MEMORIA.filter(m => 
-      m.empresaId === empresaId && 
-      m.periodo === periodo && 
-      m.cantidadSalida > 0
-    );
+    let totalCostoVentas = 0;
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          'SELECT COALESCE(SUM(costo_total_salida), 0)::numeric as total FROM movimientos_kardex WHERE empresa_id = $1 AND periodo = $2 AND cantidad_salida > 0',
+          [empresaId, periodo]
+        );
+        totalCostoVentas = Number(res.rows[0]?.total || 0);
+      } catch {}
+    }
 
-    const totalCostoVentas = salidasPeriodo.reduce((acc, m) => acc + m.costoTotalSalida, 0);
+    if (totalCostoVentas <= 0) {
+      const salidasPeriodo = MOVIMIENTOS_KARDEX_MEMORIA.filter(m => 
+        m.empresaId === empresaId && 
+        m.periodo === periodo && 
+        m.cantidadSalida > 0
+      );
+      totalCostoVentas = salidasPeriodo.reduce((acc, m) => acc + m.costoTotalSalida, 0);
+    }
 
     if (totalCostoVentas <= 0) {
       throw new Error(`No existen salidas valoradas en el Kardex para el período ${periodo}.`);
@@ -435,12 +478,44 @@ export const kardexService = {
       }
     ];
 
+    let asientoId = `asiento-cv-${empresaId}-${periodo}`;
+    let numAsientoFinal = numAsiento;
+
+    if (db.isPostgresConnected()) {
+      try {
+        const perRes = await db.query('SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || \'-\' || lpad(mes::text, 2, \'0\') = $2)', [empresaId, periodo]);
+        const pId = perRes.rows[0]?.id;
+
+        const userFinal = userId || contexto.getStore()?.userId || 'usr-sistema';
+        const asientoCreado = await asientoService.crearAsiento(empresaId, {
+          periodoId: pId || `per-${periodo}`,
+          subdiario: '11',
+          fecha: fechaAsiento,
+          moneda: 'PEN',
+          tipoCambio: 3.75,
+          glosa: `Asiento mensual de Costo de Ventas según Kardex Valorado ${periodo}`,
+          origenModulo: 'KARDEX',
+          lineas: lineas.map(l => ({
+            codigoCuenta: l.codigoCuenta,
+            debe: l.debe,
+            haber: l.haber,
+            glosa: l.glosa
+          }))
+        }, userFinal);
+
+        asientoId = asientoCreado.id;
+        numAsientoFinal = asientoCreado.numero;
+      } catch (err) {
+        console.warn('⚠️ [kardexService] Error creando asiento costo de ventas en DB:', err);
+      }
+    }
+
     const asiento = {
-      id: `asiento-cv-${empresaId}-${periodo}`,
+      id: asientoId,
       empresaId,
       subdiarioId: '11',
       subdiario: '11',
-      numeroAsiento: numAsiento,
+      numeroAsiento: numAsientoFinal,
       periodoId: periodo,
       periodo,
       fecha: fechaAsiento,
@@ -460,9 +535,9 @@ export const kardexService = {
 
     return {
       asientoId: asiento.id,
-      numeroAsiento: numAsiento,
+      numeroAsiento: numAsientoFinal,
       costoVentasTotal: totalCostoVentas,
-      mensaje: `Asiento de Costo de Ventas ${numAsiento} generado con éxito en el Subdiario 11 por S/ ${totalCostoVentas.toFixed(2)}.`
+      mensaje: `Asiento de Costo de Ventas ${numAsientoFinal} generado con éxito en el Subdiario 11 por S/ ${totalCostoVentas.toFixed(2)}.`
     };
   },
 
@@ -475,9 +550,67 @@ export const kardexService = {
     contenidoTxt: string;
     totalLineas: number;
   }> {
-    const movs = MOVIMIENTOS_KARDEX_MEMORIA.filter(m => m.empresaId === empresaId && m.periodo === periodo);
     const anio = periodo.split('-')[0];
     const mes = periodo.split('-')[1];
+
+    if (db.isPostgresConnected()) {
+      try {
+        const qMov = await db.query(`
+          SELECT m.id, m.fecha::text as fecha, m.tipo_comprobante_sunat, m.serie_comprobante, m.numero_comprobante,
+                 m.tipo_operacion_sunat, m.cantidad_entrada::numeric as cantidad_entrada,
+                 m.costo_unitario_entrada::numeric as costo_unitario_entrada,
+                 m.costo_total_entrada::numeric as costo_total_entrada,
+                 m.cantidad_salida::numeric as cantidad_salida,
+                 m.costo_unitario_salida::numeric as costo_unitario_salida,
+                 m.costo_total_salida::numeric as costo_total_salida,
+                 m.saldo_cantidad::numeric as saldo_cantidad,
+                 m.saldo_costo_unitario::numeric as saldo_costo_unitario,
+                 m.saldo_costo_total::numeric as saldo_costo_total,
+                 p.codigo_producto, p.tipo_existencia_sunat, p.descripcion,
+                 p.unidad_medida_sunat, p.metodo_valuacion
+          FROM movimientos_kardex m
+          JOIN productos_kardex p ON p.id = m.producto_id AND p.empresa_id = m.empresa_id
+          WHERE m.empresa_id = $1 AND m.periodo = $2
+          ORDER BY m.fecha ASC, m.created_at ASC
+        `, [empresaId, periodo]);
+
+        if (qMov.rows.length > 0) {
+          const lineas = qMov.rows.map(m => [
+            `${anio}${mes}00`,
+            String(m.id).slice(0, 10),
+            'M001',
+            m.tipo_existencia_sunat || '01',
+            m.codigo_producto || 'PROD',
+            String(m.descripcion || '').replace(/\|/g, ' '),
+            m.unidad_medida_sunat || 'NIU',
+            m.tipo_operacion_sunat || '01',
+            m.tipo_comprobante_sunat || '01',
+            m.serie_comprobante || 'F001',
+            m.numero_comprobante || '00000001',
+            Number(m.cantidad_entrada || 0).toFixed(2),
+            Number(m.costo_unitario_entrada || 0).toFixed(4),
+            Number(m.costo_total_entrada || 0).toFixed(2),
+            Number(m.cantidad_salida || 0).toFixed(2),
+            Number(m.costo_unitario_salida || 0).toFixed(4),
+            Number(m.costo_total_salida || 0).toFixed(2),
+            Number(m.saldo_cantidad || 0).toFixed(2),
+            Number(m.saldo_costo_unitario || 0).toFixed(4),
+            Number(m.saldo_costo_total || 0).toFixed(2),
+            '1',
+            ''
+          ].join('|'));
+
+          const nombreArchivo = `LE${ruc}${anio}${mes}00130100001111.txt`;
+          return {
+            nombreArchivo,
+            contenidoTxt: lineas.join('\r\n'),
+            totalLineas: lineas.length
+          };
+        }
+      } catch {}
+    }
+
+    const movs = MOVIMIENTOS_KARDEX_MEMORIA.filter(m => m.empresaId === empresaId && m.periodo === periodo);
 
     const lineas = movs.map(m => {
       const prod = PRODUCTOS_KARDEX_MEMORIA.find(p => p.id === m.productoId);

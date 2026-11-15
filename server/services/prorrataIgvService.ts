@@ -90,12 +90,52 @@ export const prorrataIgvService = {
     periodo: string,
     opciones: OpcionesCalculoProrrata = {}
   ): Promise<LiquidacionProrrataIgv> {
-    const ventasMes = VENTAS_MEMORIA.filter(
-      v => v.empresaId === empresaId && v.estado !== 'ANULADO' && coincidePeriodo(v.periodoId, v.fechaContable || v.fechaEmision, periodo)
-    );
-    const comprasMes = COMPRAS_MEMORIA.filter(
-      c => c.empresaId === empresaId && c.estado !== 'ANULADO' && coincidePeriodo(c.periodoId, c.fechaContable || c.fechaEmision, periodo)
-    );
+    let ventasMes: any[] = [];
+    let comprasMes: any[] = [];
+
+    if (db.isPostgresConnected()) {
+      const qV = await db.query(`
+        SELECT v.id, v.tipo_comprobante as "tipoComprobante", v.base_gravada::numeric as "baseGravada",
+               v.base_no_gravada::numeric as "inafecto", v.exonerado::numeric as "exonerado",
+               (CASE WHEN v.tipo_operacion = 'EXPORTACION' THEN v.base_gravada ELSE 0 END)::numeric as "exportacion",
+               v.total::numeric as "total", v.estado
+        FROM comprobantes_venta v
+        JOIN periodos p ON p.id = v.periodo_id AND p.empresa_id = v.empresa_id
+        WHERE v.empresa_id = $1 AND (p.codigo_periodo = $2 OR to_char(v.fecha_emision, 'YYYY-MM') = $2) AND v.estado != 'ANULADO'
+      `, [empresaId, periodo]);
+      ventasMes = qV.rows.map(r => ({
+        ...r,
+        baseGravada: Number(r.baseGravada || 0),
+        inafecto: Number(r.inafecto || 0),
+        exonerado: Number(r.exonerado || 0),
+        exportacion: Number(r.exportacion || 0),
+        total: Number(r.total || 0)
+      }));
+
+      const qC = await db.query(`
+        SELECT c.id, c.tipo_comprobante as "tipoComprobante", c.base_gravada::numeric as "baseGravada",
+               c.base_no_gravada::numeric as "baseNoGravada", c.exonerado::numeric as "exonerado",
+               c.igv::numeric as "igv", c.total::numeric as "total", c.tipo_adquisicion as "tipoAdquisicion", c.estado
+        FROM comprobantes_compra c
+        JOIN periodos p ON p.id = c.periodo_id AND p.empresa_id = c.empresa_id
+        WHERE c.empresa_id = $1 AND (p.codigo_periodo = $2 OR to_char(c.fecha_emision, 'YYYY-MM') = $2) AND c.estado != 'ANULADO'
+      `, [empresaId, periodo]);
+      comprasMes = qC.rows.map(r => ({
+        ...r,
+        baseGravada: Number(r.baseGravada || 0),
+        baseNoGravada: Number(r.baseNoGravada || 0),
+        exonerado: Number(r.exonerado || 0),
+        igv: Number(r.igv || 0),
+        total: Number(r.total || 0)
+      }));
+    } else {
+      ventasMes = VENTAS_MEMORIA.filter(
+        v => v.empresaId === empresaId && v.estado !== 'ANULADO' && coincidePeriodo(v.periodoId, v.fechaContable || v.fechaEmision, periodo)
+      );
+      comprasMes = COMPRAS_MEMORIA.filter(
+        c => c.empresaId === empresaId && c.estado !== 'ANULADO' && coincidePeriodo(c.periodoId, c.fechaContable || c.fechaEmision, periodo)
+      );
+    }
 
     // 1. Ventas del mes evaluado
     let ventasGravadasMes = Money.create(0);
@@ -298,7 +338,55 @@ export const prorrataIgvService = {
     return this.calcularProrrata(empresaId, periodo, { integrarEnPdt621 });
   },
 
-  obtenerGuardada(empresaId: string, periodo: string): LiquidacionProrrataIgv | null {
+  async obtenerGuardada(empresaId: string, periodo: string): Promise<LiquidacionProrrataIgv | null> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(`
+          SELECT id, empresa_id as "empresaId", periodo,
+                 ventas_gravadas_mes::numeric as "ventasGravadas",
+                 exportaciones_mes::numeric as "exportacionesMes",
+                 ventas_no_gravadas_mes::numeric as "ventasNoGravadas",
+                 ventas_gravadas_12m::numeric as "ventasGravadas12Meses",
+                 exportaciones_12m::numeric as "exportaciones12Meses",
+                 ventas_no_gravadas_12m::numeric as "ventasNoGravadas12Meses",
+                 coeficiente_prorrata::numeric as "coeficienteProrrata",
+                 porcentaje_prorrata::numeric as "porcentajeProrrata",
+                 igv_destino_comun::numeric as "totalIgvDestinoComun",
+                 credito_fiscal_admitido::numeric as "igvCreditoFiscalPermitido",
+                 igv_costo_gasto_64111::numeric as "igvGastoCostoNoAdmitido",
+                 integrar_en_pdt621 as "integrarEnPdt621",
+                 es_regularizacion_anual as "esRegularizacionAnual",
+                 updated_at as "updatedAt"
+          FROM declaraciones_prorrata_igv
+          WHERE empresa_id = $1 AND periodo = $2
+        `, [empresaId, periodo]);
+        if (res.rows[0]) {
+          const r = res.rows[0];
+          return {
+            ...r,
+            ventasGravadas: Number(r.ventasGravadas || 0),
+            exportacionesMes: Number(r.exportacionesMes || 0),
+            ventasNoGravadas: Number(r.ventasNoGravadas || 0),
+            ventasTotales: Number(r.ventasGravadas || 0) + Number(r.exportacionesMes || 0) + Number(r.ventasNoGravadas || 0),
+            ventasGravadas12Meses: Number(r.ventasGravadas12Meses || 0),
+            exportaciones12Meses: Number(r.exportaciones12Meses || 0),
+            ventasNoGravadas12Meses: Number(r.ventasNoGravadas12Meses || 0),
+            ventasTotales12Meses: Number(r.ventasGravadas12Meses || 0) + Number(r.exportaciones12Meses || 0) + Number(r.ventasNoGravadas12Meses || 0),
+            coeficienteProrrata: Number(r.coeficienteProrrata || 0),
+            porcentajeProrrata: Number(r.porcentajeProrrata || 0),
+            totalBaseComprasDestinoComun: 0,
+            totalIgvDestinoComun: Number(r.totalIgvDestinoComun || 0),
+            igvCreditoFiscalPermitido: Number(r.igvCreditoFiscalPermitido || 0),
+            igvGastoCostoNoAdmitido: Number(r.igvGastoCostoNoAdmitido || 0),
+            cuentaGastoAsignada: '64111',
+            integrarEnPdt621: Boolean(r.integrarEnPdt621),
+            esRegularizacionAnual: Boolean(r.esRegularizacionAnual),
+            baseLegal: 'Art. 23° TUO de la Ley del IGV',
+            serie12Meses: []
+          };
+        }
+      } catch {}
+    }
     return DECLARACIONES_PRORRATA_MEMORIA.find(d => d.empresaId === empresaId && d.periodo === periodo) || null;
   }
 };

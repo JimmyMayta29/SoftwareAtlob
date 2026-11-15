@@ -194,7 +194,19 @@ export const daotService = {
     return true;
   },
 
-  listarExclusiones(empresaId: string, anio: number): ExclusionDaotItem[] {
+  async listarExclusiones(empresaId: string, anio: number): Promise<ExclusionDaotItem[]> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(`
+          SELECT id, empresa_id as "empresaId", anio, tipo_operacion as "tipoOperacion",
+                 ruc_tercero as "rucTercero", motivo_exclusion as "motivoExclusion",
+                 comprobante_id as "comprobanteId", usuario_id as "usuarioId", created_at as "createdAt"
+          FROM daot_exclusiones
+          WHERE empresa_id = $1 AND anio = $2
+        `, [empresaId, anio]);
+        if (res.rows.length > 0) return res.rows;
+      } catch {}
+    }
     return DAOT_EXCLUSIONES_MEMORIA.filter(e => e.empresaId === empresaId && e.anio === anio);
   },
 
@@ -202,8 +214,56 @@ export const daotService = {
    * Procesa las operaciones anuales con terceros y genera el consolidado DAOT (Formulario Virtual 3500).
    */
   async procesarDaot(empresaId: string, anio: number = 2026): Promise<ResumenDaotEjecucion> {
-    const compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId);
-    const ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId);
+    let comprasAnio: any[] = [];
+    let ventasAnio: any[] = [];
+
+    if (db.isPostgresConnected()) {
+      const qC = await db.query(`
+        SELECT c.id, c.empresa_id as "empresaId", c.fecha_emision::text as "fechaEmision",
+               c.tipo_comprobante as "tipoComprobante", c.serie, c.numero,
+               c.total::numeric as "total", c.base_gravada::numeric as "baseGravada",
+               c.base_no_gravada::numeric as "baseNoGravada", c.exonerado::numeric as "exonerado",
+               c.estado, a.numero_documento as "proveedorRuc", a.razon_social as "proveedorRazonSocial"
+        FROM comprobantes_compra c
+        LEFT JOIN anexos a ON a.id = c.proveedor_id AND a.empresa_id = c.empresa_id
+        WHERE c.empresa_id = $1 AND EXTRACT(YEAR FROM c.fecha_emision) = $2
+      `, [empresaId, anio]);
+      comprasAnio = qC.rows.map(r => ({
+        ...r,
+        total: Number(r.total || 0),
+        baseGravada: Number(r.baseGravada || 0),
+        baseNoGravada: Number(r.baseNoGravada || 0),
+        exonerado: Number(r.exonerado || 0)
+      }));
+
+      const qV = await db.query(`
+        SELECT v.id, v.empresa_id as "empresaId", v.fecha_emision::text as "fechaEmision",
+               v.tipo_comprobante as "tipoComprobante", v.serie, v.numero,
+               v.total::numeric as "total", v.base_gravada::numeric as "baseGravada",
+               v.base_no_gravada::numeric as "baseNoGravada", v.exonerado::numeric as "exonerado",
+               v.estado, a.numero_documento as "clienteRuc", a.razon_social as "clienteRazonSocial"
+        FROM comprobantes_venta v
+        LEFT JOIN anexos a ON a.id = v.cliente_id AND a.empresa_id = v.empresa_id
+        WHERE v.empresa_id = $1 AND EXTRACT(YEAR FROM v.fecha_emision) = $2
+      `, [empresaId, anio]);
+      ventasAnio = qV.rows.map(r => ({
+        ...r,
+        total: Number(r.total || 0),
+        baseGravada: Number(r.baseGravada || 0),
+        baseNoGravada: Number(r.baseNoGravada || 0),
+        exonerado: Number(r.exonerado || 0)
+      }));
+    } else {
+      const compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId);
+      const ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId);
+      comprasAnio = compras.filter(
+        c => (c.fechaEmision || '').startsWith(String(anio)) || (c.periodoId || '').includes(String(anio))
+      );
+      ventasAnio = ventas.filter(
+        v => (v.fechaEmision || '').startsWith(String(anio)) || (v.periodoId || '').includes(String(anio))
+      );
+    }
+
     const empresa = await empresaRepository.obtenerPorId(empresaId).catch(() => null);
 
     const rucEmpresa = empresa?.ruc || '20100000001';
@@ -211,7 +271,7 @@ export const daotService = {
     const cantidadUitUmbral = await parametroRepository.obtenerValorNumerico('UMBRAL_DAOT_UIT', 2, `${anio}-06-01`);
     const umbral2Uit = Money.toNumber(Money.mul(uitAnual, cantidadUitUmbral)); // S/ 11,000 en 2026 (2 UIT × S/ 5,500)
 
-    const exclusionesAnio = this.listarExclusiones(empresaId, anio);
+    const exclusionesAnio = await this.listarExclusiones(empresaId, anio);
     const mapaExclusionTercero = new Map<string, ExclusionDaotItem>();
     const setComprobantesExcluidos = new Set<string>();
 
@@ -222,14 +282,6 @@ export const daotService = {
         mapaExclusionTercero.set(ex.rucTercero, ex);
       }
     }
-
-    // Filtrar por año
-    const comprasAnio = compras.filter(
-      c => (c.fechaEmision || '').startsWith(String(anio)) || (c.periodoId || '').includes(String(anio))
-    );
-    const ventasAnio = ventas.filter(
-      v => (v.fechaEmision || '').startsWith(String(anio)) || (v.periodoId || '').includes(String(anio))
-    );
 
     const mapaTerceros = new Map<string, {
       tipoDoc: '6' | '1' | '4' | '7';

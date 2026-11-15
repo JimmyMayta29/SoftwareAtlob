@@ -13,7 +13,8 @@ export interface DatabaseService {
 
 let pool: Pool | null = null;
 let isConnected = false;
-const contexto = new AsyncLocalStorage<{ empresaId?: string; userId: string }>();
+export const contexto = new AsyncLocalStorage<{ empresaId?: string; userId: string }>();
+export function obtenerContextoActual() { return contexto.getStore(); }
 
 export function conContextoUsuario<T>(userId: string, action: () => T): T {
   const actual = contexto.getStore();

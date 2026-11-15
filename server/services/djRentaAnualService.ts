@@ -97,27 +97,50 @@ export const djRentaAnualService = {
     const topeMypeUit = await parametroRepository.obtenerValorNumerico('TRAMO_RENTA_ANUAL_MYPE_UIT', 15, fechaRef);
     const tasaGeneral = await parametroRepository.obtenerValorNumerico('TASA_RENTA_ANUAL_GENERAL', 0.295, fechaRef);
 
-    const ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId && v.estado !== 'ANULADO');
-    const compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId && c.estado !== 'ANULADO');
+    let sumaVentas = 0;
+    let sumaCompras = 0;
 
-    const ventasAnio = ventas.filter(
-      v => (v.fechaEmision || '').startsWith(String(anio)) || (v.periodoId || '').includes(String(anio))
-    );
-    const comprasAnio = compras.filter(
-      c => (c.fechaEmision || '').startsWith(String(anio)) || (c.periodoId || '').includes(String(anio))
-    );
+    if (db.isPostgresConnected()) {
+      try {
+        const qV = await db.query(`
+          SELECT COALESCE(SUM(CASE WHEN tipo_comprobante = '07' THEN -base_gravada ELSE base_gravada END), 0)::numeric as total
+          FROM comprobantes_venta
+          WHERE empresa_id = $1 AND EXTRACT(YEAR FROM fecha_emision) = $2 AND estado != 'ANULADO'
+        `, [empresaId, anio]);
+        sumaVentas = Number(qV.rows[0]?.total || 0);
 
-    const sumaVentasMem = ventasAnio.reduce(
-      (acc, v) => acc + (Number((v as any).baseGravada ?? (v as any).baseImponible) || 0) * (v.tipoComprobante === '07' ? -1 : 1),
-      0
-    );
-    const sumaComprasMem = comprasAnio.reduce(
-      (acc, c) => acc + (Number((c as any).baseGravada ?? (c as any).baseImponible) || 0) * (c.tipoComprobante === '07' ? -1 : 1),
-      0
-    );
+        const qC = await db.query(`
+          SELECT COALESCE(SUM(CASE WHEN tipo_comprobante = '07' THEN -base_gravada ELSE base_gravada END), 0)::numeric as total
+          FROM comprobantes_compra
+          WHERE empresa_id = $1 AND EXTRACT(YEAR FROM fecha_emision) = $2 AND estado != 'ANULADO'
+        `, [empresaId, anio]);
+        sumaCompras = Number(qC.rows[0]?.total || 0);
+      } catch {}
+    }
 
-    const totalIngresosVentas = sumaVentasMem > 0 ? sumaVentasMem : 180000;
-    const totalCostosGastos = sumaComprasMem > 0 ? sumaComprasMem : 115000;
+    if (sumaVentas === 0 && sumaCompras === 0) {
+      const ventas = VENTAS_MEMORIA.filter(v => v.empresaId === empresaId && v.estado !== 'ANULADO');
+      const compras = COMPRAS_MEMORIA.filter(c => c.empresaId === empresaId && c.estado !== 'ANULADO');
+
+      const ventasAnio = ventas.filter(
+        v => (v.fechaEmision || '').startsWith(String(anio)) || (v.periodoId || '').includes(String(anio))
+      );
+      const comprasAnio = compras.filter(
+        c => (c.fechaEmision || '').startsWith(String(anio)) || (c.periodoId || '').includes(String(anio))
+      );
+
+      sumaVentas = ventasAnio.reduce(
+        (acc, v) => acc + (Number((v as any).baseGravada ?? (v as any).baseImponible) || 0) * (v.tipoComprobante === '07' ? -1 : 1),
+        0
+      );
+      sumaCompras = comprasAnio.reduce(
+        (acc, c) => acc + (Number((c as any).baseGravada ?? (c as any).baseImponible) || 0) * (c.tipoComprobante === '07' ? -1 : 1),
+        0
+      );
+    }
+
+    const totalIngresosVentas = sumaVentas > 0 ? sumaVentas : 180000;
+    const totalCostosGastos = sumaCompras > 0 ? sumaCompras : 115000;
 
     const utilidadContable = params?.utilidadContableOverride !== undefined
       ? Money.toNumber(Money.create(params.utilidadContableOverride))
@@ -246,13 +269,26 @@ export const djRentaAnualService = {
       : 0;
 
     // Créditos contra el Impuesto (Pagos a cuenta mensuales del ejercicio + Saldo a favor anterior + ITAN)
-    const declaracionesMesesAnio = DECLARACIONES_PDT621_MEMORIA.filter(
-      d => d.empresaId === empresaId && d.periodo.startsWith(`${anio}-`) && d.estado !== 'SUSTITUIDA'
-    );
-    const sumaPagosCuentaDeclarados = declaracionesMesesAnio.reduce(
-      (acc, d) => Money.toNumber(Money.add(acc, d.pagoCuentaRenta)),
-      0
-    );
+    let sumaPagosCuentaDeclarados = 0;
+    if (db.isPostgresConnected()) {
+      try {
+        const qPagos = await db.query(
+          'SELECT COALESCE(SUM(pago_cuenta_renta), 0)::numeric as total FROM declaraciones_pdt621 WHERE empresa_id = $1 AND periodo LIKE $2 AND estado != \'SUSTITUIDA\'',
+          [empresaId, `${anio}-%`]
+        );
+        sumaPagosCuentaDeclarados = Number(qPagos.rows[0]?.total || 0);
+      } catch {}
+    }
+
+    if (sumaPagosCuentaDeclarados === 0) {
+      const declaracionesMesesAnio = DECLARACIONES_PDT621_MEMORIA.filter(
+        d => d.empresaId === empresaId && d.periodo.startsWith(`${anio}-`) && d.estado !== 'SUSTITUIDA'
+      );
+      sumaPagosCuentaDeclarados = declaracionesMesesAnio.reduce(
+        (acc, d) => Money.toNumber(Money.add(acc, d.pagoCuentaRenta)),
+        0
+      );
+    }
 
     const pagosACuentaMensuales = params?.pagosACuentaMensualesOverride !== undefined
       ? Money.toNumber(Money.create(params.pagosACuentaMensualesOverride))

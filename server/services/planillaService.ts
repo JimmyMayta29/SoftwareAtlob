@@ -1541,7 +1541,7 @@ export const planillaService = {
     if (db.isPostgresConnected()) {
       try {
         const perCheck = await db.query(
-          `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo = $2 OR id::text = $2) LIMIT 1`,
+          `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2 OR id::text = $2) LIMIT 1`,
           [empresaId, mes]
         );
         const perUuid = perCheck.rows[0]?.id || toUuid();

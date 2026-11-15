@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { db } from '../config/database';
+import { db, contexto } from '../config/database';
 import { Money } from '../utils/decimal';
 import { ASIENTOS_MEMORIA, asientoService } from './asientoService';
 
@@ -235,7 +235,8 @@ export const activosFijosService = {
     totalIrDiferido: number;
     detalles: CalculoDepreciacionPeriodo[];
   }> {
-    const activos = ACTIVOS_FIJOS_MEMORIA.filter(a => a.empresaId === empresaId && a.estado === 'ACTIVO');
+    const todosActivos = await this.listarActivos(empresaId);
+    const activos = todosActivos.filter(a => a.estado === 'ACTIVO');
     const detalles: CalculoDepreciacionPeriodo[] = [];
 
     let totalFin = Money.create(0);
@@ -312,7 +313,7 @@ export const activosFijosService = {
     // Asiento contable de depreciación (Subdiario 08 / 05)
     // Cargo: 68141 Depreciación de edificaciones y equipos
     // Abono: 3913 Depreciación acumulada
-    // Destino: Cargo 941 / 951 vs Abono 791
+    // Destino: Cargo 9411 vs Abono 7911
     const totalMonto = calculo.totalDepreciacionFinanciera;
 
     const lineas = [
@@ -350,12 +351,44 @@ export const activosFijosService = {
       }
     ];
 
+    let asientoId = `asiento-deprec-${empresaId}-${periodo}`;
+    let numAsientoFinal = numAsiento;
+
+    if (db.isPostgresConnected()) {
+      try {
+        const perRes = await db.query('SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || \'-\' || lpad(mes::text, 2, \'0\') = $2)', [empresaId, periodo]);
+        const pId = perRes.rows[0]?.id;
+
+        const userFinal = userId || contexto.getStore()?.userId || 'usr-sistema';
+        const asientoCreado = await asientoService.crearAsiento(empresaId, {
+          periodoId: pId || `per-${periodo}`,
+          subdiario: '08',
+          fecha: fechaAsiento,
+          moneda: 'PEN',
+          tipoCambio: 3.75,
+          glosa: `Depreciación mensual de activos fijos del período ${periodo}`,
+          origenModulo: 'ACTIVOS_FIJOS',
+          lineas: lineas.map(l => ({
+            codigoCuenta: l.codigoCuenta,
+            debe: l.debe,
+            haber: l.haber,
+            glosa: l.glosa
+          }))
+        }, userFinal);
+
+        asientoId = asientoCreado.id;
+        numAsientoFinal = asientoCreado.numero;
+      } catch (err) {
+        console.warn('⚠️ [activosFijosService] Error creando asiento de depreciación en DB:', err);
+      }
+    }
+
     const asiento = {
-      id: `asiento-deprec-${empresaId}-${periodo}`,
+      id: asientoId,
       empresaId,
       subdiarioId: '08',
       subdiario: '08',
-      numeroAsiento: numAsiento,
+      numeroAsiento: numAsientoFinal,
       periodoId: periodo,
       periodo,
       fecha: fechaAsiento,
@@ -374,7 +407,8 @@ export const activosFijosService = {
     ASIENTOS_MEMORIA.unshift(asiento);
 
     // Actualizar acumulados de los activos
-    for (const act of ACTIVOS_FIJOS_MEMORIA.filter(a => a.empresaId === empresaId && a.estado === 'ACTIVO')) {
+    const activosActualizar = await this.listarActivos(empresaId);
+    for (const act of activosActualizar.filter(a => a.estado === 'ACTIVO')) {
       const depFinMes = Money.toNumber(Money.div(act.valorAdquisicionSoles, act.vidaUtilMesesFinanciera));
       const depTribAnual = Money.mul(act.valorAdquisicionSoles, act.tasaDepreciacionTributariaAnual / 100);
       const depTribMes = Money.toNumber(Money.div(depTribAnual, 12));
@@ -411,9 +445,9 @@ export const activosFijosService = {
 
     return {
       asientoId: asiento.id,
-      numeroAsiento: numAsiento,
+      numeroAsiento: numAsientoFinal,
       totalDepreciado: totalMonto,
-      mensaje: `Asiento de depreciación mensual ${numAsiento} generado con éxito en el Subdiario 08 con sus asientos de destino correspondientes.`
+      mensaje: `Asiento de depreciación mensual ${numAsientoFinal} generado con éxito en el Subdiario 08 con sus asientos de destino correspondientes.`
     };
   },
 
@@ -426,7 +460,7 @@ export const activosFijosService = {
     contenidoTxt: string;
     totalActivos: number;
   }> {
-    const activos = ACTIVOS_FIJOS_MEMORIA.filter(a => a.empresaId === empresaId);
+    const activos = await this.listarActivos(empresaId);
 
     const lineas = activos.map(a => {
       return [

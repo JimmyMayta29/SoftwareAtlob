@@ -12,7 +12,7 @@ export const activosKardexRoutes = Router();
 activosKardexRoutes.get('/empresas/:empresaId/activos-fijos', async (req: Request, res: Response) => {
   try {
     const { empresaId } = req.params;
-    const activos = ACTIVOS_FIJOS_MEMORIA.filter(a => a.empresaId === empresaId);
+    const activos = await activosFijosService.listarActivos(empresaId);
     res.json(activos);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -74,7 +74,7 @@ activosKardexRoutes.get('/empresas/:empresaId/activos-fijos/ple-71', async (req:
 activosKardexRoutes.get('/empresas/:empresaId/kardex/productos', async (req: Request, res: Response) => {
   try {
     const { empresaId } = req.params;
-    const productos = PRODUCTOS_KARDEX_MEMORIA.filter(p => p.empresaId === empresaId);
+    const productos = await kardexService.listarProductos(empresaId);
     res.json(productos);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

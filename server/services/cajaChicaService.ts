@@ -5,7 +5,7 @@ import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
 import { periodoService } from './periodoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
-import { CUENTAS_FINANCIERAS_MEMORIA } from './tesoreriaService';
+import { tesoreriaService, CUENTAS_FINANCIERAS_MEMORIA } from './tesoreriaService';
 
 export interface CajaChicaModel {
   id: string;
@@ -34,6 +34,20 @@ export const RENDICIONES_MEMORIA: RendicionCajaChicaModel[] = [];
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function toFechaIso(val: any): string {
+  if (!val) return '';
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = String(val);
+  const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  return str.slice(0, 10);
+}
+
 export const cajaChicaService = {
   async listarCajas(empresaId: string): Promise<CajaChicaModel[]> {
     if (db.isPostgresConnected()) {
@@ -59,6 +73,56 @@ export const cajaChicaService = {
     return CAJAS_CHICAS_MEMORIA.filter(c => c.empresaId === empresaId);
   },
 
+  async obtenerCajaPorId(empresaId: string, cajaId: string): Promise<CajaChicaModel | null> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          'SELECT * FROM cajas_chicas WHERE id::text = $1 AND empresa_id = $2',
+          [cajaId, empresaId]
+        );
+        if (res.rows[0]) {
+          const row = res.rows[0];
+          return {
+            id: String(row.id),
+            empresaId: String(row.empresa_id),
+            nombre: String(row.nombre),
+            responsableAnexoId: row.responsable_anexo_id ? String(row.responsable_anexo_id) : undefined,
+            cuentaFinancieraId: String(row.cuenta_financiera_id),
+            montoFondo: Number(row.monto_fondo),
+            saldoActual: Number(row.saldo_actual),
+            estado: row.estado as 'ABIERTA' | 'CERRADA'
+          };
+        }
+      } catch {}
+    }
+    return CAJAS_CHICAS_MEMORIA.find(c => c.id === cajaId && c.empresaId === empresaId) || null;
+  },
+
+  async obtenerRendicionPorId(empresaId: string, rendicionId: string): Promise<RendicionCajaChicaModel | null> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(
+          'SELECT * FROM rendiciones_caja_chica WHERE id::text = $1 AND empresa_id = $2',
+          [rendicionId, empresaId]
+        );
+        if (res.rows[0]) {
+          const row = res.rows[0];
+          return {
+            id: String(row.id),
+            cajaChicaId: String(row.caja_chica_id),
+            empresaId: String(row.empresa_id),
+            fecha: toFechaIso(row.fecha),
+            totalRendido: Number(row.total_rendido),
+            glosa: String(row.glosa),
+            estado: row.estado as 'PENDIENTE' | 'REPUERTA' | 'ANULADA',
+            asientoReposicionId: row.asiento_reposicion_id ? String(row.asiento_reposicion_id) : undefined
+          };
+        }
+      } catch {}
+    }
+    return RENDICIONES_MEMORIA.find(r => r.id === rendicionId && r.empresaId === empresaId) || null;
+  },
+
   async abrirFondo(
     empresaId: string,
     datos: {
@@ -70,7 +134,7 @@ export const cajaChicaService = {
     },
     userId: string
   ): Promise<CajaChicaModel> {
-    const ctaBanco = CUENTAS_FINANCIERAS_MEMORIA.find(c => c.id === datos.cuentaFinancieraId && c.empresaId === empresaId);
+    const ctaBanco = await tesoreriaService.obtenerCuentaPorId(empresaId, datos.cuentaFinancieraId);
     if (!ctaBanco && !db.isPostgresConnected()) throw new Error('CUENTA_ORIGEN_NO_EXISTE');
 
     const idCaja = UUID_REGEX.test(empresaId) ? randomUUID() : `cc-${Date.now()}`;
@@ -125,7 +189,7 @@ export const cajaChicaService = {
     },
     userId: string
   ): Promise<RendicionCajaChicaModel> {
-    const caja = CAJAS_CHICAS_MEMORIA.find(c => c.id === cajaChicaId && c.empresaId === empresaId);
+    const caja = await this.obtenerCajaPorId(empresaId, cajaChicaId);
     if (!caja) throw new Error('CAJA_CHICA_NO_EXISTE');
 
     if (datos.totalRendido > caja.saldoActual) {
@@ -172,14 +236,14 @@ export const cajaChicaService = {
     periodoId: string,
     userId: string
   ) {
-    const rendicion = RENDICIONES_MEMORIA.find(r => r.id === rendicionId && r.empresaId === empresaId);
+    const rendicion = await this.obtenerRendicionPorId(empresaId, rendicionId);
     if (!rendicion) throw new Error('RENDICION_NO_EXISTE');
     if (rendicion.estado === 'REPUERTA') throw new Error('RENDICION_YA_REPUERTA');
 
-    const caja = CAJAS_CHICAS_MEMORIA.find(c => c.id === rendicion.cajaChicaId);
+    const caja = await this.obtenerCajaPorId(empresaId, rendicion.cajaChicaId);
     if (!caja) throw new Error('CAJA_NO_EXISTE');
 
-    const ctaBanco = CUENTAS_FINANCIERAS_MEMORIA.find(c => c.id === caja.cuentaFinancieraId);
+    const ctaBanco = await tesoreriaService.obtenerCuentaPorId(empresaId, caja.cuentaFinancieraId);
     if (!ctaBanco && !db.isPostgresConnected()) throw new Error('CUENTA_FINANCIERA_NO_EXISTE');
 
     const ctaFinCodigo = ctaBanco?.cuentaContableCodigo || '1041';

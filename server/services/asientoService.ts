@@ -321,6 +321,53 @@ export const asientoService = {
               [empresaId, rawCuenta]
             );
             ctaRow = ctaCheck.rows[0];
+
+            if (!ctaRow) {
+              const pbRes = await client.query(
+                `SELECT codigo, denominacion, elemento, nivel, tipo_cuenta, es_registro,
+                        clasificacion_eeff, naturaleza_saldo, signo_eeff, es_correctora
+                 FROM pcge_base WHERE codigo = $1 LIMIT 1`,
+                [rawCuenta]
+              );
+              if (pbRes.rows.length > 0) {
+                const pb = pbRes.rows[0];
+                const insCta = await client.query(`
+                  INSERT INTO plan_cuentas (
+                    empresa_id, codigo, nombre, nivel, tipo_cuenta,
+                    permite_movimiento, es_registro, clasificacion_eeff,
+                    naturaleza_saldo, signo_eeff, es_correctora, es_inactiva
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)
+                  ON CONFLICT (empresa_id, codigo) DO UPDATE SET is_active = true
+                  RETURNING id, codigo, nombre, permite_movimiento, is_active, false as es_inactiva,
+                            requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+                `, [
+                  empresaId, pb.codigo, pb.denominacion, pb.nivel, pb.tipo_cuenta,
+                  pb.es_registro, pb.es_registro, pb.clasificacion_eeff,
+                  pb.naturaleza_saldo, pb.signo_eeff, pb.es_correctora
+                ]);
+                ctaRow = insCta.rows[0];
+              } else if (/^\d{3,6}$/.test(rawCuenta)) {
+                const el = parseInt(rawCuenta.charAt(0), 10);
+                const nivel = rawCuenta.length;
+                const tipo = el <= 3 ? 'ACTIVO' : (el === 4 ? 'PASIVO' : (el === 5 ? 'PATRIMONIO' : 'GASTO'));
+                const esCorr = rawCuenta.startsWith('19') || rawCuenta.startsWith('29') || rawCuenta.startsWith('39');
+                const nat = esCorr ? 'ACREEDORA' : (el === 7 ? 'ACREEDORA' : 'DEUDORA');
+                const insCta = await client.query(`
+                  INSERT INTO plan_cuentas (
+                    empresa_id, codigo, nombre, nivel, tipo_cuenta,
+                    permite_movimiento, es_registro, clasificacion_eeff,
+                    naturaleza_saldo, signo_eeff, es_correctora, es_inactiva
+                  ) VALUES ($1, $2, $3, $4, $5, true, true, 'NO_APLICA', $6, $7, $8, false)
+                  ON CONFLICT (empresa_id, codigo) DO UPDATE SET is_active = true
+                  RETURNING id, codigo, nombre, permite_movimiento, is_active, false as es_inactiva,
+                            requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+                `, [
+                  empresaId, rawCuenta, `Cuenta ${rawCuenta}`, nivel, tipo,
+                  nat, esCorr ? -1 : 1, esCorr
+                ]);
+                ctaRow = insCta.rows[0];
+              }
+            }
           }
 
           if (!ctaRow) {
@@ -499,6 +546,53 @@ export const asientoService = {
               [empresaId, rawCuenta]
             );
             ctaRow = ctaCheck.rows[0];
+
+            if (!ctaRow) {
+              const pbRes = await client.query(
+                `SELECT codigo, denominacion, elemento, nivel, tipo_cuenta, es_registro,
+                        clasificacion_eeff, naturaleza_saldo, signo_eeff, es_correctora
+                 FROM pcge_base WHERE codigo = $1 LIMIT 1`,
+                [rawCuenta]
+              );
+              if (pbRes.rows.length > 0) {
+                const pb = pbRes.rows[0];
+                const insCta = await client.query(`
+                  INSERT INTO plan_cuentas (
+                    empresa_id, codigo, nombre, nivel, tipo_cuenta,
+                    permite_movimiento, es_registro, clasificacion_eeff,
+                    naturaleza_saldo, signo_eeff, es_correctora, es_inactiva
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false)
+                  ON CONFLICT (empresa_id, codigo) DO UPDATE SET is_active = true
+                  RETURNING id, codigo, nombre, permite_movimiento, is_active, false as es_inactiva,
+                            requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+                `, [
+                  empresaId, pb.codigo, pb.denominacion, pb.nivel, pb.tipo_cuenta,
+                  pb.es_registro, pb.es_registro, pb.clasificacion_eeff,
+                  pb.naturaleza_saldo, pb.signo_eeff, pb.es_correctora
+                ]);
+                ctaRow = insCta.rows[0];
+              } else if (/^\d{3,6}$/.test(rawCuenta)) {
+                const el = parseInt(rawCuenta.charAt(0), 10);
+                const nivel = rawCuenta.length;
+                const tipo = el <= 3 ? 'ACTIVO' : (el === 4 ? 'PASIVO' : (el === 5 ? 'PATRIMONIO' : 'GASTO'));
+                const esCorr = rawCuenta.startsWith('19') || rawCuenta.startsWith('29') || rawCuenta.startsWith('39');
+                const nat = esCorr ? 'ACREEDORA' : (el === 7 ? 'ACREEDORA' : 'DEUDORA');
+                const insCta = await client.query(`
+                  INSERT INTO plan_cuentas (
+                    empresa_id, codigo, nombre, nivel, tipo_cuenta,
+                    permite_movimiento, es_registro, clasificacion_eeff,
+                    naturaleza_saldo, signo_eeff, es_correctora, es_inactiva
+                  ) VALUES ($1, $2, $3, $4, $5, true, true, 'NO_APLICA', $6, $7, $8, false)
+                  ON CONFLICT (empresa_id, codigo) DO UPDATE SET is_active = true
+                  RETURNING id, codigo, nombre, permite_movimiento, is_active, false as es_inactiva,
+                            requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+                `, [
+                  empresaId, rawCuenta, `Cuenta ${rawCuenta}`, nivel, tipo,
+                  nat, esCorr ? -1 : 1, esCorr
+                ]);
+                ctaRow = insCta.rows[0];
+              }
+            }
           }
 
           if (!ctaRow) {

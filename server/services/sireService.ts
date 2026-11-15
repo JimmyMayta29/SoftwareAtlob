@@ -366,8 +366,12 @@ export const sireService = {
       totalImporte += c.total;
     }
 
+    const propId = (db.isPostgresConnected() || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(empresaId))
+      ? crypto.randomUUID()
+      : `propuesta-manual-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
     const nuevaPropuesta: SirePropuestaModel = {
-      id: `propuesta-manual-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: propId,
       empresaId,
       tipo,
       periodo,
@@ -380,6 +384,29 @@ export const sireService = {
       esSimulado: false,
       lineas: comprobantes
     };
+
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          INSERT INTO sire_propuestas (
+            id, empresa_id, tipo, periodo, fecha_descarga, hash_archivo,
+            total_registros, total_base_gravada, total_igv, total_importe, raw_data
+          ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (empresa_id, tipo, periodo, hash_archivo) DO UPDATE SET
+            total_registros = EXCLUDED.total_registros,
+            total_base_gravada = EXCLUDED.total_base_gravada,
+            total_igv = EXCLUDED.total_igv,
+            total_importe = EXCLUDED.total_importe,
+            raw_data = EXCLUDED.raw_data
+        `, [
+          nuevaPropuesta.id, nuevaPropuesta.empresaId, nuevaPropuesta.tipo, nuevaPropuesta.periodo,
+          nuevaPropuesta.hashArchivo, nuevaPropuesta.totalRegistros, nuevaPropuesta.totalBaseGravada,
+          nuevaPropuesta.totalIgv, nuevaPropuesta.totalImporte, JSON.stringify(nuevaPropuesta.lineas)
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [sireService] Error persistiendo propuesta manual en PostgreSQL:', err);
+      }
+    }
 
     SIRE_PROPUESTAS_MEMORIA.push(nuevaPropuesta);
 
@@ -437,8 +464,12 @@ export const sireService = {
       totalImporte += c.total;
     }
 
+    const propDescId = (db.isPostgresConnected() || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(empresaId))
+      ? crypto.randomUUID()
+      : `propuesta-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
     const nuevaPropuesta: SirePropuestaModel = {
-      id: `propuesta-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: propDescId,
       empresaId,
       tipo,
       periodo,
@@ -451,6 +482,29 @@ export const sireService = {
       esSimulado: Boolean(propuestaData.esSimulado),
       lineas: propuestaData.comprobantes
     };
+
+    if (db.isPostgresConnected()) {
+      try {
+        await db.query(`
+          INSERT INTO sire_propuestas (
+            id, empresa_id, tipo, periodo, fecha_descarga, hash_archivo,
+            total_registros, total_base_gravada, total_igv, total_importe, raw_data
+          ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (empresa_id, tipo, periodo, hash_archivo) DO UPDATE SET
+            total_registros = EXCLUDED.total_registros,
+            total_base_gravada = EXCLUDED.total_base_gravada,
+            total_igv = EXCLUDED.total_igv,
+            total_importe = EXCLUDED.total_importe,
+            raw_data = EXCLUDED.raw_data
+        `, [
+          nuevaPropuesta.id, nuevaPropuesta.empresaId, nuevaPropuesta.tipo, nuevaPropuesta.periodo,
+          nuevaPropuesta.hashArchivo, nuevaPropuesta.totalRegistros, nuevaPropuesta.totalBaseGravada,
+          nuevaPropuesta.totalIgv, nuevaPropuesta.totalImporte, JSON.stringify(nuevaPropuesta.lineas)
+        ]);
+      } catch (err) {
+        console.warn('⚠️ [sireService] Error persistiendo propuesta descargada en PostgreSQL:', err);
+      }
+    }
 
     SIRE_PROPUESTAS_MEMORIA.push(nuevaPropuesta);
 
@@ -467,6 +521,40 @@ export const sireService = {
   },
 
   async obtenerPropuesta(empresaId: string, tipo: 'COMPRAS' | 'VENTAS', periodo: string): Promise<SirePropuestaModel | null> {
+    if (db.isPostgresConnected()) {
+      try {
+        const res = await db.query(`
+          SELECT id, empresa_id as "empresaId", tipo, periodo,
+                 fecha_descarga as "fechaDescarga", hash_archivo as "hashArchivo",
+                 total_registros as "totalRegistros", total_base_gravada::numeric as "totalBaseGravada",
+                 total_igv::numeric as "totalIgv", total_importe::numeric as "totalImporte",
+                 raw_data as "rawData"
+          FROM sire_propuestas
+          WHERE empresa_id = $1 AND tipo = $2 AND periodo = $3
+          ORDER BY fecha_descarga DESC
+          LIMIT 1
+        `, [empresaId, tipo, periodo]);
+        if (res.rows[0]) {
+          const r = res.rows[0];
+          return {
+            id: r.id,
+            empresaId: r.empresaId,
+            tipo: r.tipo,
+            periodo: r.periodo,
+            fechaDescarga: r.fechaDescarga,
+            hashArchivo: r.hashArchivo,
+            totalRegistros: Number(r.totalRegistros || 0),
+            totalBaseGravada: Number(r.totalBaseGravada || 0),
+            totalIgv: Number(r.totalIgv || 0),
+            totalImporte: Number(r.totalImporte || 0),
+            esSimulado: false,
+            lineas: Array.isArray(r.rawData) ? r.rawData : (typeof r.rawData === 'string' ? JSON.parse(r.rawData) : [])
+          };
+        }
+      } catch (err) {
+        console.warn('⚠️ [sireService] Error obteniendo propuesta SIRE desde DB:', err);
+      }
+    }
     const found = SIRE_PROPUESTAS_MEMORIA.find(p => p.empresaId === empresaId && p.tipo === tipo && p.periodo === periodo);
     return found || null;
   }

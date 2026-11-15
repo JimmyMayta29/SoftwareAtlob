@@ -117,10 +117,21 @@ export const consolidacionMensualService = {
 
     if (metodo === 'PERMANENTE') {
       // Método Permanente: Costo de Ventas determinado por salidas valoradas de Kardex
-      const salidasKardex = MOVIMIENTOS_KARDEX_MEMORIA
-        .filter(m => m.empresaId === empresaId && m.periodo === periodoId && m.cantidadSalida > 0);
-      
-      costoVentas = salidasKardex.reduce((sum, m) => sum + m.costoTotalSalida, 0);
+      if (db.isPostgresConnected()) {
+        try {
+          const qKardex = await db.query(
+            'SELECT COALESCE(SUM(costo_total_salida), 0)::numeric as total FROM movimientos_kardex WHERE empresa_id = $1 AND periodo = $2 AND cantidad_salida > 0',
+            [empresaId, periodoId]
+          );
+          costoVentas = Number(qKardex.rows[0]?.total || 0);
+        } catch {}
+      }
+
+      if (costoVentas === 0) {
+        const salidasKardex = MOVIMIENTOS_KARDEX_MEMORIA
+          .filter(m => m.empresaId === empresaId && m.periodo === periodoId && m.cantidadSalida > 0);
+        costoVentas = salidasKardex.reduce((sum, m) => sum + m.costoTotalSalida, 0);
+      }
 
       // Si no hubo movimientos en memoria pero hay ventas, estimar costo estándar (ej. 70% de ventas) para la simulación
       if (costoVentas === 0 && totalVentas > 0) {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { contabilizacionService } from './contabilizacionService';
@@ -7,6 +8,8 @@ import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { CXP_MEMORIA } from './compraService';
 import { CXC_MEMORIA } from './ventaService';
 import { DETRACCIONES_MEMORIA } from './detraccionService';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface CuentaFinancieraModel {
   id: string;
@@ -116,28 +119,87 @@ export const tesoreriaService = {
   // --------------------------------------------------------------------------
   async listarCuentas(empresaId: string): Promise<CuentaFinancieraModel[]> {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
+      const res = await db.query<CuentaFinancieraModel>(`
         SELECT id, empresa_id as "empresaId", tipo, banco, numero, moneda,
                cuenta_contable_codigo as "cuentaContableCodigo",
-               saldo_inicial as "saldoInicial", saldo_actual as "saldoActual", activa
+               saldo_inicial::numeric as "saldoInicial", saldo_actual::numeric as "saldoActual", activa
         FROM cuentas_financieras
         WHERE empresa_id = $1
         ORDER BY tipo, banco
       `, [empresaId]);
-      if (res.rows && res.rows.length > 0) return res.rows;
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map(r => ({
+          ...r,
+          saldoInicial: Number(r.saldoInicial || 0),
+          saldoActual: Number(r.saldoActual || 0)
+        }));
+      }
+
+      // Si no existen cuentas para la empresa en PostgreSQL, inicializar cuentas base oficiales
+      const cuentasBase = [
+        { tipo: 'CAJA' as const, banco: 'CAJA_CENTRAL', numero: '001', moneda: 'PEN' as const, cuentaContableCodigo: '1011', saldoInicial: 0 },
+        { tipo: 'BANCO' as const, banco: 'BCP', numero: '193-4819283-0-21', moneda: 'PEN' as const, cuentaContableCodigo: '1041', saldoInicial: 0 },
+        { tipo: 'BANCO' as const, banco: 'BBVA', numero: '0011-0182-0100049182', moneda: 'USD' as const, cuentaContableCodigo: '10412', saldoInicial: 0 },
+        { tipo: 'DETRACCIONES_BN' as const, banco: 'BANCO_DE_LA_NACION', numero: '00-068-192831', moneda: 'PEN' as const, cuentaContableCodigo: '1042', saldoInicial: 0 }
+      ];
+
+      for (const cb of cuentasBase) {
+        const id = randomUUID();
+        try {
+          await db.query(`
+            INSERT INTO cuentas_financieras (
+              id, empresa_id, tipo, banco, numero, moneda, cuenta_contable_codigo, saldo_inicial, saldo_actual, activa
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+            ON CONFLICT (empresa_id, banco, numero) DO NOTHING
+          `, [id, empresaId, cb.tipo, cb.banco, cb.numero, cb.moneda, cb.cuentaContableCodigo, cb.saldoInicial, cb.saldoInicial]);
+        } catch {}
+      }
+
+      const resAfter = await db.query<CuentaFinancieraModel>(`
+        SELECT id, empresa_id as "empresaId", tipo, banco, numero, moneda,
+               cuenta_contable_codigo as "cuentaContableCodigo",
+               saldo_inicial::numeric as "saldoInicial", saldo_actual::numeric as "saldoActual", activa
+        FROM cuentas_financieras
+        WHERE empresa_id = $1
+        ORDER BY tipo, banco
+      `, [empresaId]);
+      if (resAfter.rows && resAfter.rows.length > 0) {
+        return resAfter.rows.map(r => ({
+          ...r,
+          saldoInicial: Number(r.saldoInicial || 0),
+          saldoActual: Number(r.saldoActual || 0)
+        }));
+      }
     }
     const cuentas = CUENTAS_FINANCIERAS_MEMORIA.filter(c => c.empresaId === empresaId);
     return cuentas || [];
   },
 
   async obtenerCuentaPorId(empresaId: string, id: string): Promise<CuentaFinancieraModel | null> {
+    if (db.isPostgresConnected()) {
+      const res = await db.query<CuentaFinancieraModel>(`
+        SELECT id, empresa_id as "empresaId", tipo, banco, numero, moneda,
+               cuenta_contable_codigo as "cuentaContableCodigo",
+               saldo_inicial::numeric as "saldoInicial", saldo_actual::numeric as "saldoActual", activa
+        FROM cuentas_financieras
+        WHERE (id::text = $1) AND empresa_id = $2
+      `, [id, empresaId]);
+      if (res.rows[0]) {
+        return {
+          ...res.rows[0],
+          saldoInicial: Number(res.rows[0].saldoInicial || 0),
+          saldoActual: Number(res.rows[0].saldoActual || 0)
+        };
+      }
+    }
     const cuentas = await this.listarCuentas(empresaId);
     return cuentas.find(c => c.id === id) || null;
   },
 
   async crearCuenta(empresaId: string, datos: Omit<CuentaFinancieraModel, 'id' | 'empresaId' | 'saldoActual'>): Promise<CuentaFinancieraModel> {
+    const id = (db.isPostgresConnected() || UUID_REGEX.test(empresaId)) ? randomUUID() : `cta-${Date.now()}`;
     const nueva: CuentaFinancieraModel = {
-      id: `cta-${Date.now()}`,
+      id,
       empresaId,
       tipo: datos.tipo,
       banco: datos.banco,
@@ -175,6 +237,74 @@ export const tesoreriaService = {
     page?: number;
     limit?: number;
   }) {
+    const page = Math.max(1, filtros?.page || 1);
+    const limit = Math.min(100, Math.max(1, filtros?.limit || 50));
+    const offset = (page - 1) * limit;
+
+    if (db.isPostgresConnected()) {
+      let where = `WHERE empresa_id = $1`;
+      const values: any[] = [empresaId];
+
+      if (filtros?.cuentaFinancieraId) {
+        values.push(filtros.cuentaFinancieraId);
+        where += ` AND cuenta_financiera_id::text = $${values.length}`;
+      }
+      if (filtros?.tipo && filtros.tipo !== 'TODOS') {
+        values.push(filtros.tipo);
+        where += ` AND tipo = $${values.length}`;
+      }
+      if (filtros?.estado && filtros.estado !== 'TODOS') {
+        values.push(filtros.estado);
+        where += ` AND estado = $${values.length}`;
+      }
+      if (filtros?.fechaDesde) {
+        values.push(filtros.fechaDesde);
+        where += ` AND fecha >= $${values.length}`;
+      }
+      if (filtros?.fechaHasta) {
+        values.push(filtros.fechaHasta);
+        where += ` AND fecha <= $${values.length}`;
+      }
+
+      const countRes = await db.query(`
+        SELECT COUNT(*) as total FROM movimientos_tesoreria
+        ${where}
+      `, values);
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+      values.push(limit, offset);
+      const dataRes = await db.query(`
+        SELECT id, empresa_id as "empresaId", periodo_id as "periodoId",
+               cuenta_financiera_id as "cuentaFinancieraId", fecha::text, tipo,
+               medio_pago as "medioPago", numero_operacion as "numeroOperacion",
+               anexo_id as "anexoId", moneda, tipo_cambio::numeric as "tipoCambio",
+               importe::numeric as "importe", importe_me::numeric as "importeMe",
+               saldo_sin_aplicar::numeric as "saldoSinAplicar",
+               glosa, estado, conciliado, asiento_id as "asientoId",
+               version, created_at as "createdAt"
+        FROM movimientos_tesoreria
+        ${where}
+        ORDER BY fecha DESC, created_at DESC
+        LIMIT $${values.length - 1} OFFSET $${values.length}
+      `, values);
+
+      const items: MovimientoTesoreriaModel[] = dataRes.rows.map(r => ({
+        ...r,
+        tipoCambio: Number(r.tipoCambio || 1),
+        importe: Number(r.importe || 0),
+        importeMe: Number(r.importeMe || 0),
+        saldoSinAplicar: Number(r.saldoSinAplicar || 0)
+      }));
+
+      return {
+        items,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      };
+    }
+
     let items = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId);
 
     if (filtros?.cuentaFinancieraId) {
@@ -196,10 +326,8 @@ export const tesoreriaService = {
     // Orden cronológico descendente
     items.sort((a, b) => b.fecha.localeCompare(a.fecha));
 
-    const page = filtros?.page || 1;
-    const limit = filtros?.limit || 50;
     const total = items.length;
-    const paginated = items.slice((page - 1) * limit, page * limit);
+    const paginated = items.slice(offset, offset + limit);
 
     return {
       items: paginated,
@@ -387,10 +515,19 @@ export const tesoreriaService = {
     }
 
     // 7. Persistir Movimiento
+    const id = (db.isPostgresConnected() || UUID_REGEX.test(empresaId)) ? randomUUID() : `mov-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    let perId = datos.periodoId;
+    if (db.isPostgresConnected()) {
+      if (!UUID_REGEX.test(perId)) {
+        const per = await periodoService.obtenerPorCodigo(empresaId, mesPeriodo);
+        if (per) perId = per.id;
+      }
+    }
+
     const nuevoMovimiento: MovimientoTesoreriaModel = {
-      id: `mov-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id,
       empresaId,
-      periodoId: datos.periodoId || `per-${mesPeriodo}`,
+      periodoId: perId || `per-${mesPeriodo}`,
       cuentaFinancieraId: datos.cuentaFinancieraId,
       fecha: datos.fecha,
       tipo: datos.tipo,
@@ -410,6 +547,37 @@ export const tesoreriaService = {
       createdAt: new Date().toISOString(),
       aplicaciones: aplicacionesProcesadas
     };
+
+    if (db.isPostgresConnected()) {
+      await db.query(`
+        INSERT INTO movimientos_tesoreria (
+          id, empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo,
+          medio_pago, numero_operacion, anexo_id, moneda, tipo_cambio,
+          importe, importe_me, saldo_sin_aplicar, glosa, estado, conciliado,
+          asiento_id, version, created_by
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, 'REGISTRADO', false,
+          $16, 1, $17
+        )
+      `, [
+        nuevoMovimiento.id, empresaId, nuevoMovimiento.periodoId, nuevoMovimiento.cuentaFinancieraId,
+        nuevoMovimiento.fecha, nuevoMovimiento.tipo, nuevoMovimiento.medioPago,
+        nuevoMovimiento.numeroOperacion || null,
+        UUID_REGEX.test(nuevoMovimiento.anexoId || '') ? nuevoMovimiento.anexoId : null,
+        nuevoMovimiento.moneda, nuevoMovimiento.tipoCambio, nuevoMovimiento.importe,
+        nuevoMovimiento.importeMe || 0, nuevoMovimiento.saldoSinAplicar, nuevoMovimiento.glosa,
+        UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+        UUID_REGEX.test(userId) ? userId : null
+      ]);
+
+      await db.query(`
+        UPDATE cuentas_financieras
+        SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2 AND empresa_id = $3
+      `, [cuenta.saldoActual, cuenta.id, empresaId]);
+    }
 
     MOVIMIENTOS_TESORERIA_MEMORIA.push(nuevoMovimiento);
 
@@ -513,10 +681,17 @@ export const tesoreriaService = {
     ctaOrigen.saldoActual = Money.toNumber(Money.sub(ctaOrigen.saldoActual, montoOrigen));
     ctaDestino.saldoActual = Money.toNumber(Money.add(ctaDestino.saldoActual, montoDestino));
 
+    const id = (db.isPostgresConnected() || UUID_REGEX.test(empresaId)) ? randomUUID() : `trf-${Date.now()}`;
+    let perId = datos.periodoId;
+    if (db.isPostgresConnected() && !UUID_REGEX.test(perId)) {
+      const per = await periodoService.obtenerPorCodigo(empresaId, mesPeriodo);
+      if (per) perId = per.id;
+    }
+
     const nuevaTransf: TransferenciaModel = {
-      id: `trf-${Date.now()}`,
+      id,
       empresaId,
-      periodoId: datos.periodoId || `per-${mesPeriodo}`,
+      periodoId: perId || `per-${mesPeriodo}`,
       cuentaOrigenId: datos.cuentaOrigenId,
       cuentaDestinoId: datos.cuentaDestinoId,
       fecha: datos.fecha,
@@ -532,6 +707,37 @@ export const tesoreriaService = {
       asientoId: asiento.id
     };
 
+    if (db.isPostgresConnected()) {
+      await db.query(`
+        INSERT INTO transferencias_cuentas (
+          id, empresa_id, periodo_id, cuenta_origen_id, cuenta_destino_id,
+          fecha, importe_origen, moneda_origen, importe_destino, moneda_destino,
+          tipo_cambio, diferencia_cambio, tipo_diferencia, glosa, estado,
+          asiento_id, version, created_by
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, 'REGISTRADO',
+          $15, 1, $16
+        )
+      `, [
+        nuevaTransf.id, empresaId, nuevaTransf.periodoId, nuevaTransf.cuentaOrigenId,
+        nuevaTransf.cuentaDestinoId, nuevaTransf.fecha, nuevaTransf.importeOrigen,
+        nuevaTransf.monedaOrigen, nuevaTransf.importeDestino, nuevaTransf.monedaDestino,
+        nuevaTransf.tipoCambio, nuevaTransf.diferenciaCambio, nuevaTransf.tipoDiferencia,
+        nuevaTransf.glosa, UUID_REGEX.test(asiento.id) ? asiento.id : null,
+        UUID_REGEX.test(userId) ? userId : null
+      ]);
+
+      await db.query(`
+        UPDATE cuentas_financieras SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND empresa_id = $3
+      `, [ctaOrigen.saldoActual, ctaOrigen.id, empresaId]);
+
+      await db.query(`
+        UPDATE cuentas_financieras SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND empresa_id = $3
+      `, [ctaDestino.saldoActual, ctaDestino.id, empresaId]);
+    }
+
     TRANSFERENCIAS_MEMORIA.push(nuevaTransf);
     return nuevaTransf;
   },
@@ -540,7 +746,31 @@ export const tesoreriaService = {
   // ANULAR MOVIMIENTO (EXTORNO Y REVERSIÓN DE APLICACIONES)
   // --------------------------------------------------------------------------
   async anularMovimiento(empresaId: string, movimientoId: string, motivo: string, userId: string) {
-    const mov = MOVIMIENTOS_TESORERIA_MEMORIA.find(m => m.id === movimientoId && m.empresaId === empresaId);
+    let mov = MOVIMIENTOS_TESORERIA_MEMORIA.find(m => m.id === movimientoId && m.empresaId === empresaId);
+    if (!mov && db.isPostgresConnected()) {
+      const res = await db.query(`
+        SELECT id, empresa_id as "empresaId", periodo_id as "periodoId",
+               cuenta_financiera_id as "cuentaFinancieraId", fecha::text, tipo,
+               medio_pago as "medioPago", numero_operacion as "numeroOperacion",
+               anexo_id as "anexoId", moneda, tipo_cambio::numeric as "tipoCambio",
+               importe::numeric as "importe", importe_me::numeric as "importeMe",
+               saldo_sin_aplicar::numeric as "saldoSinAplicar",
+               glosa, estado, conciliado, asiento_id as "asientoId",
+               version, created_at as "createdAt"
+        FROM movimientos_tesoreria
+        WHERE id::text = $1 AND empresa_id = $2
+      `, [movimientoId, empresaId]);
+      if (res.rows[0]) {
+        mov = {
+          ...res.rows[0],
+          tipoCambio: Number(res.rows[0].tipoCambio || 1),
+          importe: Number(res.rows[0].importe || 0),
+          importeMe: Number(res.rows[0].importeMe || 0),
+          saldoSinAplicar: Number(res.rows[0].saldoSinAplicar || 0)
+        };
+      }
+    }
+
     if (!mov) {
       throw new Error('MOVIMIENTO_NO_ENCONTRADO: El movimiento de tesorería no existe.');
     }
@@ -592,6 +822,22 @@ export const tesoreriaService = {
 
     mov.estado = 'ANULADO';
 
+    if (db.isPostgresConnected()) {
+      await db.query(`
+        UPDATE movimientos_tesoreria
+        SET estado = 'ANULADO', updated_at = CURRENT_TIMESTAMP
+        WHERE id::text = $1 AND empresa_id = $2
+      `, [movimientoId, empresaId]);
+
+      if (cuenta) {
+        await db.query(`
+          UPDATE cuentas_financieras
+          SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2 AND empresa_id = $3
+        `, [cuenta.saldoActual, cuenta.id, empresaId]);
+      }
+    }
+
     await auditoriaRepository.registrar({
       empresaId,
       usuarioId: userId,
@@ -610,18 +856,46 @@ export const tesoreriaService = {
   // --------------------------------------------------------------------------
   async obtenerFlujoCaja(empresaId: string, fechaDesde?: string, fechaHasta?: string) {
     const cuentas = await this.listarCuentas(empresaId);
-    let movimientos = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId && m.estado === 'REGISTRADO');
-
-    if (fechaDesde) movimientos = movimientos.filter(m => m.fecha >= fechaDesde);
-    if (fechaHasta) movimientos = movimientos.filter(m => m.fecha <= fechaHasta);
-
     let totalIngresos = 0;
     let totalEgresos = 0;
 
-    for (const m of movimientos) {
-      if (m.tipo === 'INGRESO') totalIngresos += m.importe;
-      else if (m.tipo === 'EGRESO' || m.tipo === 'DEPOSITO_DETRACCION' || m.tipo === 'COMISION' || m.tipo === 'ITF') {
-        totalEgresos += m.importe;
+    if (db.isPostgresConnected()) {
+      let where = `WHERE empresa_id = $1 AND estado = 'REGISTRADO'`;
+      const values: any[] = [empresaId];
+      if (fechaDesde) {
+        values.push(fechaDesde);
+        where += ` AND fecha >= $${values.length}`;
+      }
+      if (fechaHasta) {
+        values.push(fechaHasta);
+        where += ` AND fecha <= $${values.length}`;
+      }
+
+      const res = await db.query(`
+        SELECT tipo, SUM(importe) as total
+        FROM movimientos_tesoreria
+        ${where}
+        GROUP BY tipo
+      `, values);
+
+      for (const row of res.rows) {
+        const val = Number(row.total || 0);
+        if (row.tipo === 'INGRESO') totalIngresos += val;
+        else if (row.tipo === 'EGRESO' || row.tipo === 'DEPOSITO_DETRACCION' || row.tipo === 'COMISION' || row.tipo === 'ITF') {
+          totalEgresos += val;
+        }
+      }
+    } else {
+      let movimientos = MOVIMIENTOS_TESORERIA_MEMORIA.filter(m => m.empresaId === empresaId && m.estado === 'REGISTRADO');
+
+      if (fechaDesde) movimientos = movimientos.filter(m => m.fecha >= fechaDesde);
+      if (fechaHasta) movimientos = movimientos.filter(m => m.fecha <= fechaHasta);
+
+      for (const m of movimientos) {
+        if (m.tipo === 'INGRESO') totalIngresos += m.importe;
+        else if (m.tipo === 'EGRESO' || m.tipo === 'DEPOSITO_DETRACCION' || m.tipo === 'COMISION' || m.tipo === 'ITF') {
+          totalEgresos += m.importe;
+        }
       }
     }
 
