@@ -3,9 +3,10 @@
  * Desarrollado por Jimmy Mayta
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { X, FolderTree, Search } from 'lucide-react';
+import { X, FolderTree, Search, WifiOff, Server, RefreshCw } from 'lucide-react';
+import type { EstadoConexionDesktop } from './types/desktop';
 import { EmpresaCliente, AsientoContable, Comprobante } from './types';
 import { EMPRESAS_CLIENTES_DEMO, crearDatosInicialesEmpresa } from './data/empresasClientes';
 import { calcularLiquidacionPDT621 } from './services/accountingEngine';
@@ -132,8 +133,13 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
     cerrarSesion,
   } = useEmpresaPeriodo();
 
+  const queryClient = useQueryClient();
   const { success, info } = useToast();
   const { setReportStyle } = useReportStyle();
+  const [estadoConexionDesktop, setEstadoConexionDesktop] = useState<EstadoConexionDesktop | null>(null);
+  const [verificandoConexion, setVerificandoConexion] = useState(false);
+  const estabaDesconectadoRef = useRef(false);
+  const cargarDatosRef = useRef<(() => Promise<void>) | null>(null);
 
   const [empresasLista, setEmpresasLista] = useState<EmpresaCliente[]>(empresasIniciales);
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
@@ -177,6 +183,57 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
   const [ventas, setVentas] = useState<Comprobante[]>(dataState.ventas);
   const [saldoAnteriorIgv, setSaldoAnteriorIgv] = useState<number>(dataState.saldoAnteriorIgv);
 
+  // Suscripción al estado de conexión del cliente de escritorio (HTTPS LAN / local)
+  useEffect(() => {
+    const bridge = window.atlobDesktop;
+    if (!bridge) return;
+    let activo = true;
+
+    const aplicarEstado = (nuevoEstado: EstadoConexionDesktop) => {
+      if (!activo || !nuevoEstado) return;
+      setEstadoConexionDesktop(nuevoEstado);
+      if (!nuevoEstado.online) {
+        estabaDesconectadoRef.current = true;
+      } else if (estabaDesconectadoRef.current) {
+        estabaDesconectadoRef.current = false;
+        success('Conexión restablecida con el servidor principal ATLOB ERP. Datos sincronizados.', 'Servidor en línea');
+        void queryClient.invalidateQueries();
+        if (cargarDatosRef.current) void cargarDatosRef.current();
+      }
+    };
+
+    void bridge.obtenerEstadoConexion().then(aplicarEstado).catch(() => {});
+    const desuscribir = bridge.suscribirEstadoConexion(aplicarEstado);
+    return () => {
+      activo = false;
+      desuscribir();
+    };
+  }, [queryClient, success]);
+
+  const manejarReintentarConexionDesktop = async () => {
+    const bridge = window.atlobDesktop;
+    if (!bridge || verificandoConexion) return;
+    setVerificandoConexion(true);
+    try {
+      const nuevo = await bridge.verificarConexionAhora();
+      setEstadoConexionDesktop(nuevo);
+      if (nuevo?.online) {
+        estabaDesconectadoRef.current = false;
+        success('Conexión verificada correctamente con el servidor principal.', 'Servidor disponible');
+        void queryClient.invalidateQueries();
+        if (cargarDatosRef.current) void cargarDatosRef.current();
+      } else {
+        info('El servidor principal sigue sin responder. Verifique la PC servidor o cambie el servidor.', 'Sin conexión');
+      }
+    } finally {
+      setVerificandoConexion(false);
+    }
+  };
+
+  const manejarReconfigurarServidorDesktop = () => {
+    void window.atlobDesktop?.reconfigurarServidor();
+  };
+
   // Sincronización automática de datos reales de PostgreSQL cuando está conectado (incluye actualización cada 4s para operación multiusuario)
   useEffect(() => {
     if (!conectado || !empresaActiva?.id) return;
@@ -186,17 +243,35 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
         const empId = empresaActiva.id;
         const token = obtenerAccessToken();
         const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+        const obtenerJsonSeguro = async (url: string) => {
+          try {
+            const resp = await fetch(url, { headers: authHeader });
+            if (!resp.ok) return { success: false, data: null };
+            return await resp.json();
+          } catch {
+            return { success: false, data: null };
+          }
+        };
+
+        const extraerLista = (res: any): any[] | null => {
+          const payload = res?.data;
+          if (Array.isArray(payload)) return payload;
+          if (Array.isArray(payload?.items)) return payload.items;
+          if (Array.isArray(payload?.data)) return payload.data;
+          return null;
+        };
 
         const [resAsientos, resCompras, resVentas] = await Promise.all([
-          fetch(`/api/empresas/${empId}/asientos?periodo=${periodo}`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] })),
-          fetch(`/api/empresas/${empId}/compras`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] })),
-          fetch(`/api/empresas/${empId}/ventas`, { headers: authHeader }).then(r => r.json()).catch(() => ({ data: [] }))
+          obtenerJsonSeguro(`/api/empresas/${empId}/asientos?periodo=${periodo}`),
+          obtenerJsonSeguro(`/api/empresas/${empId}/compras`),
+          obtenerJsonSeguro(`/api/empresas/${empId}/ventas`)
         ]);
 
         if (!activo) return;
 
-        if (resAsientos?.data && Array.isArray(resAsientos.data) && resAsientos.data.length > 0) {
-          const mapeados: AsientoContable[] = resAsientos.data.map((a: any) => ({
+        const listaAsientos = extraerLista(resAsientos);
+        if (listaAsientos) {
+          const mapeados: AsientoContable[] = listaAsientos.map((a: any) => ({
             id: a.id,
             subdiario: a.subdiarioCodigo || a.subdiario || '01',
             numeroAsiento: a.numero || a.numeroAsiento || a.cuo || '010001',
@@ -223,59 +298,58 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
           setAsientos(mapeados);
         }
 
-        if (resCompras?.data && Array.isArray(resCompras.data) && resCompras.data.length > 0) {
-          const comps: Comprobante[] = resCompras.data.map((c: any) => ({
-            id: c.id,
-            car: c.car || '',
-            tipoDoc: c.tipoComprobante || '01',
-            serie: c.serie || 'F001',
-            numero: c.numero || '000001',
-            fechaEmision: String(c.fechaEmision).slice(0, 10),
-            fechaVencimiento: String(c.fechaVencimiento || c.fechaEmision).slice(0, 10),
-            rucEmisor: c.proveedorRuc || '',
-            razonSocialEmisor: c.proveedorNombre || '',
-            rucReceptor: empresaActiva.ruc,
-            razonSocialReceptor: empresaActiva.razonSocial,
-            moneda: c.moneda || 'PEN',
-            tipoCambio: Number(c.tipoCambio) || 1.0,
-            baseGravada: Number(c.baseGravada) || 0,
-            igv: Number(c.igv) || 0,
-            importeTotal: Number(c.total) || 0,
-            items: []
-          }));
-          setCompras(comps);
+        const mapearComprobanteDesdeApi = (item: any, tipo: 'COMPRA' | 'VENTA'): Comprobante => ({
+          id: String(item.id || ''),
+          car: String(item.car || ''),
+          tipoDoc: (item.tipoComprobante || '01') as Comprobante['tipoDoc'],
+          serie: String(item.serie || 'F001'),
+          numero: String(item.numero || '000001'),
+          fechaEmision: String(item.fechaEmision || '').slice(0, 10),
+          fechaVencimiento: String(item.fechaVencimiento || item.fechaEmision || '').slice(0, 10),
+          rucEmisor: tipo === 'COMPRA' ? String(item.proveedorRuc || '') : empresaActiva.ruc,
+          razonSocialEmisor: tipo === 'COMPRA' ? String(item.proveedorNombre || '') : empresaActiva.razonSocial,
+          rucReceptor: tipo === 'COMPRA' ? empresaActiva.ruc : String(item.clienteRuc || ''),
+          razonSocialReceptor: tipo === 'COMPRA' ? empresaActiva.razonSocial : String(item.clienteNombre || ''),
+          moneda: item.moneda === 'USD' ? 'USD' : 'PEN',
+          tipoCambio: Number(item.tipoCambio) || 1.0,
+          baseImponibleGravada: Number(item.baseGravada ?? item.baseImponibleGravada) || 0,
+          igv: Number(item.igv) || 0,
+          adquisicionesNoGravadas: Number(item.noGravadas ?? item.adquisicionesNoGravadas) || 0,
+          isc: Number(item.isc) || 0,
+          icbper: Number(item.icbper) || 0,
+          otrosTributos: Number(item.otrosTributos) || 0,
+          total: Number(item.total ?? item.importeTotal) || 0,
+          sujetoADetraccion: Boolean(item.sujetoADetraccion),
+          clasificacionBienServicio: 'MERCADERIA',
+          categoriaGasto: tipo === 'COMPRA' ? '6011' : '7011',
+          asientoGenerado: Boolean(item.asientoId ?? true),
+          asientoId: item.asientoId ? String(item.asientoId) : undefined,
+          estadoSunat: 'ACEPTADO',
+          origen: 'MANUAL',
+          items: [],
+        });
+
+        const listaCompras = extraerLista(resCompras);
+        if (listaCompras) {
+          setCompras(listaCompras.map((c: any) => mapearComprobanteDesdeApi(c, 'COMPRA')));
         }
 
-        if (resVentas?.data && Array.isArray(resVentas.data) && resVentas.data.length > 0) {
-          const vtas: Comprobante[] = resVentas.data.map((v: any) => ({
-            id: v.id,
-            car: v.car || '',
-            tipoDoc: v.tipoComprobante || '01',
-            serie: v.serie || 'F001',
-            numero: v.numero || '000001',
-            fechaEmision: String(v.fechaEmision).slice(0, 10),
-            fechaVencimiento: String(v.fechaVencimiento || v.fechaEmision).slice(0, 10),
-            rucEmisor: empresaActiva.ruc,
-            razonSocialEmisor: empresaActiva.razonSocial,
-            rucReceptor: v.clienteRuc || '',
-            razonSocialReceptor: v.clienteNombre || '',
-            moneda: v.moneda || 'PEN',
-            tipoCambio: Number(v.tipoCambio) || 1.0,
-            baseGravada: Number(v.baseGravada) || 0,
-            igv: Number(v.igv) || 0,
-            importeTotal: Number(v.total) || 0,
-            items: []
-          }));
-          setVentas(vtas);
+        const listaVentas = extraerLista(resVentas);
+        if (listaVentas) {
+          setVentas(listaVentas.map((v: any) => mapearComprobanteDesdeApi(v, 'VENTA')));
         }
       } catch (e) {
         console.warn('[App] Error al sincronizar registros de empresa:', e);
       }
     };
+    cargarDatosRef.current = cargarDatosEmpresa;
     void cargarDatosEmpresa();
     const interval = setInterval(cargarDatosEmpresa, 4000);
     return () => {
       activo = false;
+      if (cargarDatosRef.current === cargarDatosEmpresa) {
+        cargarDatosRef.current = null;
+      }
       clearInterval(interval);
     };
   }, [conectado, empresaActiva?.id, periodo]);
@@ -445,6 +519,42 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
       <main className="flex-1 flex flex-col bg-[#F5F7FA] overflow-hidden relative">
+        {estadoConexionDesktop && !estadoConexionDesktop.online && (
+          <div
+            role="alert"
+            className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#FEF2F2] border-b border-[#FCA5A5] text-[12px] text-[#991B1B]"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <WifiOff className="w-4 h-4 shrink-0 text-[#DC2626]" />
+              <span className="truncate">
+                {estadoConexionDesktop.ultimoError === 'CERT_TLS_ERROR'
+                  ? 'Certificado HTTPS del servidor principal no validado. Operaciones bloqueadas hasta verificar el certificado CA.'
+                  : estadoConexionDesktop.ultimoError === 'BACKEND_POSTGRES_CAIDO'
+                  ? 'Servidor principal conectado, pero PostgreSQL central no responde. Operaciones de escritura suspendidas.'
+                  : `Sin conexión con el servidor principal (${estadoConexionDesktop.host || estadoConexionDesktop.servidorUrl}). Las operaciones de escritura están bloqueadas.`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={manejarReintentarConexionDesktop}
+                disabled={verificandoConexion}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-60 text-white font-semibold rounded text-[11px] cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${verificandoConexion ? 'animate-spin' : ''}`} />
+                <span>{verificandoConexion ? 'Verificando...' : 'Reintentar ahora'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={manejarReconfigurarServidorDesktop}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-white border border-[#FCA5A5] hover:bg-[#FEE2E2] text-[#991B1B] font-semibold rounded text-[11px] cursor-pointer"
+              >
+                <Server className="w-3 h-3" />
+                <span>Cambiar servidor</span>
+              </button>
+            </div>
+          </div>
+        )}
         {conectado && !empresaActiva && (!activeModuleId || activeModuleId === 'cartera-empresas') ? (
           <MisEmpresasNivel1View
             empresas={empresasLista}
@@ -828,21 +938,49 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
             )}
           </button>
           <span className="text-[#9CA3AF] shrink-0">|</span>
-          <span className="shrink-0 truncate max-w-[220px]" title={`Usuario en sesión: ${usuarioNombreVisible} (${rolActual})`}>
+          <span className="shrink-0 truncate max-w-[170px]" title={`Usuario en sesión: ${usuarioNombreVisible} (${rolActual})`}>
             <strong>Usuario:</strong> {usuarioNombreVisible} <span className="text-[#4B5563]">({rolActual})</span>
           </span>
           <span className="text-[#9CA3AF] shrink-0 hidden md:inline">|</span>
-          <span className="text-[#1E6F42] font-bold shrink-0 hidden md:inline">
-            ● En línea · Base aislada
-          </span>
+          {estadoConexionDesktop ? (
+            <>
+              <span
+                className={`font-bold shrink-0 hidden md:inline ${
+                  estadoConexionDesktop.online ? 'text-[#1E6F42]' : 'text-[#DC2626]'
+                }`}
+                title={
+                  estadoConexionDesktop.servidorUrl
+                    ? `Destino: ${estadoConexionDesktop.servidorUrl}${estadoConexionDesktop.huellaCa ? ` · CA ${estadoConexionDesktop.huellaCa.slice(0, 12)}` : ''}`
+                    : undefined
+                }
+              >
+                {estadoConexionDesktop.online
+                  ? `● ${estadoConexionDesktop.modo === 'cliente' ? `Servidor LAN (${estadoConexionDesktop.host})` : 'PostgreSQL local'} · En línea`
+                  : '● Servidor desconectado'}
+              </span>
+              <button
+                type="button"
+                onClick={manejarReconfigurarServidorDesktop}
+                className="text-[#1E3A5F] hover:underline font-medium shrink-0 hidden lg:inline-flex items-center gap-1 cursor-pointer pr-1"
+                title="Cambiar dirección del servidor principal o certificado CA"
+              >
+                <Server className="w-3 h-3" />
+                <span>Cambiar servidor</span>
+              </button>
+            </>
+          ) : (
+            <span className="text-[#1E6F42] font-bold shrink-0 hidden md:inline">
+              ● En línea · Base aislada
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-2.5 flex-shrink-0">
-          <span className="text-[#4B5563] truncate max-w-[150px] lg:max-w-[260px]" title={`Acción: ${ultimaAccion}`}>
+        <div className="flex items-center gap-2 flex-shrink-0 pl-2">
+          <span className="text-[#4B5563] truncate max-w-[140px] lg:max-w-[200px]" title={`Acción: ${ultimaAccion}`}>
             Acción: <strong className="text-[#111827]">{ultimaAccion}</strong>
           </span>
-          <span className="text-[#9CA3AF] hidden xl:inline">|</span>
-          <span className="text-[#4B5563] hidden xl:inline">
+          <span className="text-[#9CA3AF] hidden 2xl:inline">|</span>
+          <span className="text-[#4B5563] hidden 2xl:inline">
             ATLOB ERP · Desarrollado por Jimmy Mayta
           </span>
         </div>
@@ -1043,6 +1181,23 @@ function AplicacionConSesion() {
   const [intento, setIntento] = useState(0);
   const [estudio, setEstudio] = useState('ATLOB ERP');
   const [sesion, setSesion] = useState<{ usuario: UsuarioEstudio; empresas: EmpresaCliente[] } | null>(null);
+  const [estadoDesktop, setEstadoDesktop] = useState<EstadoConexionDesktop | null>(null);
+
+  useEffect(() => {
+    const bridge = window.atlobDesktop;
+    if (!bridge) return;
+    let activo = true;
+    void bridge.obtenerEstadoConexion().then((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    }).catch(() => {});
+    const desuscribir = bridge.suscribirEstadoConexion((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    });
+    return () => {
+      activo = false;
+      desuscribir();
+    };
+  }, []);
 
   useEffect(() => {
     let vigente = true;
@@ -1118,7 +1273,13 @@ function AplicacionConSesion() {
     </EmpresaPeriodoProvider>
   );
   if (estado === 'setup') return <AsistenteSetupInicial onSetupCompletado={abrirSesion} />;
-  if (estado === 'login') return <LoginView onAutenticado={abrirSesion} nombreEstudio={estudio} version="2026.1" />;
+  if (estado === 'login') return <LoginView onAutenticado={abrirSesion} nombreEstudio={estudio} version="2.0.0" />;
+  const esClienteLan = estadoDesktop?.modo === 'cliente';
+  const detalleErrorConexion = estadoDesktop?.ultimoError === 'CERT_TLS_ERROR'
+    ? 'No se pudo validar el certificado HTTPS del servidor principal. Revise el certificado atlob-lan-ca.crt.'
+    : esClienteLan
+    ? `No se pudo conectar con el servidor principal (${estadoDesktop?.host || estadoDesktop?.servidorUrl || 'LAN HTTPS'}). Verifique que la PC principal esté encendida y el servidor activo.`
+    : 'No se pudo conectar con el servidor local de ATLOB ERP. Verifique que PostgreSQL esté activo.';
   return (
     <main className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center p-6 text-center select-none">
       <div className="bg-white rounded-2xl p-8 border border-[#CBD5E1] shadow-lg max-w-sm w-full flex flex-col items-center">
@@ -1131,15 +1292,26 @@ function AplicacionConSesion() {
         ) : (
           <>
             <p className="text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-xl p-3 mb-3" role="alert">
-              No se pudo conectar con el servidor local de ATLOB ERP. Verifique que PostgreSQL esté activo.
+              {detalleErrorConexion}
             </p>
-            <button
-              type="button"
-              onClick={() => { setEstado('cargando'); setIntento(i => i + 1); }}
-              className="px-4 py-2 bg-[#01172C] text-white font-bold text-xs rounded-xl hover:bg-[#082845] transition cursor-pointer"
-            >
-              Reintentar conexión
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => { setEstado('cargando'); setIntento(i => i + 1); }}
+                className="px-4 py-2 bg-[#01172C] text-white font-bold text-xs rounded-xl hover:bg-[#082845] transition cursor-pointer"
+              >
+                Reintentar conexión
+              </button>
+              {window.atlobDesktop && (
+                <button
+                  type="button"
+                  onClick={() => { void window.atlobDesktop?.reconfigurarServidor(); }}
+                  className="px-4 py-2 bg-white border border-[#CBD5E1] text-[#01172C] font-bold text-xs rounded-xl hover:bg-[#F8FAFC] transition cursor-pointer"
+                >
+                  Configurar servidor
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>

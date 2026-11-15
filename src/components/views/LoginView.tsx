@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LogIn, Eye, EyeOff, AlertCircle, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import { LogIn, Eye, EyeOff, AlertCircle, AlertTriangle, ShieldCheck, RefreshCw, Server } from 'lucide-react';
 import { authApi, Sesion } from '../../api/authApi';
+import type { EstadoConexionDesktop } from '../../types/desktop';
 import atlobLogo from '../../assets/brand/atlob_logo_horizontal.webp';
 
 export interface LoginViewProps {
@@ -21,7 +22,7 @@ function limpiarMensajeError(raw: string): string {
   return limpio || 'No se pudo iniciar sesión. Verifique sus datos.';
 }
 
-export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: LoginViewProps) {
+export function LoginView({ onAutenticado, nombreEstudio, version = '2.0.0' }: LoginViewProps) {
   const [identificador, setIdentificador] = useState('');
   const [password, setPassword] = useState('');
   const [mostrarPassword, setMostrarPassword] = useState(false);
@@ -37,10 +38,28 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: 
   const [error, setError] = useState('');
   const [bloqueoSegundos, setBloqueoSegundos] = useState<number | null>(null);
   const [errorConexion, setErrorConexion] = useState(false);
+  const [estadoDesktop, setEstadoDesktop] = useState<EstadoConexionDesktop | null>(null);
+  const [verificandoServidor, setVerificandoServidor] = useState(false);
 
   const usuarioRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const totpRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const bridge = window.atlobDesktop;
+    if (!bridge) return;
+    let activo = true;
+    void bridge.obtenerEstadoConexion().then((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    }).catch(() => {});
+    const desuscribir = bridge.suscribirEstadoConexion((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    });
+    return () => {
+      activo = false;
+      desuscribir();
+    };
+  }, []);
 
   // Cargar preferencia de usuario recordado al montar
   useEffect(() => {
@@ -122,8 +141,10 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: 
         return;
       }
 
-      // Caso 3: Servidor no disponible o error de red
+      // Caso 3: Servidor no disponible o error de red / TLS
       if (
+        msg.includes('SERVIDOR_NO_DISPONIBLE') ||
+        msg.includes('TLS_CERTIFICADO_NO_CONFIABLE') ||
         msg.includes('ECONNREFUSED') ||
         msg.includes('Network Error') ||
         msg.includes('Failed to fetch') ||
@@ -132,7 +153,13 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: 
         err?.response?.status === 503
       ) {
         setErrorConexion(true);
-        setError('No se pudo conectar con el servicio local de ATLOB ERP. Verifique que PostgreSQL esté en ejecución.');
+        if (msg.includes('TLS_CERTIFICADO_NO_CONFIABLE')) {
+          setError('No se pudo validar el certificado HTTPS del servidor principal. Revise el certificado atlob-lan-ca.crt.');
+        } else if (estadoDesktop?.modo === 'cliente') {
+          setError(`No se pudo conectar con el servidor principal (${estadoDesktop.host || estadoDesktop.servidorUrl}). Verifique que el equipo servidor esté encendido.`);
+        } else {
+          setError('No se pudo conectar con el servicio local de ATLOB ERP. Verifique que PostgreSQL esté en ejecución.');
+        }
         return;
       }
 
@@ -210,7 +237,9 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: 
                 )}
                 {errorConexion && (
                   <p className="text-[11px] text-orange-800 mt-1">
-                    Acción sugerida: Abra Servicios de Windows y compruebe el estado de postgresql.
+                    {estadoDesktop?.modo === 'cliente'
+                      ? 'Acción sugerida: Verifique que el servidor principal esté activo en la LAN o utilice Cambiar servidor si cambió la IP o certificado.'
+                      : 'Acción sugerida: Abra Servicios de Windows y compruebe el estado de postgresql.'}
                   </p>
                 )}
               </div>
@@ -352,6 +381,54 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2026.1' }: 
               )}
             </button>
           </form>
+
+          {window.atlobDesktop && (
+            <div className="mt-4 pt-3 border-t border-[#E2E8F0] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#475569]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                    estadoDesktop?.online ? 'bg-[#1E6F42]' : 'bg-[#DC2626]'
+                  }`}
+                />
+                <span className="truncate" title={estadoDesktop?.servidorUrl || ''}>
+                  {estadoDesktop?.modo === 'cliente'
+                    ? `Servidor LAN: ${estadoDesktop.host || estadoDesktop.servidorUrl}`
+                    : 'PostgreSQL local'}
+                  {estadoDesktop ? (estadoDesktop.online ? ' · En línea' : ' · Sin conexión') : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  disabled={verificandoServidor}
+                  onClick={async () => {
+                    const bridge = window.atlobDesktop;
+                    if (!bridge) return;
+                    setVerificandoServidor(true);
+                    try {
+                      const infoSrv = await bridge.verificarConexionAhora();
+                      setEstadoDesktop(infoSrv);
+                      if (infoSrv?.online) setErrorConexion(false);
+                    } finally {
+                      setVerificandoServidor(false);
+                    }
+                  }}
+                  className="text-[#01172C] hover:underline font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {verificandoServidor ? 'Verificando...' : 'Verificar'}
+                </button>
+                <span className="text-[#CBD5E1]">|</span>
+                <button
+                  type="button"
+                  onClick={() => { void window.atlobDesktop?.reconfigurarServidor(); }}
+                  className="inline-flex items-center gap-1 text-[#01172C] hover:underline font-semibold cursor-pointer"
+                >
+                  <Server className="w-3 h-3" />
+                  <span>Cambiar servidor</span>
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Pie de pantalla sobrio */}

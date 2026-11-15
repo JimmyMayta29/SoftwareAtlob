@@ -79,7 +79,7 @@ async function startServer() {
   // Rutas de API Backend
   app.use('/api', apiRoutes);
 
-  // Integración con Vite en desarrollo vs distribución estática en producción
+  // Integración con Vite en desarrollo vs modo escritorio exclusivo en producción
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -87,11 +87,19 @@ async function startServer() {
       appType: 'spa'
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (escritorio || process.env.ALLOW_WEB_UI === '1') {
     const distPath = fileURLToPath(new URL('./dist', import.meta.url));
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    app.get('*', (_req, res) => {
+      res.status(403).json({
+        success: false,
+        error: 'MODO_ESCRITORIO_EXCLUSIVO',
+        message: 'ATLOB ERP opera exclusivamente mediante la aplicación de escritorio Windows (ATLOB ERP.exe).',
+      });
     });
   }
 

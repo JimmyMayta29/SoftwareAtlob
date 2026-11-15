@@ -1,4 +1,4 @@
-param(
+﻿param(
   [int]$Port = 3000,
   [int]$HttpsPort = 3443,
   [string]$DatabaseUrl = '',
@@ -166,12 +166,14 @@ try {
   }
 
   $primaryIp = if ($lanIps.Count -gt 0) { $lanIps[0] } else { '127.0.0.1' }
-  Write-Host "✅ ATLOB ERP iniciado correctamente (PID $($proc.Id))." -ForegroundColor Green
-  Write-Host "   - Acceso local HTTP  : http://127.0.0.1:$Port" -ForegroundColor Cyan
-  Write-Host "   - Acceso LAN HTTPS   : https://${primaryIp}:$HttpsPort" -ForegroundColor Cyan
+  $desktopExe = Join-Path $ProjectRoot 'release\win-unpacked\ATLOB ERP.exe'
+  Write-Host "✅ Servidor central ATLOB ERP iniciado correctamente (PID $($proc.Id))." -ForegroundColor Green
+  Write-Host "   - API local HTTP     : http://127.0.0.1:$Port/api/health" -ForegroundColor Cyan
+  Write-Host "   - API LAN HTTPS      : https://${primaryIp}:$HttpsPort" -ForegroundColor Cyan
   Write-Host "   - Certificado CA LAN : $CaPath" -ForegroundColor Gray
-  if (-not $NoAbrirNavegador) {
-    Start-Process "https://127.0.0.1:$HttpsPort"
+  Write-Host "   - Cliente escritorio : $desktopExe (o instalador ATLOB-ERP-Setup en release\)" -ForegroundColor Gray
+  if ($NoAbrirNavegador) {
+    # Parámetro conservado por compatibilidad: el servidor central opera exclusivamente vía cliente Electron.
   }
 }
 catch {

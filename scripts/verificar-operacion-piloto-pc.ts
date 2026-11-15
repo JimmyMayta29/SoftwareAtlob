@@ -378,23 +378,28 @@ async function verificarConectividadBasica(httpUrl: string, httpsUrl: string, la
     rejectUnauthorized: true,
     headers: { Accept: 'text/html' },
   });
-  assert(spaHtml.status === 200 && /<!doctype html>/i.test(spaHtml.rawBody), `SPA HTML inválido en ${httpsUrl}/`);
-
-  const scriptMatch = spaHtml.rawBody.match(/src=["'](\/assets\/[^"']+\.js)["']/i);
-  assert(scriptMatch && scriptMatch[1], 'No se encontró bundle JS de frontend en dist/index.html');
-  const assetRes = await httpRequest<any>(`${httpsUrl}${scriptMatch[1]}`, {
-    caPem,
-    rejectUnauthorized: true,
-    headers: { Accept: '*/*' },
-  });
-  assert(assetRes.status === 200 && assetRes.rawBody.length > 100, `Asset frontend ${scriptMatch[1]} devolvió HTTP ${assetRes.status}`);
+  let assetPrincipal = 'desktop-bundled';
+  if (spaHtml.status === 403 && spaHtml.json?.error === 'MODO_ESCRITORIO_EXCLUSIVO') {
+    // Modo servidor exclusivo de escritorio: no expone interfaz web en navegadores.
+  } else {
+    assert(spaHtml.status === 200 && /<!doctype html>/i.test(spaHtml.rawBody), `SPA HTML inválido en ${httpsUrl}/`);
+    const scriptMatch = spaHtml.rawBody.match(/src=["'](\/assets\/[^"']+\.js)["']/i);
+    assert(scriptMatch && scriptMatch[1], 'No se encontró bundle JS de frontend en dist/index.html');
+    const assetRes = await httpRequest<any>(`${httpsUrl}${scriptMatch[1]}`, {
+      caPem,
+      rejectUnauthorized: true,
+      headers: { Accept: '*/*' },
+    });
+    assert(assetRes.status === 200 && assetRes.rawBody.length > 100, `Asset frontend ${scriptMatch[1]} devolvió HTTP ${assetRes.status}`);
+    assetPrincipal = scriptMatch[1];
+  }
 
   return {
     httpLocal: httpLocal.status,
     httpLanBloqueado,
     tlsSinCaRechazado,
     httpsLan: httpsLan.status,
-    assetPrincipal: scriptMatch[1],
+    assetPrincipal,
   };
 }
 

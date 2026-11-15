@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'">
-  <title>Conexión a PostgreSQL · ATLOB ERP</title>
+  <title>Configuración de conexión · ATLOB ERP</title>
   <link rel="stylesheet" href="config.css">
   <script src="config-renderer.js" defer></script>
 </head>
@@ -13,21 +13,60 @@
     <div class="marca-contenedor">
       <img src="assets/atlob_logo_horizontal.png" alt="ATLOB ERP" class="marca-logo">
     </div>
-    <h1>Conexión a PostgreSQL local</h1>
-    <p class="subtitulo">Verifique los datos de su motor PostgreSQL en este equipo. Los valores habituales (<strong>localhost</strong> y puerto <strong>5432</strong>) ya vienen preconfigurados y Windows cifra sus credenciales localmente.</p>
+    <h1>Conexión de escritorio ATLOB ERP</h1>
+    <p class="subtitulo">Elija cómo operará esta instalación Windows. Para compartir la base única del estudio entre la PC principal y equipos clientes, seleccione <strong>Servidor principal (HTTPS LAN)</strong>.</p>
+
+    <div class="modos" role="radiogroup" aria-label="Modo de operación">
+      <label class="modo-tarjeta">
+        <input type="radio" name="modoSelector" value="cliente" checked>
+        <span class="modo-texto">
+          <strong>Servidor principal (HTTPS LAN)</strong>
+          <small>Recomendado para PC Principal, PC 2 y PC 3. Sin PostgreSQL ni Node.js local.</small>
+        </span>
+      </label>
+      <label class="modo-tarjeta">
+        <input type="radio" name="modoSelector" value="local">
+        <span class="modo-texto">
+          <strong>PostgreSQL local independiente</strong>
+          <small>Uso individual avanzado conectando directamente a un motor local.</small>
+        </span>
+      </label>
+    </div>
+
     <form id="conexion" novalidate>
       <fieldset id="campos">
-        <div class="fila">
-          <label>Servidor local <input name="host" value="localhost" placeholder="localhost" maxlength="64" required></label>
-          <label>Puerto <input name="puerto" value="5432" placeholder="5432" inputmode="numeric" maxlength="5" required></label>
+        <div id="seccion-cliente">
+          <label>Dirección HTTPS del servidor principal
+            <input name="servidorUrl" value="https://192.168.1.34:3443" placeholder="https://192.168.1.34:3443" maxlength="255" required>
+          </label>
+          <p class="ayuda">Ejemplo: <code>https://192.168.1.34:3443</code>. Solo se admiten direcciones HTTPS en red privada LAN.</p>
+
+          <div class="ca-caja">
+            <div class="ca-cabecera">
+              <div>
+                <div class="ca-titulo">Certificado de Autoridad Local (TLS obligatorio)</div>
+                <p id="ca-resumen" class="ca-resumen">Seleccione <code>atlob-lan-ca.crt</code> para validar la identidad del servidor principal.</p>
+                <p id="ca-huella" class="ca-huella" hidden></p>
+              </div>
+              <button id="seleccionar-ca" type="button">Elegir atlob-lan-ca.crt</button>
+            </div>
+            <input type="hidden" name="caPem" value="">
+          </div>
         </div>
-        <label>Base de datos <input name="base" value="sistema_contable" placeholder="sistema_contable" maxlength="63" required></label>
-        <label>Usuario de la aplicación <input name="usuario" value="contabilidad_app" placeholder="contabilidad_app" maxlength="63" autocomplete="username" required></label>
-        <label>Contraseña de PostgreSQL <input type="password" name="contrasena" autocomplete="off" maxlength="4096" required></label>
-        <label class="opcion" id="opcion-migrar" hidden>
-          <input name="migrar" type="checkbox">
-          <span>Autorizo preparar automáticamente las tablas e índices en esta base de datos.</span>
-        </label>
+
+        <div id="seccion-local" hidden>
+          <div class="fila">
+            <label>Servidor local <input name="host" value="localhost" placeholder="localhost" maxlength="64"></label>
+            <label>Puerto <input name="puerto" value="5432" placeholder="5432" inputmode="numeric" maxlength="5"></label>
+          </div>
+          <label>Base de datos <input name="base" value="sistema_contable" placeholder="sistema_contable" maxlength="63"></label>
+          <label>Usuario de la aplicación <input name="usuario" value="contabilidad_app" placeholder="contabilidad_app" maxlength="63" autocomplete="username"></label>
+          <label>Contraseña de PostgreSQL <input type="password" name="contrasena" autocomplete="off" maxlength="4096"></label>
+          <label class="opcion" id="opcion-migrar" hidden>
+            <input name="migrar" type="checkbox">
+            <span>Autorizo preparar automáticamente las tablas e índices en esta base de datos.</span>
+          </label>
+        </div>
       </fieldset>
 
       <div id="panel-estado" class="panel-estado" role="status" aria-live="polite" hidden>
@@ -37,9 +76,10 @@
       </div>
 
       <div class="acciones">
-        <button id="valores-defecto" type="button">Restaurar localhost:5432</button>
+        <button id="verificar-servidor" type="button">Comprobar TLS y conexión</button>
+        <button id="valores-defecto" type="button" hidden>Restaurar localhost:5432</button>
         <button id="reintentar" type="button" hidden>Reintentar conexión guardada</button>
-        <button id="conectar" type="submit">Conectar y continuar</button>
+        <button id="conectar" type="submit">Guardar y abrir ATLOB ERP</button>
       </div>
     </form>
   </main>

@@ -1,5 +1,6 @@
 export const desktopFiles = [
   'main.cjs',
+  'app-preload.cjs',
   'config-preload.cjs',
   'config.html',
   'config-renderer.js',
