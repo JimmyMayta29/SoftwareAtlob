@@ -13,7 +13,7 @@ El repositorio base corresponde al commit `dcbb140585f99e0cdf82490d69cfa46faf299
 ### 2.1 Topología obligatoria
 
 | Componente | PC Principal (`JOSEPHMC`, `192.168.1.34`) | PC Cliente 2 y PC Cliente 3 |
-|---|---|---|
+| --- | --- | --- |
 | Base de datos central | PostgreSQL 18.6 (`sistema_contable`) | **No requiere PostgreSQL ni Node.js** |
 | Servicio API central | `server.ts` (`PORT=3000` en `127.0.0.1`, `HTTPS_PORT=3443` en `0.0.0.0`, `LAN_ONLY=1`) | **No ejecuta servidor backend ni `server.mjs`** |
 | Aplicación cliente | `ATLOB ERP.exe` en modo `cliente` conectado por HTTPS LAN (`https://192.168.1.34:3443`) | `ATLOB ERP.exe` (Setup o Portable) en modo `cliente` conectado por HTTPS LAN |
@@ -65,7 +65,7 @@ Asimismo, `scripts/iniciar-servidor-lan.ps1` ya no abre automáticamente el nave
 ## 4. Archivos modificados y agregados en esta fase
 
 | Archivo | Propósito principal |
-|---|---|
+| --- | --- |
 | `package.json` | Versión `2.0.0` y scripts `desktop:dev`, `dist:win`, `desktop:verify`, `verify`, `cert:lan` |
 | `server.ts` | Bloqueo web `403 MODO_ESCRITORIO_EXCLUSIVO` manteniendo operación exclusiva cliente Electron |
 | `index.html` | Eliminación de enlaces externos de fuentes web |
@@ -94,4 +94,3 @@ Asimismo, `scripts/iniciar-servidor-lan.ps1` ya no abre automáticamente el nave
   - `npx tsx scripts/verificar-electron-multiusuario.ts`: `EXIT 0`, las 8 etapas reales aprobadas (`syncMs: 300.6 ms`, `reportesPostReinicio` con `esfDiferenciaCuadre: 0`), evidencias visuales capturadas e inspeccionadas y base temporal `atlob_electron_e2e` eliminada.
 - **Pendiente de ejecución física con hardware adicional:**
   - La instalación material de `ATLOB-ERP-2.0.0-Setup-x64.exe` o `ATLOB-ERP-2.0.0-Portable-x64.exe` en las **PC Cliente 2 y PC Cliente 3 reales**, así como la **prueba continua de operación física LAN de 60 minutos** entre equipos separados, quedan pendientes hasta contar con los equipos clientes físicos conectados a la misma red LAN privada.
-

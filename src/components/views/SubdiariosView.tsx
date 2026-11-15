@@ -15,10 +15,11 @@ import {
   Sparkles,
   Table,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  Copy
 } from 'lucide-react';
 import { subdiariosApi, SubdiarioItem } from '../../api/subdiariosApi';
-import { useAsientosList, useAnularAsiento } from '../../hooks/useAsientos';
+import { useAsientosList, useAnularAsiento, useContabilizarAsiento, useDuplicarAsiento } from '../../hooks/useAsientos';
 import { EmpresaCliente } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
@@ -70,6 +71,28 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
   // Queries del backend
   const { data: asientosResponse, refetch: refetchAsientos, isLoading: loadingAsientos } = useAsientosList(empresaId, {});
   const anularMutation = useAnularAsiento(empresaId);
+  const contabilizarMutation = useContabilizarAsiento(empresaId);
+  const duplicarMutation = useDuplicarAsiento(empresaId);
+
+  const handleContabilizarAsiento = async (asientoId: string) => {
+    try {
+      const res = await contabilizarMutation.mutateAsync(asientoId);
+      success(`Asiento contabilizado exitosamente con N° ${res.numero}`);
+      refetchAsientos();
+    } catch (err: any) {
+      error(err.message || 'Error al contabilizar asiento.');
+    }
+  };
+
+  const handleDuplicar = async (asientoId: string) => {
+    try {
+      await duplicarMutation.mutateAsync(asientoId);
+      success('Asiento duplicado como nuevo borrador.');
+      refetchAsientos();
+    } catch (err: any) {
+      error(err.message || 'Error al duplicar asiento.');
+    }
+  };
 
   const cargarSubdiarios = async () => {
     try {
@@ -480,6 +503,14 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setPestañaActiva('GRILLA_DIRECTA')}
+                  className="px-3 py-1 bg-[#2457D6] hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                  title="Abrir formulario de captura de asiento para este subdiario"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nuevo Asiento en este Subdiario</span>
+                </button>
+                <button
                   onClick={() => refetchAsientos()}
                   className="px-3 py-1 bg-white border border-[#E3E8EF] hover:bg-[#F7F9FC] text-slate-700 font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer transition"
                 >
@@ -568,6 +599,15 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
+                              {!esContab && !esAnulado && !isPeriodoCerrado && (
+                                <button
+                                  onClick={() => handleContabilizarAsiento(a.id)}
+                                  className="p-1 hover:bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-700 cursor-pointer transition"
+                                  title="Contabilizar directamente borrador"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               {esContab && !isPeriodoCerrado && (
                                 <button
                                   onClick={() => handleExtornar(a)}
@@ -577,6 +617,13 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
                                   <RotateCcw className="w-3.5 h-3.5" />
                                 </button>
                               )}
+                              <button
+                                onClick={() => handleDuplicar(a.id)}
+                                className="p-1 hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 cursor-pointer transition"
+                                title="Duplicar como nuevo borrador"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </td>
                         </tr>

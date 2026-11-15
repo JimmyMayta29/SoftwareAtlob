@@ -33,6 +33,8 @@ export interface DetalleInput {
 }
 
 export interface AsientoInput {
+  id?: string;
+  idempotencyKey?: string | null;
   periodoId: string;
   subdiarioId: string;
   fecha: string;
@@ -47,6 +49,7 @@ export interface AsientoInput {
   codigoLibro?: string | null;
   estadoOperacion?: '1' | '8' | '9' | string | null;
   validarNormativa?: boolean;
+  contabilizarDirecto?: boolean;
   detalles: DetalleInput[];
 }
 
@@ -221,6 +224,18 @@ export const asientoService = {
     if (db.isPostgresConnected()) {
       const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const persistir = async (client: PoolClient) => {
+        // Validación preventiva de idempotencia
+        if (input.idempotencyKey) {
+          const idempCheck = await client.query(
+            `SELECT id FROM asientos WHERE empresa_id = $1 AND idempotency_key = $2 LIMIT 1`,
+            [empresaId, input.idempotencyKey]
+          );
+          if (idempCheck.rows.length > 0) {
+            const asientoExistente = await asientoService.obtenerPorId(idempCheck.rows[0].id);
+            if (asientoExistente) return asientoExistente;
+          }
+        }
+
         let resolvedPeriodoId = input.periodoId;
         if (!UUID_REGEX.test(resolvedPeriodoId)) {
           const codPeriodo = String(resolvedPeriodoId).replace(/^per-/, '');
@@ -252,7 +267,7 @@ export const asientoService = {
 
         const resolvedUserId = UUID_REGEX.test(userId) ? userId : null;
 
-        const origenesValidos = ['MANUAL', 'COMPRA', 'VENTA', 'COBRANZA', 'PAGO', 'HONORARIO', 'PLANILLA', 'DESTINO', 'AJUSTE', 'CIERRE', 'APERTURA', 'RECURRENTE'];
+        const origenesValidos = ['MANUAL', 'COMPRA', 'VENTA', 'COBRANZA', 'PAGO', 'HONORARIO', 'PLANILLA', 'DESTINO', 'AJUSTE', 'CIERRE', 'APERTURA', 'RECURRENTE', 'VOUCHER_LIBRE'];
         let resolvedOrigen = (input.origen || 'MANUAL').toUpperCase();
         if (resolvedOrigen === 'HONORARIOS') resolvedOrigen = 'HONORARIO';
         if (resolvedOrigen === 'PLANILLAS') resolvedOrigen = 'PLANILLA';
@@ -262,48 +277,79 @@ export const asientoService = {
         if (resolvedOrigen === 'PAGOS') resolvedOrigen = 'PAGO';
         if (!origenesValidos.includes(resolvedOrigen)) resolvedOrigen = 'MANUAL';
 
+        const targetAsientoId = (input.id && UUID_REGEX.test(input.id)) ? input.id : crypto.randomUUID();
+
         const insertRes = await client.query(`
           INSERT INTO asientos (
-            empresa_id, periodo_id, subdiario_id, numero, fecha, glosa,
+            id, empresa_id, periodo_id, subdiario_id, numero, fecha, glosa,
             moneda, tipo_cambio, estado, origen, origen_id, version, created_by,
-            cuo, fecha_documento, codigo_libro, estado_operacion
-          ) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, 'BORRADOR', $8, $9, $10, $11, $12, $13, $14, $15)
+            cuo, fecha_documento, codigo_libro, estado_operacion, idempotency_key
+          ) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, 'BORRADOR', $9, $10, $11, $12, $13, $14, $15, $16, $17)
           RETURNING *
         `, [
-          empresaId, resolvedPeriodoId, resolvedSubdiarioId, input.fecha, input.glosa,
+          targetAsientoId, empresaId, resolvedPeriodoId, resolvedSubdiarioId, input.fecha, input.glosa,
           moneda, tipoCambio, resolvedOrigen, input.origenId || null, version, resolvedUserId,
-          input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1'
+          input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1',
+          input.idempotencyKey || null
         ]);
 
         const asientoCreado = insertRes.rows[0];
 
-        // Insertar líneas de detalle
+        // Validar e insertar líneas de detalle estrictamente contra plan_cuentas en PostgreSQL
         for (const d of input.detalles) {
-          let resolvedCuentaId = d.cuentaId;
-          if (!UUID_REGEX.test(resolvedCuentaId)) {
-            const cod = String(resolvedCuentaId).replace(/^cta-/, '');
+          let resolvedCuentaId: string;
+          const rawCuenta = (d.cuentaCodigo || d.cuentaId || '').replace(/^cta-/, '').trim();
+          let ctaRow: any = null;
+
+          if (UUID_REGEX.test(d.cuentaId)) {
             const ctaCheck = await client.query(
-              `SELECT id FROM plan_cuentas WHERE empresa_id = $1 AND (codigo = $2 OR codigo LIKE $3) ORDER BY length(codigo) DESC LIMIT 1`,
-              [empresaId, cod, `${cod}%`]
+              `SELECT id, codigo, nombre, permite_movimiento, is_active, COALESCE(es_inactiva, false) as es_inactiva,
+                      requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+               FROM plan_cuentas
+               WHERE empresa_id = $1 AND id = $2 LIMIT 1`,
+              [empresaId, d.cuentaId]
             );
-            if (ctaCheck.rows.length > 0) {
-              resolvedCuentaId = ctaCheck.rows[0].id;
-            } else {
-              const newCtaId = crypto.randomUUID();
-              await client.query(`
-                INSERT INTO plan_cuentas (id, empresa_id, codigo, nombre, nivel, tipo_cuenta)
-                VALUES ($1, $2, $3, $4, 4, 'ACTIVO')
-                ON CONFLICT (empresa_id, codigo) DO NOTHING
-              `, [newCtaId, empresaId, cod, `CUENTA ${cod}`]);
-              const created = await client.query(
-                `SELECT id FROM plan_cuentas WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
-                [empresaId, cod]
-              );
-              if (created.rows.length > 0) {
-                resolvedCuentaId = created.rows[0].id;
-              }
-            }
+            ctaRow = ctaCheck.rows[0];
           }
+
+          if (!ctaRow && rawCuenta) {
+            const ctaCheck = await client.query(
+              `SELECT id, codigo, nombre, permite_movimiento, is_active, COALESCE(es_inactiva, false) as es_inactiva,
+                      requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+               FROM plan_cuentas
+               WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+              [empresaId, rawCuenta]
+            );
+            ctaRow = ctaCheck.rows[0];
+          }
+
+          if (!ctaRow) {
+            throw new Error(`CUENTA_NO_EXISTE: La cuenta contable "${rawCuenta || d.cuentaId}" no existe en el catálogo contable de la empresa.`);
+          }
+
+          if (!ctaRow.is_active || ctaRow.es_inactiva) {
+            throw new Error(`CUENTA_INACTIVA: La cuenta contable ${ctaRow.codigo} - ${ctaRow.nombre} está inactiva y no permite nuevos registros.`);
+          }
+
+          if (ctaRow.permite_movimiento === false) {
+            throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta contable ${ctaRow.codigo} - ${ctaRow.nombre} es de título / acumulación y no admite movimientos directos.`);
+          }
+
+          if (ctaRow.requiere_anexo && !d.anexoId && !d.anexoNumero && !d.anexoNumDoc) {
+            throw new Error(`ANEXO_REQUERIDO: La cuenta ${ctaRow.codigo} exige indicar anexo (RUC/DNI del cliente, proveedor o trabajador).`);
+          }
+          if (ctaRow.requiere_doc_ref && (!d.docTipo || (!d.docNumero && !(d as any).docNumero))) {
+            throw new Error(`DOCUMENTO_REQUERIDO: La cuenta ${ctaRow.codigo} exige comprobante de pago de referencia (tipo y número).`);
+          }
+          if (ctaRow.requiere_centro_costo && !d.centroCostoId && !d.centroCostoCodigo) {
+            throw new Error(`CENTRO_COSTO_REQUERIDO: La cuenta ${ctaRow.codigo} exige indicar centro de costo.`);
+          }
+          if (ctaRow.requiere_vencimiento && !d.fechaVencimiento) {
+            throw new Error(`VENCIMIENTO_REQUERIDO: La cuenta ${ctaRow.codigo} exige indicar fecha de vencimiento.`);
+          }
+
+          resolvedCuentaId = ctaRow.id;
+
           let resolvedAnexoId = d.anexoId;
           if (resolvedAnexoId && !UUID_REGEX.test(resolvedAnexoId)) {
             resolvedAnexoId = null;
@@ -383,6 +429,7 @@ export const asientoService = {
   async actualizarBorrador(asientoId: string, input: AsientoInput, userId: string, expectedVersion: number, empresaId?: string) {
     if (db.isPostgresConnected()) {
       if (!empresaId) throw new Error('EMPRESA_REQUERIDA');
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const client = await db.getClient();
       try {
         await client.query('BEGIN');
@@ -402,6 +449,17 @@ export const asientoService = {
           throw new Error('VERSION_DESACTUALIZADA: El asiento fue modificado por otro usuario. Por favor recarga los datos.');
         }
 
+        let resolvedSubdiarioId = input.subdiarioId;
+        if (!UUID_REGEX.test(resolvedSubdiarioId)) {
+          const subCheck = await client.query(
+            `SELECT id FROM subdiarios WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+            [empresaId, input.subdiarioId]
+          );
+          if (subCheck.rows.length > 0) {
+            resolvedSubdiarioId = subCheck.rows[0].id;
+          }
+        }
+
         const nextVersion = current.version + 1;
 
         await client.query(`
@@ -411,12 +469,52 @@ export const asientoService = {
           WHERE id = $8
         `, [
           input.fecha, input.glosa, input.moneda || 'PEN', input.tipoCambio || 1.0,
-          input.subdiarioId, nextVersion, userId, asientoId
+          resolvedSubdiarioId, nextVersion, userId, asientoId
         ]);
 
         await client.query(`DELETE FROM asiento_detalle WHERE asiento_id = $1`, [asientoId]);
 
         for (const d of input.detalles) {
+          let resolvedCuentaId: string;
+          const rawCuenta = (d.cuentaCodigo || d.cuentaId || '').replace(/^cta-/, '').trim();
+          let ctaRow: any = null;
+
+          if (UUID_REGEX.test(d.cuentaId)) {
+            const ctaCheck = await client.query(
+              `SELECT id, codigo, nombre, permite_movimiento, is_active, COALESCE(es_inactiva, false) as es_inactiva,
+                      requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+               FROM plan_cuentas
+               WHERE empresa_id = $1 AND id = $2 LIMIT 1`,
+              [empresaId, d.cuentaId]
+            );
+            ctaRow = ctaCheck.rows[0];
+          }
+
+          if (!ctaRow && rawCuenta) {
+            const ctaCheck = await client.query(
+              `SELECT id, codigo, nombre, permite_movimiento, is_active, COALESCE(es_inactiva, false) as es_inactiva,
+                      requiere_anexo, requiere_doc_ref, requiere_centro_costo, requiere_vencimiento
+               FROM plan_cuentas
+               WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+              [empresaId, rawCuenta]
+            );
+            ctaRow = ctaCheck.rows[0];
+          }
+
+          if (!ctaRow) {
+            throw new Error(`CUENTA_NO_EXISTE: La cuenta contable "${rawCuenta || d.cuentaId}" no existe en el catálogo contable de la empresa.`);
+          }
+
+          if (!ctaRow.is_active || ctaRow.es_inactiva) {
+            throw new Error(`CUENTA_INACTIVA: La cuenta contable ${ctaRow.codigo} - ${ctaRow.nombre} está inactiva y no permite nuevos registros.`);
+          }
+
+          if (ctaRow.permite_movimiento === false) {
+            throw new Error(`CUENTA_NO_IMPUTABLE: La cuenta contable ${ctaRow.codigo} - ${ctaRow.nombre} es de título / acumulación y no admite movimientos directos.`);
+          }
+
+          resolvedCuentaId = ctaRow.id;
+
           await client.query(`
             INSERT INTO asiento_detalle (
               asiento_id, empresa_id, linea, cuenta_id, anexo_id, debe, haber,
@@ -424,7 +522,7 @@ export const asientoService = {
               fecha_vencimiento, glosa_linea
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
           `, [
-            asientoId, current.empresa_id, d.linea, d.cuentaId, d.anexoId || null,
+            asientoId, current.empresa_id, d.linea, resolvedCuentaId, d.anexoId || null,
             d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, d.centroCostoId || null,
             d.docTipo || null, d.docSerie || null, d.docNumero || null,
             d.fechaVencimiento || null, d.glosaLinea || null
@@ -475,7 +573,7 @@ export const asientoService = {
     if (db.isPostgresConnected()) {
       const persistir = async (client: PoolClient) => {
         const aRes = await client.query(`
-          SELECT a.*, p.codigo_periodo, s.codigo as subdiario_codigo
+          SELECT a.*, p.codigo_periodo, p.estado as periodo_estado, s.codigo as subdiario_codigo
           FROM asientos a
           JOIN periodos p ON p.id = a.periodo_id
           JOIN subdiarios s ON s.id = a.subdiario_id
@@ -485,12 +583,35 @@ export const asientoService = {
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');
         const asiento = aRes.rows[0];
 
+        if (asiento.periodo_estado === 'CERRADO') {
+          throw new Error('PERIODO_CERRADO: No se puede contabilizar en un período contable cerrado.');
+        }
+
         if (options?.enforceSegregacion && asiento.created_by && asiento.created_by === userId) {
           throw new Error('SEGREGACION_FUNCIONES: El usuario que registró el borrador no puede contabilizarlo (Separación obligatoria de funciones).');
         }
 
         if (asiento.estado === 'CONTABILIZADO') {
           throw new Error('ASIENTO_YA_CONTABILIZADO: El asiento ya se encuentra contabilizado.');
+        }
+
+        // Validación matemática estricta de partida doble y existencia de líneas en BD
+        const dRes = await client.query(`
+          SELECT COALESCE(SUM(debe), 0) as total_debe, COALESCE(SUM(haber), 0) as total_haber, COUNT(*) as count
+          FROM asiento_detalle WHERE asiento_id = $1
+        `, [asientoId]);
+        const totDebe = parseFloat(dRes.rows[0].total_debe);
+        const totHaber = parseFloat(dRes.rows[0].total_haber);
+        const cantLineas = parseInt(dRes.rows[0].count, 10);
+
+        if (cantLineas < 2) {
+          throw new Error('ASIENTO_INCOMPLETO: El asiento debe contener al menos 2 líneas de apunte contable.');
+        }
+        if (Math.abs(totDebe - totHaber) >= 0.001) {
+          throw new Error(`ASIENTO_DESCUADRADO: El asiento está descuadrado (Debe S/ ${totDebe.toFixed(2)} != Haber S/ ${totHaber.toFixed(2)}). Tolerancia permitida: 0.00.`);
+        }
+        if (totDebe <= 0) {
+          throw new Error('ASIENTO_DESCUADRADO: El importe total del asiento debe ser estrictamente mayor a 0.00.');
         }
 
         // 1. Obtener y bloquear correlativo de forma atómica (Sin saltos ni duplicados)
@@ -867,6 +988,51 @@ export const asientoService = {
       limit,
       totalPages: Math.ceil(filtrados.length / limit)
     };
+  },
+
+  /**
+   * Crea y contabiliza un asiento contable en una sola transacción atómica completa.
+   * Si alguna validación de partida doble o de plan de cuentas falla, se revierte todo (rollback total).
+   */
+  async crearYContabilizar(empresaId: string, input: AsientoInput, userId: string, options?: { esAdmin?: boolean }) {
+    // 1. Validar cuadre matemático exacto previo
+    let sumDebe = Money.create(0);
+    let sumHaber = Money.create(0);
+    for (const d of input.detalles) {
+      sumDebe = Money.add(sumDebe, d.debe);
+      sumHaber = Money.add(sumHaber, d.haber);
+    }
+    if (!Money.isEqual(sumDebe, sumHaber) || Money.isEqual(sumDebe, 0)) {
+      throw new Error(`ASIENTO_DESCUADRADO: El asiento no cuadra o tiene importe cero (Debe S/ ${Money.format(sumDebe)} != Haber S/ ${Money.format(sumHaber)}). Tolerancia: 0.00.`);
+    }
+
+    if (db.isPostgresConnected()) {
+      const client = await db.getClient();
+      try {
+        await client.query('BEGIN');
+        await establecerContextoEmpresa(client, empresaId, userId);
+
+        const borrador = await this.crearBorrador(empresaId, input, userId, client);
+        const contabilizado = await this.contabilizar(
+          borrador.id,
+          empresaId,
+          userId,
+          { enforceSegregacion: options?.esAdmin ? false : false },
+          client
+        );
+
+        await client.query('COMMIT');
+        return contabilizado;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    const borrador = await this.crearBorrador(empresaId, input, userId);
+    return await this.contabilizar(borrador.id, empresaId, userId);
   },
 
   /**

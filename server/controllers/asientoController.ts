@@ -26,6 +26,8 @@ export const detalleInputSchema = z.object({
 });
 
 export const asientoInputSchema = z.object({
+  id: z.string().optional(),
+  idempotencyKey: z.string().max(64).optional(),
   periodoId: z.string().min(1),
   subdiarioId: z.string().min(1),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha YYYY-MM-DD requerido'),
@@ -35,6 +37,7 @@ export const asientoInputSchema = z.object({
   origen: z.string().optional().default('MANUAL'),
   origenId: z.string().nullable().optional(),
   version: z.number().int().optional(),
+  contabilizarDirecto: z.boolean().optional(),
   detalles: z.array(detalleInputSchema).min(2, 'El asiento debe tener al menos 2 líneas')
 });
 
@@ -105,6 +108,12 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+      const esAdmin = (req.user as any)?.rolGlobal === 'ADMINISTRADOR' || (req.user as any)?.rol === 'ADMINISTRADOR';
+
+      if (req.body.contabilizarDirecto) {
+        const contabilizado = await asientoService.crearYContabilizar(empresaId, req.body, userId, { esAdmin });
+        return successResponse(res, contabilizado, `Asiento contabilizado exitosamente con N° ${contabilizado.numero}`, 201);
+      }
 
       const nuevo = await asientoService.crearBorrador(empresaId, req.body, userId);
       return successResponse(res, nuevo, 'Asiento borrador creado exitosamente', 201);
@@ -132,8 +141,9 @@ export const asientoController = {
       const { id } = req.params;
       const empresaId = req.empresaId!;
       const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
+      const esAdmin = (req.user as any)?.rolGlobal === 'ADMINISTRADOR' || (req.user as any)?.rol === 'ADMINISTRADOR';
 
-      const contabilizado = await asientoService.contabilizar(id, empresaId, userId, { enforceSegregacion: true });
+      const contabilizado = await asientoService.contabilizar(id, empresaId, userId, { enforceSegregacion: !esAdmin });
       return successResponse(res, contabilizado, `Asiento contabilizado con éxito con N° ${contabilizado.numero}`);
     } catch (err: any) {
       return errorResponse(res, err.message);

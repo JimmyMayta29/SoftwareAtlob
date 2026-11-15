@@ -68,29 +68,31 @@ export const subdiarioService = {
    */
   async inicializarSubdiariosEmpresa(empresaId: string): Promise<void> {
     if (db.isPostgresConnected()) {
-      for (const sub of SUBDIARIOS_BASE_SISTEMA) {
-        await db.query(`
-          INSERT INTO subdiarios (
-            empresa_id, codigo, descripcion, nombre, tipo, tipo_operacion,
-            permite_asiento_manual, es_sistema, activo, orden
-          ) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, $7, $8)
-          ON CONFLICT (empresa_id, codigo) DO UPDATE
-          SET nombre = EXCLUDED.nombre,
-              tipo_operacion = EXCLUDED.tipo_operacion,
-              permite_asiento_manual = EXCLUDED.permite_asiento_manual,
-              es_sistema = EXCLUDED.es_sistema,
-              orden = EXCLUDED.orden
-        `, [
-          empresaId,
-          sub.codigo,
-          sub.nombre,
-          sub.tipoOperacion,
-          sub.permiteAsientoManual,
-          sub.esSistema,
-          sub.activo,
-          sub.orden
-        ]);
-      }
+      await db.withEmpresaTransaction(empresaId, async (client) => {
+        for (const sub of SUBDIARIOS_BASE_SISTEMA) {
+          await client.query(`
+            INSERT INTO subdiarios (
+              empresa_id, codigo, descripcion, nombre, tipo, tipo_operacion,
+              permite_asiento_manual, es_sistema, activo, orden
+            ) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, $7, $8)
+            ON CONFLICT (empresa_id, codigo) DO UPDATE
+            SET nombre = EXCLUDED.nombre,
+                tipo_operacion = EXCLUDED.tipo_operacion,
+                permite_asiento_manual = EXCLUDED.permite_asiento_manual,
+                es_sistema = EXCLUDED.es_sistema,
+                orden = EXCLUDED.orden
+          `, [
+            empresaId,
+            sub.codigo,
+            sub.nombre,
+            sub.tipoOperacion,
+            sub.permiteAsientoManual,
+            sub.esSistema,
+            sub.activo,
+            sub.orden
+          ]);
+        }
+      });
       return;
     }
 

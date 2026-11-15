@@ -21,3 +21,5 @@ storage/empresas/
 storage/certs/
 storage/instancia/
 storage/respaldos/
+storage/archivo-releases/
+storage/evidencias-electron-e2e/
