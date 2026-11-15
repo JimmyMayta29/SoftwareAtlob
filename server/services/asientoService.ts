@@ -227,7 +227,7 @@ export const asientoService = {
         // Validación preventiva de idempotencia
         if (input.idempotencyKey) {
           const idempCheck = await client.query(
-            `SELECT id FROM asientos WHERE empresa_id = $1 AND idempotency_key = $2 LIMIT 1`,
+            `SELECT id FROM asientos WHERE empresa_id = $1 AND (origen_id = $2 OR cuo = $2) LIMIT 1`,
             [empresaId, input.idempotencyKey]
           );
           if (idempCheck.rows.length > 0) {
@@ -283,14 +283,13 @@ export const asientoService = {
           INSERT INTO asientos (
             id, empresa_id, periodo_id, subdiario_id, numero, fecha, glosa,
             moneda, tipo_cambio, estado, origen, origen_id, version, created_by,
-            cuo, fecha_documento, codigo_libro, estado_operacion, idempotency_key
-          ) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, 'BORRADOR', $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            cuo, fecha_documento, codigo_libro, estado_operacion
+          ) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, 'BORRADOR', $9, $10, $11, $12, $13, $14, $15, $16)
           RETURNING *
         `, [
           targetAsientoId, empresaId, resolvedPeriodoId, resolvedSubdiarioId, input.fecha, input.glosa,
-          moneda, tipoCambio, resolvedOrigen, input.origenId || null, version, resolvedUserId,
-          input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1',
-          input.idempotencyKey || null
+          moneda, tipoCambio, resolvedOrigen, input.origenId || input.idempotencyKey || null, version, resolvedUserId,
+          input.cuo || null, input.fechaDocumento || null, input.codigoLibro || '050100', input.estadoOperacion || '1'
         ]);
 
         const asientoCreado = insertRes.rows[0];

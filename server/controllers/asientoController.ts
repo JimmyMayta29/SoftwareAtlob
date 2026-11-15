@@ -143,7 +143,7 @@ export const asientoController = {
       const userId = req.user?.id || '00000000-0000-0000-0000-000000000001';
       const esAdmin = (req.user as any)?.rolGlobal === 'ADMINISTRADOR' || (req.user as any)?.rol === 'ADMINISTRADOR';
 
-      const contabilizado = await asientoService.contabilizar(id, empresaId, userId, { enforceSegregacion: !esAdmin });
+      const contabilizado = await asientoService.contabilizar(id, empresaId, userId, { enforceSegregacion: true });
       return successResponse(res, contabilizado, `Asiento contabilizado con éxito con N° ${contabilizado.numero}`);
     } catch (err: any) {
       return errorResponse(res, err.message);
