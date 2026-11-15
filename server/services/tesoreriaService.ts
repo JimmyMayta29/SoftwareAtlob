@@ -395,7 +395,33 @@ export const tesoreriaService = {
     if (datos.tipo === 'INGRESO' && datos.aplicaciones && datos.aplicaciones.length > 0) {
       // Aplicar a Cuentas por Cobrar
       for (const app of datos.aplicaciones) {
-        const doc = CXC_MEMORIA.find(d => d.id === app.documentoId && d.empresaId === empresaId);
+        let doc = CXC_MEMORIA.find(d => d.id === app.documentoId && d.empresaId === empresaId);
+        if (!doc && db.isPostgresConnected()) {
+          try {
+            const res = await db.query(
+              'SELECT id, comprobante_id, cliente_id, moneda, importe_original, saldo, estado FROM cuentas_por_cobrar WHERE empresa_id = $1 AND (id::text = $2 OR comprobante_id::text = $2) LIMIT 1',
+              [empresaId, app.documentoId]
+            );
+            if (res.rows.length > 0) {
+              const r = res.rows[0];
+              doc = {
+                id: String(r.id),
+                empresaId,
+                comprobanteId: String(r.comprobante_id),
+                clienteId: String(r.cliente_id),
+                serieNumero: '',
+                importeOriginal: Number(r.importe_original),
+                saldo: Number(r.saldo),
+                moneda: r.moneda,
+                fechaEmision: '',
+                fechaVencimiento: '',
+                diasCredito: 0,
+                estado: r.estado
+              };
+            }
+          } catch {}
+        }
+
         if (!doc) {
           throw new Error(`DOCUMENTO_NO_ENCONTRADO: El documento por cobrar ${app.documentoId} no existe en la empresa.`);
         }
@@ -413,11 +439,48 @@ export const tesoreriaService = {
         doc.estado = nuevoSaldo.isZero() ? 'CANCELADO' : 'PARCIAL';
         totalAplicado = Money.add(totalAplicado, montoApp);
         aplicacionesProcesadas.push({ documentoId: doc.id, importeAplicado: Money.toNumber(montoApp) });
+
+        if (db.isPostgresConnected()) {
+          try {
+            await db.query(
+              'UPDATE cuentas_por_cobrar SET saldo = $1, estado = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND empresa_id = $4',
+              [doc.saldo, doc.estado, doc.id, empresaId]
+            );
+          } catch (err) {
+            console.warn('⚠️ [tesoreriaService] Error actualizando saldo de CxC en PostgreSQL:', err);
+          }
+        }
       }
     } else if (datos.tipo === 'EGRESO' && datos.aplicaciones && datos.aplicaciones.length > 0) {
       // Aplicar a Cuentas por Pagar
       for (const app of datos.aplicaciones) {
-        const doc = CXP_MEMORIA.find(d => d.id === app.documentoId && d.empresaId === empresaId);
+        let doc = CXP_MEMORIA.find(d => d.id === app.documentoId && d.empresaId === empresaId);
+        if (!doc && db.isPostgresConnected()) {
+          try {
+            const res = await db.query(
+              'SELECT id, comprobante_id, proveedor_id, moneda, importe_original, saldo, estado FROM cuentas_por_pagar WHERE empresa_id = $1 AND (id::text = $2 OR comprobante_id::text = $2) LIMIT 1',
+              [empresaId, app.documentoId]
+            );
+            if (res.rows.length > 0) {
+              const r = res.rows[0];
+              doc = {
+                id: String(r.id),
+                empresaId,
+                comprobanteId: String(r.comprobante_id),
+                proveedorId: String(r.proveedor_id),
+                serieNumero: '',
+                importeOriginal: Number(r.importe_original),
+                saldo: Number(r.saldo),
+                moneda: r.moneda,
+                fechaEmision: '',
+                fechaVencimiento: '',
+                diasCredito: 0,
+                estado: r.estado
+              };
+            }
+          } catch {}
+        }
+
         if (!doc) {
           throw new Error(`DOCUMENTO_NO_ENCONTRADO: El documento por pagar ${app.documentoId} no existe en la empresa.`);
         }
@@ -435,6 +498,17 @@ export const tesoreriaService = {
         doc.estado = nuevoSaldo.isZero() ? 'CANCELADO' : 'PARCIAL';
         totalAplicado = Money.add(totalAplicado, montoApp);
         aplicacionesProcesadas.push({ documentoId: doc.id, importeAplicado: Money.toNumber(montoApp) });
+
+        if (db.isPostgresConnected()) {
+          try {
+            await db.query(
+              'UPDATE cuentas_por_pagar SET saldo = $1, estado = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND empresa_id = $4',
+              [doc.saldo, doc.estado, doc.id, empresaId]
+            );
+          } catch (err) {
+            console.warn('⚠️ [tesoreriaService] Error actualizando saldo de CxP en PostgreSQL:', err);
+          }
+        }
       }
     }
 
@@ -577,6 +651,42 @@ export const tesoreriaService = {
         SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP
         WHERE id = $2 AND empresa_id = $3
       `, [cuenta.saldoActual, cuenta.id, empresaId]);
+
+      if (datos.tipo === 'EGRESO') {
+        for (const app of aplicacionesProcesadas) {
+          if (UUID_REGEX.test(app.documentoId)) {
+            try {
+              await db.query(`
+                INSERT INTO aplicaciones_pago (
+                  empresa_id, cuenta_por_pagar_id, asiento_id, fecha_pago, importe_aplicado, moneda, tipo_cambio, referencia_banco
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              `, [
+                empresaId, app.documentoId,
+                UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+                nuevoMovimiento.fecha, app.importeAplicado, moneda, tipoCambio,
+                nuevoMovimiento.numeroOperacion || null
+              ]);
+            } catch {}
+          }
+        }
+      } else if (datos.tipo === 'INGRESO') {
+        for (const app of aplicacionesProcesadas) {
+          if (UUID_REGEX.test(app.documentoId)) {
+            try {
+              await db.query(`
+                INSERT INTO aplicaciones_cobranza (
+                  empresa_id, cuenta_por_cobrar_id, asiento_id, fecha_cobro, importe_aplicado, moneda, tipo_cambio, referencia_banco
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              `, [
+                empresaId, app.documentoId,
+                UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+                nuevoMovimiento.fecha, app.importeAplicado, moneda, tipoCambio,
+                nuevoMovimiento.numeroOperacion || null
+              ]);
+            } catch {}
+          }
+        }
+      }
     }
 
     MOVIMIENTOS_TESORERIA_MEMORIA.push(nuevoMovimiento);
