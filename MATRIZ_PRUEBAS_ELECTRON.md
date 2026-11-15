@@ -13,7 +13,7 @@ Todas las pruebas listadas a continuación fueron ejecutadas directamente en est
 | 3 | Ejecución 1 real de `release\win-unpacked\ATLOB ERP.exe` (asistente cliente -> DPAPI `instalacion.bin` -> login UI -> 0 conexiones directas a PG desde Electron) | **APROBADO** (`modo: "cliente"`, `servidorLocalIniciado: false`, `origin: "atlob://app"`, `tieneBridgeDesktop: true`, `autenticadoUi: true`) |
 | 4 | Ejecución 2 real de `ATLOB ERP.exe` (persistencia DPAPI tras reapertura sin asistente) | **APROBADO** (`ok: true`, `origin: "atlob://app"`, `healthStatus: 200`) |
 | 5 | Ejecución real de `release\ATLOB-ERP-2.0.0-Portable-x64.exe` en perfil aislado nuevo | **APROBADO** (`ok: true`, `modo: "cliente"`, `servidorLocalIniciado: false`, `autenticadoUi: true`) |
-| 6 | Operación multiusuario concurrente (3 sesiones activas + rol Auditor + sincronización + cuadre) | **APROBADO** (`syncMs: 266.2` ms, `comprasTotal: 1180`, `ventasTotal: 2360`, `diarioAsientos: 3`, `diarioTotalDebe: 9540`, `esfDiferenciaCuadre: 0`) |
+| 6 | Operación multiusuario concurrente (3 sesiones activas + rol Auditor + sincronización + cuadre) | **APROBADO** (`syncMs: 300.6` ms, `comprasTotal: 1180`, `ventasTotal: 2360`, `diarioAsientos: 3`, `diarioTotalDebe: 9540`, `esfDiferenciaCuadre: 0`) |
 | 7 | Simulación de apagado del servidor central y bloqueo offline en `ATLOB ERP.exe` | **APROBADO** (`online: false`, `healthStatus: 503`, `SERVIDOR_NO_DISPONIBLE`, botón `Configurar servidor` visible) |
 | 8 | Reconexión del servidor central, preservación DPAPI (`Local State` + `instalacion.bin`), re-login UI y reportes idénticos posreinicio | **APROBADO** (`online: true`, `autenticadoUi: true`, `reportesPostReinicio` idénticos sin diferencia de cuadre) |
 
@@ -57,3 +57,4 @@ Todas las pruebas listadas a continuación fueron ejecutadas directamente en est
 
 - Despliegue físico de `ATLOB-ERP-2.0.0-Setup-x64.exe` / `Portable` en **PC Cliente 2 y PC Cliente 3** sobre la red LAN física real del estudio.
 - Ejecución continua de **60 minutos** en campo con los 2–3 equipos físicos clientes conectados simultáneamente.
+

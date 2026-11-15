@@ -7,7 +7,7 @@
 - **Plataforma objetivo:** Windows x64 (`nsis` Setup y `portable`)
 - **Configuración de empaquetado:** `desktop/electron-builder.yml` (`asar: true`, `perMachine: false`, `forceCodeSigning: false`)
 - **Verificación de paquete (`afterPack` / `desktop:verify`):** `ESCANEO_PAQUETE app.asar | archivos=53 | textos=39 | hallazgos=0 | EXIT_CODE=0`
-- **Commit base de código compilado:** `dcbb140585f99e0cdf82490d69cfa46faf299cab` (+ cambios locales de fases 1–4 confirmados en `v2.0.0`)
+- **Commit base de código compilado:** `fa87192` (+ correcciones normativas 2026/2027 y resolución UUID en `v2.0.0`)
 
 ---
 
@@ -15,13 +15,13 @@
 
 | Archivo | Tamaño (bytes) | Fecha de modificación | Hash SHA-256 |
 |---|---|---|---|
-| `release\ATLOB-ERP-2.0.0-Setup-x64.exe` | `123450964` | `14/11/2026 20:26:45` | `F2146C965F244FC8C4C30E3D6CB2A363F23BFB03D78C414DA4A9A2BF45691519` |
-| `release\ATLOB-ERP-2.0.0-Portable-x64.exe` | `112225474` | `14/11/2026 20:29:54` | `8DF142573B932C250A02373418CA6162B7D67F956157C750943D18ED6BC8FA94` |
-| `release\win-unpacked\ATLOB ERP.exe` | (directorio `win-unpacked`) | `14/11/2026 20:25:43` | `07EFD0962F3C0DF27665885113D2C03BFA3C38A305D197A855FB94E87EBFA9FA` |
-| `release\win-unpacked\resources\app.asar` | (dentro de `win-unpacked`) | `14/11/2026 20:25:43` | `D179DD8CD1FD0129C1CF4C7B7CAB56FECB56234932384C010F506AD3A6A29741` |
-| `release\ATLOB-ERP-2.0.0-Setup-x64.exe.blockmap` | `129732` | `14/11/2026 20:26:54` | — |
-| `release\builder-debug.yml` | `6051` | `14/11/2026 20:29:54` | — |
-| `release\latest.yml` | `355` | `14/11/2026 20:29:54` | — |
+| `release\ATLOB-ERP-2.0.0-Setup-x64.exe` | `123451206` | `14/11/2026 22:32:12` | `21F59E5F2175FC28BB2E9F43D1F5433A5B6F4FE596BEE0D90A1896B34353C27A` |
+| `release\ATLOB-ERP-2.0.0-Portable-x64.exe` | `112219858` | `14/11/2026 22:36:53` | `1B0928183DC086882A67011D17F410761B5DE007844436FF21D0632A178C4CEF` |
+| `release\win-unpacked\ATLOB ERP.exe` | (directorio `win-unpacked`) | `14/11/2026 22:30:54` | `0A859941844CA9036ECE0095273A055FC6710292E16EA39A8A461218E42F7965` |
+| `release\win-unpacked\resources\app.asar` | (dentro de `win-unpacked`) | `14/11/2026 22:30:54` | `87D9C5AAD42185CCB51A35028702CE4637B9B315A7589448F22935BD19BEF1AD` |
+| `release\ATLOB-ERP-2.0.0-Setup-x64.exe.blockmap` | `129733` | `14/11/2026 22:32:26` | — |
+| `release\builder-debug.yml` | `6051` | `14/11/2026 22:36:53` | — |
+| `latest.yml` | `355` | `14/11/2026 22:36:53` | — |
 
 ---
 

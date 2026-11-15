@@ -71,3 +71,4 @@ Si el servidor principal se apaga o la PC cliente pierde conectividad con `https
    - **Reintentar conexión**
    - **Configurar servidor**
 4. Una vez reiniciado el servidor central en la PC Principal, pulse **Reintentar conexión** y vuelva a autenticarse; los asientos, comprobantes y reportes previamente confirmados permanecerán íntegros en PostgreSQL.
+

@@ -18,8 +18,8 @@
 
 | Artefacto | Tamaño (bytes) | Uso recomendado |
 |---|---|---|
-| `release\ATLOB-ERP-2.0.0-Setup-x64.exe` | `123450964` | Instalación estándar Windows por usuario (`perMachine: false`, crea acceso directo) en PC Principal y PCs Clientes |
-| `release\ATLOB-ERP-2.0.0-Portable-x64.exe` | `112225474` | Ejecutable portable sin instalador (guardar en carpeta propia con permisos de escritura para conservar su perfil `userData`) |
+| `release\ATLOB-ERP-2.0.0-Setup-x64.exe` | `123451206` | Instalación estándar Windows por usuario (`perMachine: false`, crea acceso directo) en PC Principal y PCs Clientes |
+| `release\ATLOB-ERP-2.0.0-Portable-x64.exe` | `112219858` | Ejecutable portable sin instalador (guardar en carpeta propia con permisos de escritura para conservar su perfil `userData`) |
 
 Los instaladores históricos `0.0.0` fueron archivados fuera de `release\` en `storage\archivo-releases\v0.0.0-20261112\`.
 
@@ -115,3 +115,4 @@ Para revertir código preservando los datos en PostgreSQL (previa validación au
 ## 6. Estado de despliegue físico pendiente
 
 La verificación E2E de `ATLOB ERP.exe` y `Portable` contra la API HTTPS LAN y PostgreSQL 18.6 quedó aprobada localmente en `JOSEPHMC` (`192.168.1.34`). La ejecución material del instalador en las PCs Clientes 2 y 3 y la prueba sostenida de 60 minutos en red LAN física quedan pendientes hasta disponer de dichos equipos en sitio.
+

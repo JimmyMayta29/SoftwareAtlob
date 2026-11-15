@@ -1,4 +1,4 @@
-﻿param(
+param(
   [int]$Port = 3000,
   [int]$HttpsPort = 3443,
   [string]$DatabaseUrl = '',

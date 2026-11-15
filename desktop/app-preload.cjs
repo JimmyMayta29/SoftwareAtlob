@@ -12,3 +12,4 @@ contextBridge.exposeInMainWorld('atlobDesktop', {
     return () => ipcRenderer.removeListener('desktop:cambio-estado-conexion', listener);
   },
 });
+

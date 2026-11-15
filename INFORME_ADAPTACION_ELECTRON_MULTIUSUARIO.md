@@ -91,6 +91,7 @@ Asimismo, `scripts/iniciar-servidor-lan.ps1` ya no abre automáticamente el nave
   - `npm run desktop:verify`: `archivos=53 | textos=39 | hallazgos=0 | EXIT_CODE=0`.
   - `node --test desktop/desktop-config.test.cjs`: `3/3 pass`.
   - `npm run test:secretos-frontend`: `archivos=170 | EXIT=0`.
-  - `npx tsx scripts/verificar-electron-multiusuario.ts`: `EXIT 0`, las 8 etapas reales aprobadas (`syncMs: 266.2 ms`, `reportesPostReinicio` con `esfDiferenciaCuadre: 0`), evidencias visuales capturadas e inspeccionadas y base temporal `atlob_electron_e2e` eliminada.
+  - `npx tsx scripts/verificar-electron-multiusuario.ts`: `EXIT 0`, las 8 etapas reales aprobadas (`syncMs: 300.6 ms`, `reportesPostReinicio` con `esfDiferenciaCuadre: 0`), evidencias visuales capturadas e inspeccionadas y base temporal `atlob_electron_e2e` eliminada.
 - **Pendiente de ejecución física con hardware adicional:**
   - La instalación material de `ATLOB-ERP-2.0.0-Setup-x64.exe` o `ATLOB-ERP-2.0.0-Portable-x64.exe` en las **PC Cliente 2 y PC Cliente 3 reales**, así como la **prueba continua de operación física LAN de 60 minutos** entre equipos separados, quedan pendientes hasta contar con los equipos clientes físicos conectados a la misma red LAN privada.
+

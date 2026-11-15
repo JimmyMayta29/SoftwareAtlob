@@ -153,7 +153,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
     let activo = true;
     tipoCambioApi.obtenerVigente().then((tc) => {
       if (activo) setTipoCambioGlobal(tc);
-    }).catch(() => {});
+    }).catch(() => { });
     return () => { activo = false; };
   }, []);
 
@@ -202,7 +202,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
       }
     };
 
-    void bridge.obtenerEstadoConexion().then(aplicarEstado).catch(() => {});
+    void bridge.obtenerEstadoConexion().then(aplicarEstado).catch(() => { });
     const desuscribir = bridge.suscribirEstadoConexion(aplicarEstado);
     return () => {
       activo = false;
@@ -530,8 +530,8 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                 {estadoConexionDesktop.ultimoError === 'CERT_TLS_ERROR'
                   ? 'Certificado HTTPS del servidor principal no validado. Operaciones bloqueadas hasta verificar el certificado CA.'
                   : estadoConexionDesktop.ultimoError === 'BACKEND_POSTGRES_CAIDO'
-                  ? 'Servidor principal conectado, pero PostgreSQL central no responde. Operaciones de escritura suspendidas.'
-                  : `Sin conexión con el servidor principal (${estadoConexionDesktop.host || estadoConexionDesktop.servidorUrl}). Las operaciones de escritura están bloqueadas.`}
+                    ? 'Servidor principal conectado, pero PostgreSQL central no responde. Operaciones de escritura suspendidas.'
+                    : `Sin conexión con el servidor principal (${estadoConexionDesktop.host || estadoConexionDesktop.servidorUrl}). Las operaciones de escritura están bloqueadas.`}
               </span>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -907,11 +907,10 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
           <button
             type="button"
             onClick={() => handleTopBarAction('Tributos › Cronograma de vencimientos', 'cronograma-vencimientos')}
-            className={`font-mono font-bold hover:underline shrink-0 ${
-              alertaVencimiento.esVencido
-                ? 'text-[#DC2626] bg-[#FEF2F2] border border-[#FCA5A5] px-1.5 py-0.2 rounded'
-                : 'text-[#B45309]'
-            }`}
+            className={`font-mono font-bold hover:underline shrink-0 ${alertaVencimiento.esVencido
+              ? 'text-[#DC2626] bg-[#FEF2F2] border border-[#FCA5A5] px-1.5 py-0.2 rounded'
+              : 'text-[#B45309]'
+              }`}
             title={`Vencimiento tributario PDT 621 para RUC terminado en dígito ${alertaVencimiento.digito} (Período ${periodo})`}
           >
             Venc. PDT 621 [Díg. {alertaVencimiento.digito}]: {alertaVencimiento.fechaVencimiento} ({alertaVencimiento.etiquetaDias})
@@ -945,9 +944,8 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
           {estadoConexionDesktop ? (
             <>
               <span
-                className={`font-bold shrink-0 hidden md:inline ${
-                  estadoConexionDesktop.online ? 'text-[#1E6F42]' : 'text-[#DC2626]'
-                }`}
+                className={`font-bold shrink-0 hidden md:inline ${estadoConexionDesktop.online ? 'text-[#1E6F42]' : 'text-[#DC2626]'
+                  }`}
                 title={
                   estadoConexionDesktop.servidorUrl
                     ? `Destino: ${estadoConexionDesktop.servidorUrl}${estadoConexionDesktop.huellaCa ? ` · CA ${estadoConexionDesktop.huellaCa.slice(0, 12)}` : ''}`
@@ -1028,11 +1026,10 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                       handleTopBarAction(entry.rutaCompleta, entry.id);
                     }
                   }}
-                  className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between ${
-                    deshabilitado
-                      ? 'bg-[#F5F7FA] text-[#9CA3AF] cursor-not-allowed'
-                      : 'bg-[#FFFFFF] text-[#111827] hover:bg-[#E8ECF1]'
-                  }`}
+                  className={`w-full px-3 py-1.5 text-left text-[12px] flex items-center justify-between ${deshabilitado
+                    ? 'bg-[#F5F7FA] text-[#9CA3AF] cursor-not-allowed'
+                    : 'bg-[#FFFFFF] text-[#111827] hover:bg-[#E8ECF1]'
+                    }`}
                 >
                   <div>
                     <span className="text-[11px] text-[#4B5563] mr-1.5">[{entry.grupoLabel}]</span>
@@ -1189,7 +1186,23 @@ function AplicacionConSesion() {
     let activo = true;
     void bridge.obtenerEstadoConexion().then((infoSrv) => {
       if (activo && infoSrv) setEstadoDesktop(infoSrv);
-    }).catch(() => {});
+    }).catch(() => { });
+    const desuscribir = bridge.suscribirEstadoConexion((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    });
+    return () => {
+      activo = false;
+      desuscribir();
+    };
+  }, []);
+
+  useEffect(() => {
+    const bridge = window.atlobDesktop;
+    if (!bridge) return;
+    let activo = true;
+    void bridge.obtenerEstadoConexion().then((infoSrv) => {
+      if (activo && infoSrv) setEstadoDesktop(infoSrv);
+    }).catch(() => { });
     const desuscribir = bridge.suscribirEstadoConexion((infoSrv) => {
       if (activo && infoSrv) setEstadoDesktop(infoSrv);
     });
@@ -1278,8 +1291,8 @@ function AplicacionConSesion() {
   const detalleErrorConexion = estadoDesktop?.ultimoError === 'CERT_TLS_ERROR'
     ? 'No se pudo validar el certificado HTTPS del servidor principal. Revise el certificado atlob-lan-ca.crt.'
     : esClienteLan
-    ? `No se pudo conectar con el servidor principal (${estadoDesktop?.host || estadoDesktop?.servidorUrl || 'LAN HTTPS'}). Verifique que la PC principal esté encendida y el servidor activo.`
-    : 'No se pudo conectar con el servidor local de ATLOB ERP. Verifique que PostgreSQL esté activo.';
+      ? `No se pudo conectar con el servidor principal (${estadoDesktop?.host || estadoDesktop?.servidorUrl || 'LAN HTTPS'}). Verifique que la PC principal esté encendida y el servidor activo.`
+      : 'No se pudo conectar con el servidor local de ATLOB ERP. Verifique que PostgreSQL esté activo.';
   return (
     <main className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-center p-6 text-center select-none">
       <div className="bg-white rounded-2xl p-8 border border-[#CBD5E1] shadow-lg max-w-sm w-full flex flex-col items-center">
@@ -1333,7 +1346,7 @@ export default function App() {
     <EmpresaPeriodoProvider
       initialEmpresas={EMPRESAS_CLIENTES_DEMO}
       usuario={usuarioInicial}
-      onCerrarSesion={async () => {}}
+      onCerrarSesion={async () => { }}
     >
       <DesktopWorkspaceContent empresasIniciales={EMPRESAS_CLIENTES_DEMO} />
     </EmpresaPeriodoProvider>

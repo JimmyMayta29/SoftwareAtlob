@@ -167,7 +167,7 @@ export const empresaRepository = {
           await client.query(`
             INSERT INTO periodos (empresa_id, ejercicio_id, anio, mes, codigo_periodo)
             SELECT $1, $2, $3::smallint, mes, $3::smallint::text || '-' || LPAD(mes::text, 2, '0')
-            FROM generate_series(1, 12) AS mes
+            FROM generate_series(0, 13) AS mes
           `, [nuevaEmpresa.id, nuevoEjercicio.id, ejercicio]);
         }
 

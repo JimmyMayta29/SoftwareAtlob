@@ -38,7 +38,7 @@ function crearPeriodoDefault(empresaId: string, anio: number, mes: number): Peri
 export const periodoService = {
   async listar(empresaId: string, anio = 2026): Promise<PeriodoModel[]> {
     if (db.isPostgresConnected()) {
-      const res = await db.query(`
+      let res = await db.query(`
         SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
                anio, mes, codigo_periodo as "codigoPeriodo", estado,
                fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
@@ -46,6 +46,41 @@ export const periodoService = {
         WHERE empresa_id = $1 AND anio = $2
         ORDER BY mes ASC
       `, [empresaId, anio]);
+
+      if (res.rows.length === 0) {
+        let ejRes = await db.query('SELECT id FROM ejercicios WHERE empresa_id = $1 AND anio = $2 LIMIT 1', [empresaId, anio]);
+        let ejercicioId: string | undefined;
+        if (ejRes.rows.length > 0) {
+          ejercicioId = ejRes.rows[0].id;
+        } else {
+          const nuevoEj = await db.query(
+            'INSERT INTO ejercicios (empresa_id, anio) VALUES ($1, $2) ON CONFLICT (empresa_id, anio) DO NOTHING RETURNING id',
+            [empresaId, anio]
+          );
+          if (nuevoEj.rows.length > 0) {
+            ejercicioId = nuevoEj.rows[0].id;
+          } else {
+            const reEj = await db.query('SELECT id FROM ejercicios WHERE empresa_id = $1 AND anio = $2 LIMIT 1', [empresaId, anio]);
+            ejercicioId = reEj.rows[0]?.id;
+          }
+        }
+        if (ejercicioId) {
+          await db.query(`
+            INSERT INTO periodos (empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado)
+            SELECT $1, $2, $3::smallint, m, $3::smallint::text || '-' || LPAD(m::text, 2, '0'), 'ABIERTO'
+            FROM generate_series(0, 13) AS m
+            ON CONFLICT (empresa_id, codigo_periodo) DO NOTHING
+          `, [empresaId, ejercicioId, anio]);
+          res = await db.query(`
+            SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
+                   anio, mes, codigo_periodo as "codigoPeriodo", estado,
+                   fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
+            FROM periodos
+            WHERE empresa_id = $1 AND anio = $2
+            ORDER BY mes ASC
+          `, [empresaId, anio]);
+        }
+      }
 
       if (res.rows.length > 0) {
         if (res.rows.length >= 14) return res.rows;
@@ -71,10 +106,31 @@ export const periodoService = {
               if (insertado.rows.length > 0) {
                 filas.push(insertado.rows[0]);
               } else {
-                filas.push(crearPeriodoDefault(empresaId, anio, m));
+                const filaExistente = await db.query(`
+                  SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
+                         anio, mes, codigo_periodo as "codigoPeriodo", estado,
+                         fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
+                  FROM periodos
+                  WHERE empresa_id = $1 AND codigo_periodo = $2
+                  LIMIT 1
+                `, [empresaId, cod]);
+                if (filaExistente.rows.length > 0) {
+                  filas.push(filaExistente.rows[0]);
+                }
               }
             } catch {
-              filas.push(crearPeriodoDefault(empresaId, anio, m));
+              // Si falla inserción por concurrencia o RLS, intentar lectura
+              const filaExistente = await db.query(`
+                SELECT id, empresa_id as "empresaId", ejercicio_id as "ejercicioId",
+                       anio, mes, codigo_periodo as "codigoPeriodo", estado,
+                       fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
+                FROM periodos
+                WHERE empresa_id = $1 AND codigo_periodo = $2
+                LIMIT 1
+              `, [empresaId, cod]).catch(() => ({ rows: [] }));
+              if (filaExistente.rows.length > 0) {
+                filas.push(filaExistente.rows[0]);
+              }
             }
           }
         }
@@ -112,14 +168,14 @@ export const periodoService = {
                anio, mes, codigo_periodo as "codigoPeriodo", estado,
                fecha_cierre as "fechaCierre", cerrado_por as "cerradoPor"
         FROM periodos
-        WHERE empresa_id = $1 AND codigo_periodo = $2
+        WHERE empresa_id = $1 AND (codigo_periodo = $2 OR id::text = $2)
         LIMIT 1
       `, [empresaId, codigoPeriodo]);
       if (res.rows.length > 0) return res.rows[0];
     }
 
-    let p = PERIODOS_MEMORIA.find(p => p.empresaId === empresaId && p.codigoPeriodo === codigoPeriodo);
-    if (!p && codigoPeriodo.includes('-')) {
+    let p = PERIODOS_MEMORIA.find(p => p.empresaId === empresaId && (p.codigoPeriodo === codigoPeriodo || p.id === codigoPeriodo));
+    if (!p && /^\d{4}-\d{2}$/.test(codigoPeriodo)) {
       const parts = codigoPeriodo.split('-');
       const anio = parseInt(parts[0], 10);
       const mes = parseInt(parts[1], 10);
