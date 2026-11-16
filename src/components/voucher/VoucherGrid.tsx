@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import { CuentaPCGE, buscarCuentaPCGE } from '../../data/pcgeAccounts';
 import { TABLA_10_TIPO_COMPROBANTE } from '../../data/sunatCatalogos';
 
@@ -112,6 +112,14 @@ export const VoucherGrid: React.FC<VoucherGridProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent, rowIndex: number, colKey: keyof FilaVoucherGrid) => {
     if (readOnly) return;
 
+    // Ctrl+Enter para agregar una nueva línea contable inmediatamente
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      onAgregarFila();
+      setTimeout(() => focusCell(filas.length, 'codigoCuenta'), 40);
+      return;
+    }
+
     if (e.key === 'F2' && colKey === 'codigoCuenta') {
       e.preventDefault();
       onOpenF2Catalogo(rowIndex);
@@ -147,6 +155,12 @@ export const VoucherGrid: React.FC<VoucherGridProps> = ({
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
+      if (colKey === 'codigoCuenta') {
+        const cod = (filas[rowIndex]?.codigoCuenta || '').trim();
+        if (cod) {
+          handleCuentaBlur(rowIndex, cod);
+        }
+      }
       if (colIdx < editableCols.length - 1) {
         focusCell(rowIndex, editableCols[colIdx + 1]);
       } else if (rowIndex < filas.length - 1) {
@@ -465,8 +479,46 @@ export const VoucherGrid: React.FC<VoucherGridProps> = ({
               </tr>
             );
           })}
+          {filas.length === 0 && (
+            <tr>
+              <td colSpan={17} className="text-center py-6 bg-slate-50 text-slate-500 font-sans">
+                <p className="font-semibold text-xs mb-2">No hay líneas en la cuadrícula contable.</p>
+                <button
+                  type="button"
+                  onClick={onAgregarFila}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-none shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Insertar líneas de asiento (Ctrl+Enter)</span>
+                </button>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
+
+      {/* Barra de Productividad al pie de la Cuadrícula */}
+      {!readOnly && (
+        <div className="sticky bottom-0 bg-slate-100 border-t border-slate-300 px-3 py-1 flex items-center justify-between z-10 shadow-xs">
+          <button
+            type="button"
+            onClick={onAgregarFila}
+            className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-400 hover:border-blue-500 text-blue-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition"
+            title="Agregar una nueva línea al voucher (Ctrl+Enter)"
+          >
+            <Plus className="w-3.5 h-3.5 text-blue-600" />
+            <span>+ Agregar nueva línea</span>
+            <kbd className="text-[9px] bg-slate-100 px-1 border border-slate-300 text-slate-500">Ctrl+Enter</kbd>
+          </button>
+          <div className="flex items-center gap-2 text-[10px] text-slate-600 font-sans">
+            <span><kbd className="bg-white border border-slate-300 px-1 font-mono">F2</kbd> Catálogo PCGE</span>
+            <span>•</span>
+            <span><kbd className="bg-white border border-slate-300 px-1 font-mono">Tab / Enter</kbd> Siguiente celda</span>
+            <span>•</span>
+            <span><kbd className="bg-white border border-slate-300 px-1 font-mono">Ctrl+S</kbd> Guardar asiento</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

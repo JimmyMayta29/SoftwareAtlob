@@ -104,15 +104,59 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   }, [listaAsientos, filtroSubdiario, filtroEstado, busquedaTexto]);
 
   // Estado del Voucher en Edición (Escritorio)
+  const fechaInicialCalculada = `${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`;
   const [asientoId, setAsientoId] = useState<string | null>(null);
   const [subdiario, setSubdiario] = useState<string>(subdiarioFijo || '10');
   const [numeroVoucher, setNumeroVoucher] = useState<string>('10090001');
-  const [fechaContable, setFechaContable] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
-  const [fechaEmisionDocRef, setFechaEmisionDocRef] = useState<string>(`${periodo ? periodo.split('-')[0] : '2026'}-${periodo && periodo.includes('-') ? periodo.split('-')[1] : '09'}-15`);
+  const [fechaContable, setFechaContable] = useState<string>(fechaInicialCalculada);
+  const [fechaEmisionDocRef, setFechaEmisionDocRef] = useState<string>(fechaInicialCalculada);
   const [moneda, setMoneda] = useState<'PEN' | 'USD'>('PEN');
   const [tipoCambioCompra, setTipoCambioCompra] = useState<number>(0);
   const [tipoCambioVenta, setTipoCambioVenta] = useState<number>(0);
   const [isModalTcOpen, setIsModalTcOpen] = useState(false);
+  const [isGuardando, setIsGuardando] = useState(false);
+
+  // Helper para generar líneas iniciales vacías listas para Debe y Haber
+  const crearLineasIniciales = (fContable: string, glosa: string = ''): FilaVoucherGrid[] => [
+    {
+      linea: 1,
+      codigoCuenta: '',
+      denominacion: '',
+      centroCosto: '',
+      anexoTipoDoc: '',
+      anexoNumDoc: '',
+      anexoNombre: '',
+      tipoComprobante: '01',
+      serieComprobante: '',
+      numeroComprobante: '',
+      fechaEmisionDoc: fContable,
+      fechaVencimientoDoc: '',
+      glosaLinea: glosa,
+      debe: 0,
+      haber: 0,
+      debeUsd: 0,
+      haberUsd: 0,
+    },
+    {
+      linea: 2,
+      codigoCuenta: '',
+      denominacion: '',
+      centroCosto: '',
+      anexoTipoDoc: '',
+      anexoNumDoc: '',
+      anexoNombre: '',
+      tipoComprobante: '01',
+      serieComprobante: '',
+      numeroComprobante: '',
+      fechaEmisionDoc: fContable,
+      fechaVencimientoDoc: '',
+      glosaLinea: glosa,
+      debe: 0,
+      haber: 0,
+      debeUsd: 0,
+      haberUsd: 0,
+    }
+  ];
 
   useEffect(() => {
     let activo = true;
@@ -145,8 +189,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   const [estadoVoucher, setEstadoVoucher] = useState<'BORRADOR' | 'CONTABILIZADO' | 'ANULADO'>('BORRADOR');
   const [cuoVoucher, setCuoVoucher] = useState<string | undefined>(undefined);
 
-  // Filas del Voucher nuevo: vacío por defecto sin líneas de ejemplo
-  const [filas, setFilas] = useState<FilaVoucherGrid[]>([]);
+  // Filas del Voucher: siempre inicia con 2 líneas editables limpias para Debe y Haber
+  const [filas, setFilas] = useState<FilaVoucherGrid[]>(() => crearLineasIniciales(fechaInicialCalculada, ''));
 
   // Celda activa y navegación
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
@@ -372,11 +416,14 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
     setCuoVoucher(undefined);
     setNumeroVoucher(`0109${String(Math.floor(Math.random() * 9000) + 1000)}`);
     setGlosaGeneral('');
-    setFilas([]);
-    success('Nuevo voucher contable iniciado en blanco.');
+    setFilas(crearLineasIniciales(fechaContable, ''));
+    setActiveCell({ rowIndex: 0, colKey: 'codigoCuenta' });
+    success('Nuevo voucher iniciado en Asistente de Registro. Ingrese cuentas en Debe y Haber.');
   };
 
   const handleGuardarBorrador = async () => {
+    if (isGuardando) return;
+
     if (filas.length < 2) {
       warning('Se requieren al menos 2 líneas para registrar el asiento contable (partida doble).');
       return;
@@ -385,6 +432,12 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
       warning('Ingrese una glosa descriptiva para el voucher (mínimo 3 caracteres).');
       return;
     }
+    if (moneda === 'USD' && (!tipoCambioVenta || tipoCambioVenta <= 0)) {
+      warning('Para operaciones en moneda extranjera (USD) debe ingresar un tipo de cambio venta válido.');
+      setIsModalTcOpen(true);
+      return;
+    }
+
     for (let i = 0; i < filas.length; i++) {
       const f = filas[i];
       if (!f.codigoCuenta || !f.codigoCuenta.trim()) {
@@ -397,8 +450,9 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
       }
     }
 
+    setIsGuardando(true);
     try {
-      const tc = tipoCambioVenta > 0 ? tipoCambioVenta : 1.0;
+      const tc = moneda === 'USD' ? tipoCambioVenta : (tipoCambioVenta > 0 ? tipoCambioVenta : 1.0);
       const payload = {
         subdiarioId: subdiario,
         subdiario,
@@ -445,13 +499,17 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
         if (res.numero) setNumeroVoucher(res.numero);
       }
       refetch();
-      success(`Asiento borrador guardado exitosamente en base de datos.`);
+      success(`Asiento guardado exitosamente en base de datos.`);
     } catch (err: any) {
       error(`Error guardando borrador: ${err.message}`);
+    } finally {
+      setIsGuardando(false);
     }
   };
 
   const handleContabilizar = async () => {
+    if (isGuardando) return;
+
     if (!puedeContabilizar) {
       warning('El asiento debe cuadrar a cero y tener todas las cuentas imputables completas para contabilizar.');
       return;
@@ -464,11 +522,17 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
       warning('Ingrese una glosa descriptiva para el voucher (mínimo 3 caracteres).');
       return;
     }
+    if (moneda === 'USD' && (!tipoCambioVenta || tipoCambioVenta <= 0)) {
+      warning('Para operaciones en moneda extranjera (USD) debe ingresar un tipo de cambio venta válido.');
+      setIsModalTcOpen(true);
+      return;
+    }
 
+    setIsGuardando(true);
     try {
       let idTarget = asientoId;
       if (!idTarget) {
-        const tc = tipoCambioVenta > 0 ? tipoCambioVenta : 1.0;
+        const tc = moneda === 'USD' ? tipoCambioVenta : (tipoCambioVenta > 0 ? tipoCambioVenta : 1.0);
         const payload = {
           subdiarioId: subdiario,
           subdiario,
@@ -529,6 +593,8 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
       success(`Voucher contabilizado formalmente con N° ${resCont.numero} y CUO ${resCont.cuo || resCont.numero}. Correlativo inmutable.`);
     } catch (err: any) {
       error(`Error contabilizando asiento: ${err.message}`);
+    } finally {
+      setIsGuardando(false);
     }
   };
 
@@ -596,12 +662,12 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
 
   return (
     <div className="flex flex-col h-[calc(100vh-125px)] min-h-[600px] bg-slate-200 border border-slate-300 rounded-none shadow-xs overflow-hidden">
-      {/* Selector de Modo: Captura de Escritorio vs Historial de Vouchers */}
+      {/* Selector de Modo: Asistente de Registro vs Lista de Asientos */}
       <div className="bg-slate-800 text-white px-3 py-1 flex items-center justify-between border-b border-slate-700 text-xs font-mono">
         <div className="flex items-center gap-3">
           <span className="font-bold text-amber-400">ATLOB ERP CONTABLE</span>
           <span className="text-slate-400">|</span>
-          <span className="text-white font-semibold">MÓDULO DE ASIENTOS Y VOUCHERS CONTABLES</span>
+          <span className="text-white font-semibold">ASISTENTE DE REGISTRO UNIFICADO</span>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -610,7 +676,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
               vistaModo === 'CAPTURA' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:text-white'
             }`}
           >
-            [F2/F10] Captura de Voucher
+            [F10] Asistente de Registro
           </button>
           <button
             onClick={() => setVistaModo('HISTORIAL')}

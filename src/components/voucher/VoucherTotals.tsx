@@ -30,7 +30,7 @@ export const VoucherTotals: React.FC<VoucherTotalsProps> = ({
         {cantidadLineas === 0 || (totalDebePen === 0 && totalHaberPen === 0) ? (
           <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-300 text-slate-700 px-2 py-0.5 font-bold text-[11px]">
             <Info className="w-3.5 h-3.5 text-slate-500" />
-            <span>SIN MOVIMIENTOS</span>
+            <span>PENDIENTE DE IMPORTES (INGRESE DEBE Y HABER)</span>
           </div>
         ) : estaCuadrado ? (
           <div className="flex items-center gap-1.5 bg-emerald-100 border border-emerald-500 text-emerald-900 px-2 py-0.5 font-bold text-[11px]">

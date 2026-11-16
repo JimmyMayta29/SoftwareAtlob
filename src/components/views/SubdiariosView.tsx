@@ -13,7 +13,6 @@ import {
   Calendar,
   Layers,
   Sparkles,
-  Table,
   CheckCircle2,
   ArrowRight,
   Copy
@@ -55,7 +54,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
   const { success, error, warning } = useToast();
   const [subdiarios, setSubdiarios] = useState<SubdiarioItem[]>([]);
   const [subdiarioSeleccionadoId, setSubdiarioSeleccionadoId] = useState<string>('01');
-  const [pestañaActiva, setPestañaActiva] = useState<'REGISTRAR' | 'ASIENTOS' | 'GRILLA_DIRECTA'>('REGISTRAR');
+  const [pestañaActiva, setPestañaActiva] = useState<'REGISTRAR' | 'ASIENTOS'>('REGISTRAR');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<CategoriaSubdiario>('TODOS');
   const [busquedaSubdiario, setBusquedaSubdiario] = useState('');
   const [loading, setLoading] = useState(true);
@@ -428,19 +427,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Vouchers Contabilizados ({asientosDelSubdiario.length})</span>
-            </button>
-
-            <button
-              onClick={() => setPestañaActiva('GRILLA_DIRECTA')}
-              className={`px-3 py-1.5 font-bold text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                pestañaActiva === 'GRILLA_DIRECTA'
-                  ? 'bg-white text-[#2457D6] shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span>Captura en Grilla PCGE</span>
+              <span>Lista de Asientos ({asientosDelSubdiario.length})</span>
             </button>
           </div>
 
@@ -457,18 +444,6 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
         {pestañaActiva === 'REGISTRAR' ? (
           <div className="h-full">
             {renderComponenteRegistro()}
-          </div>
-        ) : pestañaActiva === 'GRILLA_DIRECTA' ? (
-          <div className="h-full">
-            <VouchersView
-              empresaId={empresaId}
-              periodo={periodo}
-              isPeriodoCerrado={isPeriodoCerrado}
-              empresa={empresa}
-              usuarioNombre={usuarioNombre}
-              usuarioRol={usuarioRol}
-              subdiarioFijo={subdiarioActual?.codigo}
-            />
           </div>
         ) : (
           <div className="p-4 flex flex-col h-full gap-3">
@@ -503,9 +478,9 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPestañaActiva('GRILLA_DIRECTA')}
+                  onClick={() => setPestañaActiva('REGISTRAR')}
                   className="px-3 py-1 bg-[#2457D6] hover:bg-blue-700 text-white font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition"
-                  title="Abrir formulario de captura de asiento para este subdiario"
+                  title="Abrir Asistente de Registro para este subdiario"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Nuevo Asiento en este Subdiario</span>
@@ -547,7 +522,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
                       <td colSpan={8} className="text-center p-12 text-slate-500">
                         <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <p className="font-semibold text-slate-700">No se registran asientos en el subdiario {subdiarioActual?.codigo} - {subdiarioActual?.nombre} para este período.</p>
-                        <p className="text-[11px] text-slate-400 mt-1">Use la pestaña "Asistente de Registro" o "Captura en Grilla PCGE" para generar el primer voucher.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Use la pestaña "Asistente de Registro" para generar el primer voucher.</p>
                       </td>
                     </tr>
                   ) : (
