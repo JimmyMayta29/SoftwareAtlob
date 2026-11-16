@@ -9,9 +9,11 @@ export function validateBody(schema: ZodSchema) {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
+        const issues = error.issues.map((i) => ({ campo: i.path.join('.'), mensaje: i.message }));
+        const detalleStr = issues.map((i) => `${i.campo ? i.campo + ': ' : ''}${i.mensaje}`).join('; ');
         return errorResponse(res, {
-          message: 'Error de validación en los datos de entrada',
-          issues: error.issues.map((i) => ({ campo: i.path.join('.'), mensaje: i.message }))
+          message: `Error de validación en los datos de entrada: ${detalleStr}`,
+          issues
         }, 422);
       }
       next(error);

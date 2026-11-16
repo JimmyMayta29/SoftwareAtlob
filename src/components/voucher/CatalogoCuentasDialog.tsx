@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Check, AlertCircle, BookOpen } from 'lucide-react';
 import { PLAN_CONTABLE_PCGE, CuentaPCGE } from '../../data/pcgeAccounts';
+import { pcgeApi } from '../../api/pcgeApi';
 
 interface CatalogoCuentasDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectCuenta: (cuenta: CuentaPCGE) => void;
+  empresaId?: string;
   initialQuery?: string;
   filtroPrefijo?: string;
   permitirMayor?: boolean;
@@ -15,6 +17,7 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
   isOpen,
   onClose,
   onSelectCuenta,
+  empresaId,
   initialQuery = '',
   filtroPrefijo = '',
   permitirMayor = false,
@@ -22,8 +25,39 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
   const [searchTerm, setSearchTerm] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
+  const [cuentasDb, setCuentasDb] = useState<CuentaPCGE[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && empresaId) {
+      pcgeApi.obtenerPlanCuentas(empresaId)
+        .then((res) => {
+          if (res?.cuentas && Array.isArray(res.cuentas) && res.cuentas.length > 0) {
+            const adaptadas: CuentaPCGE[] = res.cuentas.map((c) => ({
+              codigo: c.codigo,
+              denominacion: c.nombre,
+              nombre: c.nombre,
+              elemento: c.elemento,
+              nivel: c.nivel,
+              tipo: (c.tipoCuenta as any) || 'BALANCE',
+              tipoNormativo: (c.tipoCuenta as any) || 'ACTIVO',
+              monedaCuenta: 'MULTI',
+              naturaleza: c.naturalezaSaldo === 'ACREEDORA' ? 'ACREEDORA' : 'DEUDORA',
+              permiteMovimiento: c.permiteMovimiento,
+              requiereAnexo: ['12', '14', '16', '17', '41', '42', '43', '44', '45', '46', '47'].some(p => c.codigo.startsWith(p)),
+              requiereDocumento: ['12', '16', '42', '46', '40'].some(p => c.codigo.startsWith(p)),
+              requiereCentroCosto: ['62', '63', '64', '65', '67', '68', '91', '92', '94', '95'].some(p => c.codigo.startsWith(p)),
+              requiereVencimiento: ['12', '42'].some(p => c.codigo.startsWith(p)),
+            }));
+            setCuentasDb(adaptadas);
+          }
+        })
+        .catch(() => {
+          // Si falla o no hay conexión, conserva el catálogo PCGE base
+        });
+    }
+  }, [isOpen, empresaId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,7 +68,9 @@ export const CatalogoCuentasDialog: React.FC<CatalogoCuentasDialogProps> = ({
     }
   }, [isOpen, initialQuery]);
 
-  const cuentasFiltradas = PLAN_CONTABLE_PCGE.filter((c) => {
+  const catalogoActivo = cuentasDb && cuentasDb.length > 0 ? cuentasDb : PLAN_CONTABLE_PCGE;
+
+  const cuentasFiltradas = catalogoActivo.filter((c) => {
     if (filtroPrefijo && !c.codigo.startsWith(filtroPrefijo) && !searchTerm.trim()) {
       return false;
     }

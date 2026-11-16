@@ -69,7 +69,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
   const [visorModalOpen, setVisorModalOpen] = useState(false);
 
   // Queries del backend
-  const { data: asientosResponse, refetch: refetchAsientos, isLoading: loadingAsientos } = useAsientosList(empresaId, {});
+  const { data: asientosResponse, refetch: refetchAsientos, isLoading: loadingAsientos } = useAsientosList(empresaId, { limit: 1000 });
   const anularMutation = useAnularAsiento(empresaId);
   const contabilizarMutation = useContabilizarAsiento(empresaId);
   const duplicarMutation = useDuplicarAsiento(empresaId);
@@ -122,7 +122,7 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
   const conteoPorSubdiario = useMemo(() => {
     const mapa: Record<string, number> = {};
     for (const a of todosAsientos) {
-      const cod = ((a as any).subdiario || a.subdiarioId || '').replace(/^sub-/, '').padStart(2, '0');
+      const cod = ((a as any).subdiarioCodigo || (a as any).subdiario || a.subdiarioId || '').replace(/^sub-/, '').padStart(2, '0');
       mapa[cod] = (mapa[cod] || 0) + 1;
     }
     return mapa;
@@ -195,8 +195,8 @@ export const SubdiariosView: React.FC<SubdiariosViewProps> = ({
     const cod = subdiarioActual.codigo;
 
     return todosAsientos.filter((a: any) => {
-      const aSub = (a.subdiario || a.subdiarioId || '').replace(/^sub-/, '').padStart(2, '0');
-      if (aSub !== cod) return false;
+      const aSub = ((a as any).subdiarioCodigo || (a as any).subdiario || a.subdiarioId || '').replace(/^sub-/, '').padStart(2, '0');
+      if (aSub !== cod && a.subdiarioId !== subdiarioActual.id) return false;
 
       // Filtro de estado
       if (filtroEstado !== 'TODOS' && a.estado !== filtroEstado) return false;

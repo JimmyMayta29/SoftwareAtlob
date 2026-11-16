@@ -397,8 +397,24 @@ export const asientoService = {
           resolvedCuentaId = ctaRow.id;
 
           let resolvedAnexoId = d.anexoId;
-          if (resolvedAnexoId && !UUID_REGEX.test(resolvedAnexoId)) {
-            resolvedAnexoId = null;
+          const numDocAnexo = (d.anexoNumero || d.anexoNumDoc || '').trim();
+          if (!resolvedAnexoId || !UUID_REGEX.test(resolvedAnexoId)) {
+            if (numDocAnexo) {
+              const anexoCheck = await client.query(
+                `SELECT id, tipo_documento, razon_social FROM anexos WHERE empresa_id = $1 AND numero_documento = $2 LIMIT 1`,
+                [empresaId, numDocAnexo]
+              );
+              if (anexoCheck.rows.length > 0) {
+                resolvedAnexoId = anexoCheck.rows[0].id;
+                if (!d.anexoNombre && anexoCheck.rows[0].razon_social) {
+                  d.anexoNombre = anexoCheck.rows[0].razon_social;
+                }
+              } else {
+                resolvedAnexoId = null;
+              }
+            } else {
+              resolvedAnexoId = null;
+            }
           }
           let resolvedCentroCostoId = d.centroCostoId;
           if (resolvedCentroCostoId && !UUID_REGEX.test(resolvedCentroCostoId)) {
@@ -438,11 +454,17 @@ export const asientoService = {
       return asiento;
     }
 
+    const subCodMem = (input.subdiarioId || '').replace(/^sub-/, '');
+    const perCodMem = (input.periodoId || '').replace(/^per-/, '');
     const nuevoAsiento = {
       id,
       empresaId,
       periodoId: input.periodoId,
+      periodoCodigo: perCodMem,
+      periodo: perCodMem,
       subdiarioId: input.subdiarioId,
+      subdiarioCodigo: subCodMem,
+      subdiario: subCodMem,
       numero: null,
       cuo: input.cuo || null,
       fecha: input.fecha,
@@ -608,17 +630,46 @@ export const asientoService = {
 
           resolvedCuentaId = ctaRow.id;
 
+          let resolvedAnexoId = d.anexoId;
+          const numDocAnexoAct = (d.anexoNumero || d.anexoNumDoc || '').trim();
+          if (!resolvedAnexoId || !UUID_REGEX.test(resolvedAnexoId)) {
+            if (numDocAnexoAct) {
+              const anexoCheck = await client.query(
+                `SELECT id, tipo_documento, razon_social FROM anexos WHERE empresa_id = $1 AND numero_documento = $2 LIMIT 1`,
+                [current.empresa_id, numDocAnexoAct]
+              );
+              if (anexoCheck.rows.length > 0) {
+                resolvedAnexoId = anexoCheck.rows[0].id;
+                if (!d.anexoNombre && anexoCheck.rows[0].razon_social) {
+                  d.anexoNombre = anexoCheck.rows[0].razon_social;
+                }
+              } else {
+                resolvedAnexoId = null;
+              }
+            } else {
+              resolvedAnexoId = null;
+            }
+          }
+          let resolvedCentroCostoId = d.centroCostoId;
+          if (resolvedCentroCostoId && !UUID_REGEX.test(resolvedCentroCostoId)) {
+            resolvedCentroCostoId = null;
+          }
+
           await client.query(`
             INSERT INTO asiento_detalle (
               asiento_id, empresa_id, linea, cuenta_id, anexo_id, debe, haber,
               debe_me, haber_me, centro_costo_id, doc_tipo, doc_serie, doc_numero,
-              fecha_vencimiento, glosa_linea
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+              fecha_vencimiento, glosa_linea, unidad_operacion, anexo_tipo_doc,
+              anexo_num_doc, anexo_nombre, fecha_emision, correlativo_ple
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
           `, [
-            asientoId, current.empresa_id, d.linea, resolvedCuentaId, d.anexoId || null,
-            d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, d.centroCostoId || null,
+            asientoId, current.empresa_id, d.linea, resolvedCuentaId, resolvedAnexoId,
+            d.debe, d.haber, d.debeMe || 0, d.haberMe || 0, resolvedCentroCostoId,
             d.docTipo || null, d.docSerie || null, d.docNumero || null,
-            d.fechaVencimiento || null, d.glosaLinea || null
+            d.fechaVencimiento || null, d.glosaLinea || null,
+            d.unidadOperacion || null, d.anexoTipoDoc || null,
+            d.anexoNumero || d.anexoNumDoc || null, d.anexoNombre || null,
+            d.fechaEmision || null, d.correlativoPle || null
           ]);
         }
 
@@ -1003,7 +1054,7 @@ export const asientoService = {
    */
   async listar(empresaId: string, filtros: AsientoFiltros = {}) {
     const page = Math.max(1, filtros.page || 1);
-    const limit = Math.min(100, filtros.limit || 25);
+    const limit = Math.min(1000, filtros.limit || 25);
     const offset = (page - 1) * limit;
 
     if (db.isPostgresConnected()) {
@@ -1046,7 +1097,9 @@ export const asientoService = {
         SELECT a.id, a.empresa_id as "empresaId", a.numero, a.fecha, a.glosa, a.moneda,
                a.tipo_cambio as "tipoCambio", a.estado, a.origen, a.asiento_extorno_id as "asientoExtornoId",
                a.version, a.created_at as "createdAt",
-               p.codigo_periodo as "periodoCodigo", s.codigo as "subdiarioCodigo", s.descripcion as "subdiarioNombre",
+               a.subdiario_id as "subdiarioId", a.periodo_id as "periodoId",
+               s.codigo as "subdiarioCodigo", s.codigo as "subdiario", s.descripcion as "subdiarioNombre",
+               p.codigo_periodo as "periodoCodigo", p.codigo_periodo as "periodo",
                COALESCE((SELECT SUM(debe) FROM asiento_detalle WHERE asiento_id = a.id), 0.00) as "totalDebe",
                COALESCE((SELECT SUM(haber) FROM asiento_detalle WHERE asiento_id = a.id), 0.00) as "totalHaber",
                COALESCE((SELECT COUNT(*) FROM asiento_detalle WHERE asiento_id = a.id), 0) as "lineasCount"
@@ -1074,12 +1127,23 @@ export const asientoService = {
       return true;
     });
 
+    const adaptados = filtrados.map(a => ({
+      ...a,
+      subdiarioCodigo: (a as any).subdiarioCodigo || (a.subdiarioId || '').replace(/^sub-/, ''),
+      subdiario: (a as any).subdiario || (a.subdiarioId || '').replace(/^sub-/, ''),
+      periodoCodigo: (a as any).periodoCodigo || (a.periodoId || '').replace(/^per-/, ''),
+      periodo: (a as any).periodo || (a.periodoId || '').replace(/^per-/, ''),
+      totalDebe: (a as any).totalDebe || 0,
+      totalHaber: (a as any).totalHaber || 0,
+      lineasCount: (a as any).detalles?.length || 0
+    }));
+
     return {
-      data: filtrados.slice(offset, offset + limit),
-      total: filtrados.length,
+      data: adaptados.slice(offset, offset + limit),
+      total: adaptados.length,
       page,
       limit,
-      totalPages: Math.ceil(filtrados.length / limit)
+      totalPages: Math.ceil(adaptados.length / limit)
     };
   },
 

@@ -9,10 +9,38 @@ import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { successResponse, errorResponse } from '../utils/response';
 
 // Esquemas de validación Zod
-export const detalleInputSchema = z.object({
-  linea: z.number().int().positive(),
-  cuentaId: z.string().min(1),
+export const detalleInputSchema = z.preprocess((val: any) => {
+  if (val && typeof val === 'object') {
+    const cuenta = val.cuentaId || val.cuentaCodigo;
+    const linea = val.linea !== undefined ? Number(val.linea) : undefined;
+    const debe = val.debe !== undefined ? Number(val.debe) : 0;
+    const haber = val.haber !== undefined ? Number(val.haber) : 0;
+    return {
+      ...val,
+      cuentaId: cuenta,
+      cuentaCodigo: val.cuentaCodigo || cuenta,
+      linea,
+      debe: isNaN(debe) ? 0 : debe,
+      haber: isNaN(haber) ? 0 : haber,
+      anexoNumero: val.anexoNumero || val.anexoNumDoc || val.numeroDocumento || null,
+      docNumero: val.docNumero || val.numeroComprobante || null,
+      docTipo: val.docTipo || val.tipoComprobante || null,
+      docSerie: val.docSerie || val.serieComprobante || null,
+      fechaEmision: val.fechaEmision || val.fechaEmisionDoc || null,
+      fechaVencimiento: val.fechaVencimiento || val.fechaVencimientoDoc || null,
+      glosaLinea: val.glosaLinea || val.glosa || null
+    };
+  }
+  return val;
+}, z.object({
+  linea: z.number().int().positive().optional(),
+  cuentaId: z.string().min(1, 'La cuenta contable es requerida'),
+  cuentaCodigo: z.string().optional(),
+  cuentaDenominacion: z.string().optional(),
   anexoId: z.string().nullable().optional(),
+  anexoNumero: z.string().nullable().optional(),
+  anexoTipoDoc: z.string().nullable().optional(),
+  anexoNombre: z.string().nullable().optional(),
   debe: z.number().min(0).default(0),
   haber: z.number().min(0).default(0),
   debeMe: z.number().min(0).optional().default(0),
@@ -21,25 +49,52 @@ export const detalleInputSchema = z.object({
   docTipo: z.string().nullable().optional(),
   docSerie: z.string().nullable().optional(),
   docNumero: z.string().nullable().optional(),
+  fechaEmision: z.string().nullable().optional(),
   fechaVencimiento: z.string().nullable().optional(),
   glosaLinea: z.string().nullable().optional()
-});
+}));
 
-export const asientoInputSchema = z.object({
+export const asientoInputSchema = z.preprocess((val: any) => {
+  if (val && typeof val === 'object') {
+    const subdiarioId = val.subdiarioId || val.subdiario;
+    const periodoId = val.periodoId || val.periodo;
+    const fecha = val.fecha || val.fechaContable;
+    const glosa = val.glosa || val.glosaGeneral;
+    let tipoCambio = Number(val.tipoCambio);
+    if (isNaN(tipoCambio) || tipoCambio <= 0) tipoCambio = 1.0;
+
+    let detalles = Array.isArray(val.detalles) ? val.detalles : [];
+    detalles = detalles.map((d: any, idx: number) => ({
+      ...d,
+      linea: d.linea || (idx + 1)
+    }));
+
+    return {
+      ...val,
+      subdiarioId,
+      periodoId,
+      fecha,
+      glosa,
+      tipoCambio,
+      detalles
+    };
+  }
+  return val;
+}, z.object({
   id: z.string().optional(),
   idempotencyKey: z.string().max(64).optional(),
-  periodoId: z.string().min(1),
-  subdiarioId: z.string().min(1),
+  periodoId: z.string().min(1, 'El período contable es obligatorio'),
+  subdiarioId: z.string().min(1, 'El subdiario contable es obligatorio'),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha YYYY-MM-DD requerido'),
-  glosa: z.string().min(3).max(255),
+  glosa: z.string().min(3, 'La glosa debe tener al menos 3 caracteres').max(255),
   moneda: z.enum(['PEN', 'USD']).default('PEN'),
   tipoCambio: z.number().positive().default(1.0),
   origen: z.string().optional().default('MANUAL'),
   origenId: z.string().nullable().optional(),
   version: z.number().int().optional(),
   contabilizarDirecto: z.boolean().optional(),
-  detalles: z.array(detalleInputSchema).min(2, 'El asiento debe tener al menos 2 líneas')
-});
+  detalles: z.array(detalleInputSchema).min(2, 'El asiento debe tener al menos 2 líneas para cumplir la partida doble')
+}));
 
 export const previsualizarSchema = z.object({
   tipoOperacion: z.enum([

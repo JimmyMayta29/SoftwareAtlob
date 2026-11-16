@@ -22,7 +22,8 @@ import {
   FileCheck,
   RotateCcw,
   SlidersHorizontal,
-  Wallet
+  Wallet,
+  Clock
 } from 'lucide-react';
 import { MovimientoCajaBanco } from '../../types';
 import { 
@@ -378,10 +379,14 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
     }
   };
 
-  // Documentos pendientes filtrados por anexo seleccionado
-  const docsDisponibles = formTipo === 'INGRESO'
-    ? cxcList.filter((d: any) => d.estado !== 'CANCELADO' && (!formAnexoId || d.clienteId === formAnexoId))
-    : cxpList.filter((d: any) => d.estado !== 'CANCELADO' && (!formAnexoId || d.proveedorId === formAnexoId));
+  // Documentos pendientes filtrados por anexo seleccionado y sentido de tesorería
+  const esModoIngreso = activeSubTab === 'digitacion'
+    ? (codigoSubdiarioActivo === '03' || formModo.startsWith('COBRO') || formModo.startsWith('COBRANZA') || formModo === 'AUTODETRACCION' || formModo === 'LIBERACION_DETRACCION')
+    : formTipo === 'INGRESO';
+
+  const docsDisponibles = esModoIngreso
+    ? cxcList.filter((d: any) => d.estado !== 'CANCELADO' && (!formAnexoId || d.clienteId === formAnexoId || d.anexoId === formAnexoId))
+    : cxpList.filter((d: any) => d.estado !== 'CANCELADO' && (!formAnexoId || d.proveedorId === formAnexoId || d.anexoId === formAnexoId));
 
   const itemsMovimientos = movsData?.items || [];
 
@@ -937,7 +942,12 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
               {/* Estado de Partida Doble */}
               <div className="flex items-center justify-between p-3 rounded-xl border bg-slate-50 border-slate-200">
                 <span className="text-xs font-bold text-slate-700">Partida Doble:</span>
-                {previsualizacion.cuadrado ? (
+                {formMonto <= 0 || previsualizacion.lineas.length === 0 ? (
+                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-400" />
+                    Pendiente de datos (ingrese importe y contrapartida)
+                  </span>
+                ) : previsualizacion.cuadrado ? (
                   <span className="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     CUADRADO (Dif: S/ 0.00)

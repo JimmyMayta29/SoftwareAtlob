@@ -51,7 +51,17 @@ apiClient.interceptors.response.use(
       }
       limpiarSesion();
     }
-    const errorMsg = error.response?.data?.error || error.message || 'Error de red o servidor';
+    const data = error.response?.data;
+    const details = data?.details;
+    let errorMsg = data?.error || error.message || 'Error de red o servidor';
+    if (details && typeof details === 'object') {
+      if (typeof details.message === 'string' && details.message.length > 0) {
+        errorMsg = details.message;
+      } else if (Array.isArray(details.issues) && details.issues.length > 0) {
+        const issuesStr = details.issues.map((i: any) => `${i.campo ? i.campo + ': ' : ''}${i.mensaje}`).join(', ');
+        errorMsg = `${errorMsg} (${issuesStr})`;
+      }
+    }
     error.message = typeof errorMsg === 'string' ? errorMsg : 'Error de red o servidor';
     return Promise.reject(error);
   }

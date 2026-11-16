@@ -15,7 +15,6 @@ import {
   Edit3
 } from 'lucide-react';
 import { EmpresaCliente, CodigoSubdiario } from '../../types';
-import { EMPRESAS_CLIENTES_DEMO } from '../../data/empresasClientes';
 import { 
   useAsientosList, 
   useCrearAsiento, 
@@ -39,6 +38,7 @@ import { CuentaPCGE, buscarCuentaPCGE } from '../../data/pcgeAccounts';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { ModalTipoCambioManual } from '../modals/ModalTipoCambioManual';
 import { tipoCambioApi, TipoCambioDTO } from '../../api/tipoCambioApi';
+import { operacionesApi } from '../../api/operacionesApi';
 import { construirDefinicionVoucherContableEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 
 interface VouchersViewProps {
@@ -64,13 +64,17 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   const { usuario, rolEnEmpresa } = useEmpresaPeriodo();
   const nombreOperador = usuarioNombre || usuario?.nombre || usuario?.email || 'Administrador';
   const rolOperador = usuarioRol || rolEnEmpresa || usuario?.rolGlobal || 'ADMINISTRADOR';
-  const empresaActual = empresa || EMPRESAS_CLIENTES_DEMO.find((e) => e.id === empresaId) || EMPRESAS_CLIENTES_DEMO[0];
+  const empresaActual = empresa || {
+    id: empresaId,
+    razonSocial: 'Empresa Principal',
+    ruc: '20000000001'
+  };
 
   // Modo de vista: 'CAPTURA' (ventana de escritorio de alta densidad) o 'HISTORIAL' (lista de asientos)
   const [vistaModo, setVistaModo] = useState<'CAPTURA' | 'HISTORIAL'>(subdiarioFijo ? 'CAPTURA' : 'HISTORIAL');
 
   // Queries del Backend
-  const { data: asientosResponse, isLoading: loadingAsientos, refetch } = useAsientosList(empresaId, {});
+  const { data: asientosResponse, isLoading: loadingAsientos, refetch } = useAsientosList(empresaId, { limit: 1000 });
   const crearMutation = useCrearAsiento(empresaId);
   const contabilizarMutation = useContabilizarAsiento(empresaId);
   const anularMutation = useAnularAsiento(empresaId);
@@ -242,8 +246,45 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
     setFilas((prev) => {
       const copy = [...prev];
       copy[rowIndex] = { ...copy[rowIndex], [campo]: valor };
+
+      // Si se ingresó RUC o DNI, inferir tipo de documento
+      if (campo === 'anexoNumDoc') {
+        const val = String(valor || '').trim();
+        if (val.length === 11) {
+          copy[rowIndex].anexoTipoDoc = '6';
+        } else if (val.length === 8) {
+          copy[rowIndex].anexoTipoDoc = '1';
+        }
+      }
+
       return copy;
     });
+
+    // Búsqueda inteligente de anexo en tiempo real contra PostgreSQL
+    if (campo === 'anexoNumDoc') {
+      const val = String(valor || '').trim();
+      if (val.length >= 8) {
+        operacionesApi.listarAnexos(empresaId, val)
+          .then((lista: any) => {
+            const anexos = Array.isArray(lista) ? lista : (lista?.data || []);
+            const match = anexos.find((a: any) => a.numeroDocumento === val);
+            if (match) {
+              setFilas((curr) => {
+                const next = [...curr];
+                if (next[rowIndex] && next[rowIndex].anexoNumDoc === val) {
+                  next[rowIndex] = {
+                    ...next[rowIndex],
+                    anexoNombre: match.razonSocial || match.nombre || next[rowIndex].anexoNombre,
+                    anexoTipoDoc: match.tipoDocumento || (val.length === 11 ? '6' : '1')
+                  };
+                }
+                return next;
+              });
+            }
+          })
+          .catch(() => {});
+      }
+    }
   };
 
   const handleAgregarFila = () => {
@@ -336,38 +377,75 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
   };
 
   const handleGuardarBorrador = async () => {
+    if (filas.length < 2) {
+      warning('Se requieren al menos 2 líneas para registrar el asiento contable (partida doble).');
+      return;
+    }
+    if (!glosaGeneral || glosaGeneral.trim().length < 3) {
+      warning('Ingrese una glosa descriptiva para el voucher (mínimo 3 caracteres).');
+      return;
+    }
+    for (let i = 0; i < filas.length; i++) {
+      const f = filas[i];
+      if (!f.codigoCuenta || !f.codigoCuenta.trim()) {
+        warning(`La línea ${i + 1} no tiene una cuenta contable asignada.`);
+        return;
+      }
+      if (Number(f.debe || 0) <= 0 && Number(f.haber || 0) <= 0) {
+        warning(`La línea ${i + 1} (${f.codigoCuenta}) debe tener un importe mayor a cero en Debe o Haber.`);
+        return;
+      }
+    }
+
     try {
+      const tc = tipoCambioVenta > 0 ? tipoCambioVenta : 1.0;
       const payload = {
+        subdiarioId: subdiario,
         subdiario,
+        periodoId: periodo,
         periodo,
         origen: 'VOUCHER_LIBRE',
         validarSubdiarioManual: true,
+        fecha: fechaContable,
         fechaContable,
         fechaDocumento: fechaEmisionDocRef,
         moneda,
-        tipoCambio: tipoCambioVenta,
-        glosaGeneral,
-        detalles: filas.map((f) => ({
+        tipoCambio: tc,
+        glosa: glosaGeneral.trim(),
+        glosaGeneral: glosaGeneral.trim(),
+        detalles: filas.map((f, idx) => ({
+          linea: idx + 1,
+          cuentaId: f.codigoCuenta,
           cuentaCodigo: f.codigoCuenta,
           cuentaDenominacion: f.denominacion,
-          centroCosto: f.centroCosto || undefined,
-          anexoTipoDoc: f.anexoTipoDoc || undefined,
+          centroCostoId: f.centroCosto || undefined,
+          anexoTipoDoc: f.anexoTipoDoc || (f.anexoNumDoc?.length === 11 ? '6' : (f.anexoNumDoc?.length === 8 ? '1' : undefined)),
+          anexoNumero: f.anexoNumDoc || undefined,
           anexoNumDoc: f.anexoNumDoc || undefined,
           anexoNombre: f.anexoNombre || undefined,
+          docTipo: f.tipoComprobante || undefined,
           tipoComprobante: f.tipoComprobante || undefined,
+          docSerie: f.serieComprobante || undefined,
           serieComprobante: f.serieComprobante || undefined,
+          docNumero: f.numeroComprobante || undefined,
           numeroComprobante: f.numeroComprobante || undefined,
-          fechaEmisionDoc: f.fechaEmisionDoc || undefined,
+          fechaEmision: f.fechaEmisionDoc || fechaContable,
+          fechaEmisionDoc: f.fechaEmisionDoc || fechaContable,
+          fechaVencimiento: f.fechaVencimientoDoc || undefined,
           fechaVencimientoDoc: f.fechaVencimientoDoc || undefined,
           debe: Number(f.debe) || 0,
           haber: Number(f.haber) || 0,
-          glosaLinea: f.glosaLinea,
+          glosaLinea: f.glosaLinea || glosaGeneral.trim(),
         })),
       };
 
-      await crearMutation.mutateAsync(payload);
+      const res = await crearMutation.mutateAsync(payload);
+      if (res && res.id) {
+        setAsientoId(res.id);
+        if (res.numero) setNumeroVoucher(res.numero);
+      }
       refetch();
-      success(`Borrador de voucher guardado en base de datos.`);
+      success(`Asiento borrador guardado exitosamente en base de datos.`);
     } catch (err: any) {
       error(`Error guardando borrador: ${err.message}`);
     }
@@ -375,38 +453,60 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
 
   const handleContabilizar = async () => {
     if (!puedeContabilizar) {
-      warning('El asiento debe cuadrar a cero y tener todas las cuentas imputables completas.');
+      warning('El asiento debe cuadrar a cero y tener todas las cuentas imputables completas para contabilizar.');
       return;
     }
+    if (filas.length < 2) {
+      warning('Se requieren al menos 2 líneas para registrar el asiento contable.');
+      return;
+    }
+    if (!glosaGeneral || glosaGeneral.trim().length < 3) {
+      warning('Ingrese una glosa descriptiva para el voucher (mínimo 3 caracteres).');
+      return;
+    }
+
     try {
       let idTarget = asientoId;
       if (!idTarget) {
+        const tc = tipoCambioVenta > 0 ? tipoCambioVenta : 1.0;
         const payload = {
+          subdiarioId: subdiario,
           subdiario,
+          periodoId: periodo,
           periodo,
           origen: 'VOUCHER_LIBRE',
           validarSubdiarioManual: true,
           contabilizarDirecto: true,
+          fecha: fechaContable,
           fechaContable,
           fechaDocumento: fechaEmisionDocRef,
           moneda,
-          tipoCambio: tipoCambioVenta,
-          glosaGeneral,
-          detalles: filas.map((f) => ({
+          tipoCambio: tc,
+          glosa: glosaGeneral.trim(),
+          glosaGeneral: glosaGeneral.trim(),
+          detalles: filas.map((f, idx) => ({
+            linea: idx + 1,
+            cuentaId: f.codigoCuenta,
             cuentaCodigo: f.codigoCuenta,
             cuentaDenominacion: f.denominacion,
-            centroCosto: f.centroCosto || undefined,
-            anexoTipoDoc: f.anexoTipoDoc || undefined,
+            centroCostoId: f.centroCosto || undefined,
+            anexoTipoDoc: f.anexoTipoDoc || (f.anexoNumDoc?.length === 11 ? '6' : (f.anexoNumDoc?.length === 8 ? '1' : undefined)),
+            anexoNumero: f.anexoNumDoc || undefined,
             anexoNumDoc: f.anexoNumDoc || undefined,
             anexoNombre: f.anexoNombre || undefined,
+            docTipo: f.tipoComprobante || undefined,
             tipoComprobante: f.tipoComprobante || undefined,
+            docSerie: f.serieComprobante || undefined,
             serieComprobante: f.serieComprobante || undefined,
+            docNumero: f.numeroComprobante || undefined,
             numeroComprobante: f.numeroComprobante || undefined,
-            fechaEmisionDoc: f.fechaEmisionDoc || undefined,
+            fechaEmision: f.fechaEmisionDoc || fechaContable,
+            fechaEmisionDoc: f.fechaEmisionDoc || fechaContable,
+            fechaVencimiento: f.fechaVencimientoDoc || undefined,
             fechaVencimientoDoc: f.fechaVencimientoDoc || undefined,
             debe: Number(f.debe) || 0,
             haber: Number(f.haber) || 0,
-            glosaLinea: f.glosaLinea,
+            glosaLinea: f.glosaLinea || glosaGeneral.trim(),
           })),
         };
         const res = await crearMutation.mutateAsync(payload);
@@ -473,7 +573,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
 
   // Asiento para el Visor de Reporte Estándar
   const definicionVoucherReporte = useMemo(() => {
-    return construirDefinicionVoucherContableEstandar(empresaActual, {
+    return construirDefinicionVoucherContableEstandar(empresaActual as any as EmpresaCliente, {
       numeroAsiento: numeroVoucher,
       subdiario,
       fechaContable,
@@ -882,6 +982,7 @@ export const VouchersView: React.FC<VouchersViewProps> = ({
         isOpen={isCatalogoOpen}
         onClose={() => setIsCatalogoOpen(false)}
         onSelectCuenta={handleSelectCuenta}
+        empresaId={empresaId}
       />
 
       {/* Modal de Impresión Oficial en Formato Estándar */}
