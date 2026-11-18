@@ -66,6 +66,11 @@ export const HELPERS_SIN_PERSISTENCIA: readonly HelperServicioCatalogado[] = [
     descripcion: 'Utilidad aritmética para redondeo y diferencia de cambio en USD.'
   },
   {
+    servicio: 'sireImportacionService.ts',
+    categoria: 'validacion',
+    descripcion: 'Analizador, validador de integridad y orquestador de importación asistida SIRE (RCE y RVIE).'
+  },
+  {
     servicio: 'sireLayoutService.ts',
     categoria: 'validacion',
     descripcion: 'Validador de layouts de reemplazo y ajustes TXT SIRE.'

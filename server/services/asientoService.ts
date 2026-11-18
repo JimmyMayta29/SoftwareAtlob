@@ -215,7 +215,7 @@ export const asientoService = {
     // Bloque A: Si el asiento es manual o voucher libre, validar que el subdiario admita asiento manual
     if (input.origen === 'VOUCHER_LIBRE' || (input as any).validarSubdiarioManual) {
       const sub = await subdiarioService.obtenerPorId(empresaId, input.subdiarioId) ||
-                  await subdiarioService.obtenerPorCodigo(empresaId, input.subdiarioId);
+        await subdiarioService.obtenerPorCodigo(empresaId, input.subdiarioId);
       if (sub && !sub.permiteAsientoManual) {
         throw new Error(`SUBDIARIO_NO_PERMITE_ASIENTO_MANUAL: El subdiario ${sub.codigo} - ${sub.nombre} no admite asientos manuales libres.`);
       }

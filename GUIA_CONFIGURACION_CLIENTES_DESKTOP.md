@@ -48,6 +48,7 @@ Al abrir **ATLOB ERP v2.0.0** por primera vez (o al pulsar **Cambiar servidor** 
 ### 3.1 En la pantalla de Inicio de Sesión (`LoginView`)
 
 Debajo del botón **Ingresar**, el cliente de escritorio muestra en todo momento:
+
 - Indicador verde `Servidor LAN: <host> · En línea` (o estado de error si el servidor no responde).
 - Botón **Verificar** para refrescar manualmente el estado TLS/API.
 - Botón **Cambiar servidor** para reabrir el asistente y apuntar a otra IP/certificado LAN.
@@ -56,6 +57,7 @@ Debajo del botón **Ingresar**, el cliente de escritorio muestra en todo momento
 ### 3.2 Con sesión iniciada
 
 En el pie de página de la aplicación autenticada:
+
 - Se muestra permanentemente el estado del servidor central conectado y el botón **Cambiar servidor**.
 - Al restablecerse la conexión tras una caída momentánea de red, la aplicación invalida automáticamente las consultas cacheadas (`queryClient.invalidateQueries()`) y recarga los datos desde PostgreSQL.
 
@@ -71,4 +73,3 @@ Si el servidor principal se apaga o la PC cliente pierde conectividad con `https
    - **Reintentar conexión**
    - **Configurar servidor**
 4. Una vez reiniciado el servidor central en la PC Principal, pulse **Reintentar conexión** y vuelva a autenticarse; los asientos, comprobantes y reportes previamente confirmados permanecerán íntegros en PostgreSQL.
-

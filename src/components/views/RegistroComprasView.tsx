@@ -49,6 +49,7 @@ import { CATALOGO_OFICIAL_DETRACCIONES_SUNAT, buscarDetraccionPorCodigo } from '
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
 import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
+import { ImportadorSireView } from '../sire/ImportadorSireView';
 
 interface RegistroComprasViewProps {
   compras: Comprobante[];
@@ -67,7 +68,7 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
   const { success, error } = useToast();
   const { reportStyle } = useReportStyle();
   const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'LIBRO' | 'DIGITACION'>('LIBRO');
+  const [activeTab, setActiveTab] = useState<'LIBRO' | 'DIGITACION' | 'IMPORTAR'>('LIBRO');
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
@@ -766,6 +767,15 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
               <Plus className="w-3.5 h-3.5" />
               Digitación Rápida
               <span className="text-[10px] opacity-75 font-mono">(Ctrl+N)</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('IMPORTAR')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'IMPORTAR' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Importar registros
             </button>
           </div>
 
@@ -2198,6 +2208,22 @@ export const RegistroComprasView: React.FC<RegistroComprasViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VISTA 3: IMPORTACIÓN ASISTIDA DE REGISTROS SIRE (RCE)                     */}
+      {/* ========================================================================= */}
+      {activeTab === 'IMPORTAR' && (
+        <ImportadorSireView
+          tipo="COMPRAS"
+          empresa={empresa}
+          periodo={periodo}
+          onFinalizado={() => {
+            refetchCompras();
+            refetchLibro();
+            setActiveTab('LIBRO');
+          }}
+        />
       )}
 
       {/* MODAL: ALTA RÁPIDA DE PROVEEDOR */}

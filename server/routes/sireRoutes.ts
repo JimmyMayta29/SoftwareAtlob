@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import { sireController } from '../controllers/sireController';
+import { sireImportacionController } from '../controllers/sireImportacionController';
 
 const router = Router();
 
 // Submódulo Independiente: SIRE (Sistema Integrado de Registros Electrónicos)
+
+// 0. Importación Asistida SIRE (Propuesta RCE Compras y RVIE Ventas desde ZIP)
+router.post('/empresas/:id/sire/importar/analizar', sireImportacionController.analizar);
+router.post('/empresas/:id/sire/importar/contabilizar', sireImportacionController.contabilizar);
+router.get('/empresas/:id/sire/reglas-mapeo', sireImportacionController.obtenerReglas);
+router.put('/empresas/:id/sire/reglas-mapeo', sireImportacionController.guardarReglas);
 
 // 1. Conexión y credenciales SUNAT cifradas
 router.put('/empresas/:id/sire/conexion', sireController.guardarConexion);

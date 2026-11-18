@@ -234,6 +234,33 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
     void window.atlobDesktop?.reconfigurarServidor();
   };
 
+  // Suscripción al estado de conexión del cliente de escritorio (HTTPS LAN / local)
+  useEffect(() => {
+    const bridge = window.atlobDesktop;
+    if (!bridge) return;
+    let activo = true;
+
+    const aplicarEstado = (nuevoEstado: EstadoConexionDesktop) => {
+      if (!activo || !nuevoEstado) return;
+      setEstadoConexionDesktop(nuevoEstado);
+      if (!nuevoEstado.online) {
+        estabaDesconectadoRef.current = true;
+      } else if (estabaDesconectadoRef.current) {
+        estabaDesconectadoRef.current = false;
+        success('Conexión restablecida con el servidor principal ATLOB ERP. Datos sincronizados.', 'Servidor en línea');
+        void queryClient.invalidateQueries();
+        if (cargarDatosRef.current) void cargarDatosRef.current();
+      }
+    };
+
+    void bridge.obtenerEstadoConexion().then(aplicarEstado).catch(() => { });
+    const desuscribir = bridge.suscribirEstadoConexion(aplicarEstado);
+    return () => {
+      activo = false;
+      desuscribir();
+    };
+  }, [queryClient, success]);
+
   // Sincronización automática de datos reales de PostgreSQL cuando está conectado (incluye actualización cada 4s para operación multiusuario)
   useEffect(() => {
     if (!conectado || !empresaActiva?.id) return;
@@ -519,6 +546,42 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
       <main className="flex-1 flex flex-col bg-[#F5F7FA] overflow-hidden relative">
+        {estadoConexionDesktop && !estadoConexionDesktop.online && (
+          <div
+            role="alert"
+            className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#FEF2F2] border-b border-[#FCA5A5] text-[12px] text-[#991B1B]"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <WifiOff className="w-4 h-4 shrink-0 text-[#DC2626]" />
+              <span className="truncate">
+                {estadoConexionDesktop.ultimoError === 'CERT_TLS_ERROR'
+                  ? 'Certificado HTTPS del servidor principal no validado. Operaciones bloqueadas hasta verificar el certificado CA.'
+                  : estadoConexionDesktop.ultimoError === 'BACKEND_POSTGRES_CAIDO'
+                    ? 'Servidor principal conectado, pero PostgreSQL central no responde. Operaciones de escritura suspendidas.'
+                    : `Sin conexión con el servidor principal (${estadoConexionDesktop.host || estadoConexionDesktop.servidorUrl}). Las operaciones de escritura están bloqueadas.`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={manejarReintentarConexionDesktop}
+                disabled={verificandoConexion}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-60 text-white font-semibold rounded text-[11px] cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${verificandoConexion ? 'animate-spin' : ''}`} />
+                <span>{verificandoConexion ? 'Verificando...' : 'Reintentar ahora'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={manejarReconfigurarServidorDesktop}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-white border border-[#FCA5A5] hover:bg-[#FEE2E2] text-[#991B1B] font-semibold rounded text-[11px] cursor-pointer"
+              >
+                <Server className="w-3 h-3" />
+                <span>Cambiar servidor</span>
+              </button>
+            </div>
+          </div>
+        )}
         {estadoConexionDesktop && !estadoConexionDesktop.online && (
           <div
             role="alert"

@@ -42,6 +42,7 @@ import { construirDefinicionRegistroVentasEstandar } from '../../services/report
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { useToast } from '../../context/ToastContext';
 import { EmptyStateInstructivo } from '../common/EmptyStateInstructivo';
+import { ImportadorSireView } from '../sire/ImportadorSireView';
 
 interface RegistroVentasViewProps {
   ventas: Comprobante[];
@@ -55,7 +56,7 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
   periodo
 }) => {
   const { success, error } = useToast();
-  const [activeTab, setActiveTab] = useState<'LIBRO' | 'DIGITACION'>('LIBRO');
+  const [activeTab, setActiveTab] = useState<'LIBRO' | 'DIGITACION' | 'IMPORTAR'>('LIBRO');
   const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('TODOS');
@@ -540,6 +541,15 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
               <Plus className="w-3.5 h-3.5" />
               Digitación Rápida
               <span className="text-[10px] opacity-75 font-mono">(Ctrl+N)</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('IMPORTAR')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'IMPORTAR' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Importar registros
             </button>
           </div>
 
@@ -1552,6 +1562,22 @@ export const RegistroVentasView: React.FC<RegistroVentasViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VISTA 3: IMPORTACIÓN ASISTIDA DE REGISTROS SIRE (RVIE)                    */}
+      {/* ========================================================================= */}
+      {activeTab === 'IMPORTAR' && (
+        <ImportadorSireView
+          tipo="VENTAS"
+          empresa={empresa}
+          periodo={periodo}
+          onFinalizado={() => {
+            refetchVentas();
+            refetchLibro();
+            setActiveTab('LIBRO');
+          }}
+        />
       )}
 
       {/* Modal Alta Rápida de Cliente */}
