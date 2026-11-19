@@ -11,12 +11,13 @@ files:
 asar: true
 asarUnpack:
   - desktop/generated/**
+  - desktop/build/**
 beforeBuild: desktop/after-pack.cjs
 afterPack: desktop/after-pack.cjs
 forceCodeSigning: false
 win:
   icon: desktop/build/icon.ico
-  signAndEditExecutable: false
+  signExecutable: false
   target:
     - target: nsis
       arch: [x64]

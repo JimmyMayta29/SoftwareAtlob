@@ -50,13 +50,13 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
     setDropdownExportarOpen(false);
   };
 
-  const handleDescargarHojaCalculo = () => {
+  const handleDescargarHojaCalculo = async () => {
     const defActualizada: EstandarReportDefinition = {
       ...definicion,
       mostrarFechaHoraImpresion
     };
-    exportarReporteEstandarHojaCalculo(defActualizada);
     setDropdownExportarOpen(false);
+    await exportarReporteEstandarHojaCalculo(defActualizada, reportStyle);
   };
 
   const handlePrint = () => {
@@ -65,17 +65,23 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
   };
 
   const tituloLimpio = definicion.titulo.replace(/\*/g, '').trim().toUpperCase();
+  const firstSumIdx = definicion.columnas.findIndex((c) => c.isNumeric && c.sumar);
+  const esPortrait = definicion.orientacion === 'portrait';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+      <style>{`@media print { @page { size: A4 ${definicion.orientacion}; margin: 6mm; } }`}</style>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[98vw] max-h-[96vh] flex flex-col border border-slate-300 overflow-hidden">
         {/* Barra Superior de Control (No imprimible) */}
         <div className="print:hidden flex flex-wrap items-center justify-between p-3.5 bg-slate-100 border-b border-slate-200 gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <span className={`font-mono text-xs font-bold px-2 py-0.5 rounded ${
               reportStyle === 'actual' ? 'bg-[#1E3A5F] text-white' : 'bg-black text-white'
             }`}>
               {reportStyle === 'actual' ? 'Formato actual' : 'Formato estándar'}
+            </span>
+            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-white border border-slate-300 text-slate-700">
+              {esPortrait ? 'A4 Vertical' : 'A4 Horizontal'}
             </span>
             <span className="text-xs font-bold text-slate-800 truncate max-w-md">
               {tituloLimpio} — {definicion.empresa.razonSocial}
@@ -166,7 +172,7 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                     className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 cursor-pointer font-medium text-slate-800 border-t border-slate-100"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                    <span>Hoja de cálculo (.xls)</span>
+                    <span>Excel (.xlsx)</span>
                   </button>
                 </div>
               )}
@@ -183,9 +189,9 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
           </div>
         </div>
 
-        {/* Hoja Imprimible (A4 Landscape / Estándar B/N o Actual Color) */}
+        {/* Hoja Imprimible (A4 Horizontal o Vertical Exacto) */}
         <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-200 print:bg-white print:p-0 print:m-0 flex justify-center">
-          <div className="bg-white text-black w-full shadow-lg print:shadow-none p-6 sm:p-8 border border-slate-300 print:border-none font-sans font-light text-[10px] leading-tight select-text">
+          <div className={`bg-white text-black w-full ${esPortrait ? 'max-w-[210mm]' : 'max-w-[297mm]'} shadow-lg print:shadow-none print:max-w-none p-5 sm:p-7 border border-slate-300 print:border-none font-sans font-light text-[10px] leading-tight select-text`}>
             
             {/* 1. Encabezado del reporte sin asteriscos */}
             <div className="flex justify-between items-start mb-3 pb-2 border-b border-black">
@@ -302,23 +308,24 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
 
                       {/* Fila TOTALES del grupo */}
                       <tr className="border-t border-b border-black font-bold">
-                        {definicion.columnas.map((col, cIdx) => {
-                          if (cIdx === 0) {
-                            return (
-                              <td key={col.id} className="px-1 py-1 text-left font-bold">
-                                TOTALES:
-                              </td>
-                            );
-                          }
-                          if (col.isNumeric && col.sumar) {
-                            return (
+                        {firstSumIdx > 0 ? (
+                          <>
+                            <td colSpan={firstSumIdx} className="px-1 py-1 text-right font-bold">
+                              TOTALES:
+                            </td>
+                            {definicion.columnas.slice(firstSumIdx).map((col) => (
                               <td key={col.id} className="px-1 py-1 text-right font-mono font-bold">
-                                {formatearImporteEstandar(grupo.totalesGrupo[col.id])}
+                                {col.isNumeric && col.sumar ? formatearImporteEstandar(grupo.totalesGrupo[col.id]) : ''}
                               </td>
-                            );
-                          }
-                          return <td key={col.id} className="px-1 py-1" />;
-                        })}
+                            ))}
+                          </>
+                        ) : (
+                          definicion.columnas.map((col, cIdx) => (
+                            <td key={col.id} className={`px-1 py-1 font-bold ${cIdx === 0 ? 'text-left' : 'text-right font-mono'}`}>
+                              {cIdx === 0 ? 'TOTALES:' : col.isNumeric && col.sumar ? formatearImporteEstandar(grupo.totalesGrupo[col.id]) : ''}
+                            </td>
+                          ))
+                        )}
                       </tr>
                     </React.Fragment>
                   ))}
@@ -327,23 +334,24 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
                   <tr className={`border-t border-black border-b-4 border-double border-black font-bold text-[9.5px] ${
                     reportStyle === 'actual' ? 'bg-slate-100' : ''
                   }`}>
-                    {definicion.columnas.map((col, cIdx) => {
-                      if (cIdx === 0) {
-                        return (
-                          <td key={col.id} className="px-1 py-1.5 text-left font-bold">
-                            TOTAL GENERAL:
-                          </td>
-                        );
-                      }
-                      if (col.isNumeric && col.sumar) {
-                        return (
+                    {firstSumIdx > 0 ? (
+                      <>
+                        <td colSpan={firstSumIdx} className="px-1 py-1.5 text-right font-bold">
+                          TOTAL GENERAL:
+                        </td>
+                        {definicion.columnas.slice(firstSumIdx).map((col) => (
                           <td key={col.id} className="px-1 py-1.5 text-right font-mono font-bold">
-                            {formatearImporteEstandar(definicion.totalesGenerales[col.id])}
+                            {col.isNumeric && col.sumar ? formatearImporteEstandar(definicion.totalesGenerales[col.id]) : ''}
                           </td>
-                        );
-                      }
-                      return <td key={col.id} className="px-1 py-1.5" />;
-                    })}
+                        ))}
+                      </>
+                    ) : (
+                      definicion.columnas.map((col, cIdx) => (
+                        <td key={col.id} className={`px-1 py-1.5 font-bold ${cIdx === 0 ? 'text-left' : 'text-right font-mono'}`}>
+                          {cIdx === 0 ? 'TOTAL GENERAL:' : col.isNumeric && col.sumar ? formatearImporteEstandar(definicion.totalesGenerales[col.id]) : ''}
+                        </td>
+                      ))
+                    )}
                   </tr>
                 </tbody>
               </table>

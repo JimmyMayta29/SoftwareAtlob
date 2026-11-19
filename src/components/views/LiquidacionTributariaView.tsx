@@ -15,7 +15,8 @@ import {
   Info,
   Building2,
   Receipt,
-  Coins
+  Coins,
+  FileSpreadsheet
 } from 'lucide-react';
 import Decimal from 'decimal.js';
 import { LiquidacionPDT621, EmpresaCliente, Comprobante } from '../../types';
@@ -24,6 +25,8 @@ import { VentanaModal } from '../ui/VentanaModal';
 import { useToast } from '../../context/ToastContext';
 import {
   exportarResumenPdt621EstandarPdf,
+  descargarPdt621Excel,
+  Pdt621ResumenPdfParams
 } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 
 interface LiquidacionTributariaViewProps {
@@ -444,28 +447,73 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
     info(`Iniciada Declaración Rectificatoria v${nuevaVer} en estado BORRADOR.`, 'Rectificatoria');
   };
 
+  const construirParamsPdt621 = (): Pdt621ResumenPdfParams => ({
+    empresa: {
+      razonSocial: empresa.razonSocial,
+      ruc: empresa.ruc,
+      direccion: empresa.direccionFiscal,
+      regimenTributario: regimenSeleccionado,
+    },
+    periodo,
+    version: versionActual,
+    esRectificatoria: tipoDeclaracion === 'RECTIFICATORIA',
+    estado: estadoDeclaracion,
+    numeroOrden: numeroOrdenPresentado || null,
+    fechaPresentacion: fechaPresentacionManual || null,
+    asientoNumero: asientoDeterminacion || null,
+    totalDeudaIgv: calculo.cas188.toNumber(),
+    nuevoSaldoFavorIgv: calculo.saldoFavorArrastrable.toNumber(),
+    pagoCuentaRenta: calculo.cas324.toNumber(),
+    totalPagarSunat: calculo.totalDeudaGeneral.toNumber(),
+    filasCasillas: calculo.listaPdf,
+    casillasOficiales: {
+      cas100: calculo.cas100.toNumber(), cas101: calculo.cas101.toNumber(),
+      cas154: calculo.cas154.toNumber(), cas155: calculo.cas155.toNumber(),
+      cas102: calculo.cas102.toNumber(), cas103: calculo.cas103.toNumber(),
+      cas160: calculo.cas160.toNumber(), cas161: calculo.cas161.toNumber(),
+      cas162: calculo.cas162.toNumber(), cas163: calculo.cas163.toNumber(),
+      cas106: calculo.cas106.toNumber(), cas127: calculo.cas127.toNumber(),
+      cas105: calculo.cas105.toNumber(), cas109: calculo.cas109.toNumber(), cas112: calculo.cas112.toNumber(),
+      cas131: calculo.cas131.toNumber(),
+      cas107: calculo.cas107.toNumber(), cas108: calculo.cas108.toNumber(),
+      cas156: calculo.cas156.toNumber(), cas157: calculo.cas157.toNumber(),
+      cas110: calculo.cas110.toNumber(), cas111: calculo.cas111.toNumber(), cas113: calculo.cas113.toNumber(),
+      cas114: calculo.cas114.toNumber(), cas115: calculo.cas115.toNumber(),
+      cas116: calculo.cas116.toNumber(), cas117: calculo.cas117.toNumber(), cas119: calculo.cas119.toNumber(),
+      cas120: calculo.cas120.toNumber(), cas122: calculo.cas122.toNumber(),
+      cas178: calculo.cas178.toNumber(), cas172: calculo.cas172.toNumber(), cas173: calculo.cas173.toNumber(),
+      cas340: calculo.cas340.toNumber(), cas341: calculo.cas341.toNumber(), cas182: calculo.cas182.toNumber(),
+      cas301: calculo.cas301.toNumber(), cas312: calculo.cas312.toNumber(),
+      cas380: calculo.cas380.toNumber(), cas315: calculo.cas315.toNumber(), cas894: calculo.cas894.toNumber(), cas336: calculo.cas336.toNumber(),
+      cas140: calculo.cas140.toNumber(), cas353: calculo.cas353.toNumber(), cas302: calculo.cas302.toNumber(),
+      cas145: calculo.cas145.toNumber(), cas351: calculo.cas351.toNumber(), cas303: calculo.cas303.toNumber(),
+      cas184: calculo.cas184.toNumber(), cas352: calculo.cas352.toNumber(), cas304: calculo.cas304.toNumber(),
+      cas171: calculo.cas171.toNumber(), cas168: calculo.cas168.toNumber(), cas164: calculo.cas164.toNumber(),
+      cas179: calculo.cas179.toNumber(), cas176: calculo.cas176.toNumber(), cas165: calculo.cas165.toNumber(),
+      cas326: calculo.cas326.toNumber(), cas327: calculo.cas327.toNumber(),
+      cas347: calculo.cas347.toNumber(), cas305: calculo.cas305.toNumber(),
+      cas328: calculo.cas328.toNumber(),
+      cas681: calculo.cas681.toNumber(), cas683: calculo.cas683.toNumber(), cas682: calculo.cas682.toNumber(),
+      cas185: calculo.cas185.toNumber(), cas342: calculo.cas342.toNumber(), cas317: calculo.cas317.toNumber(),
+      cas187: calculo.cas187.toNumber(), cas343: calculo.cas343.toNumber(), cas319: calculo.cas319.toNumber(),
+      cas188: calculo.cas188.toNumber(), cas344: calculo.cas344.toNumber(), cas324: calculo.cas324.toNumber(),
+      saldoFavorArrastrable: calculo.saldoFavorArrastrable.toNumber(),
+      totalDeudaGeneral: calculo.totalDeudaGeneral.toNumber(),
+    },
+  });
+
   const handleImprimirResumenPdf = () => {
-    exportarResumenPdt621EstandarPdf({
-      empresa: {
-        razonSocial: empresa.razonSocial,
-        ruc: empresa.ruc,
-        direccion: empresa.direccionFiscal,
-        regimenTributario: regimenSeleccionado,
-      },
-      periodo,
-      version: versionActual,
-      esRectificatoria: tipoDeclaracion === 'RECTIFICATORIA',
-      estado: estadoDeclaracion,
-      numeroOrden: numeroOrdenPresentado || null,
-      fechaPresentacion: fechaPresentacionManual || null,
-      asientoNumero: asientoDeterminacion || null,
-      totalDeudaIgv: calculo.cas188.toNumber(),
-      nuevoSaldoFavorIgv: calculo.saldoFavorArrastrable.toNumber(),
-      pagoCuentaRenta: calculo.cas324.toNumber(),
-      totalPagarSunat: calculo.totalDeudaGeneral.toNumber(),
-      filasCasillas: calculo.listaPdf,
-    });
-    success('Resumen imprimible PDT 621 exportado en PDF (Formato Oficial).', 'PDF Generado');
+    exportarResumenPdt621EstandarPdf(construirParamsPdt621());
+    success('Declaración PDT 621 exportada en PDF A4 Oficial (2 páginas idénticas al sistema).', 'PDF Generado');
+  };
+
+  const handleExportarExcelPdt621 = async () => {
+    try {
+      await descargarPdt621Excel(construirParamsPdt621());
+      success('Declaración PDT 621 exportada a Excel (.xlsx) con formato oficial de 2 páginas.', 'Excel Generado');
+    } catch (err: any) {
+      error(`No se pudo generar el archivo Excel: ${err?.message || 'error interno'}`, 'Error de Exportación');
+    }
   };
 
   // Componente de Casilla con Borde Fino
@@ -621,6 +669,12 @@ export const LiquidacionTributariaView: React.FC<LiquidacionTributariaViewProps>
             label: 'Imprimir PDF Oficial',
             icono: Printer,
             onClick: handleImprimirResumenPdf,
+          },
+          {
+            id: 'btn-exportar-excel',
+            label: 'Exportar Excel (.xlsx)',
+            icono: FileSpreadsheet,
+            onClick: handleExportarExcelPdt621,
           },
         ]}
         derecha={

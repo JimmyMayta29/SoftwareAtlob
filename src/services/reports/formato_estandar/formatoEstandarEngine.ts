@@ -1,6 +1,19 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { EmpresaCliente, Comprobante } from '../../../types';
+import {
+  descargarReporteEstandarExcel,
+  generarReporteEstandarExcelBuffer,
+  generarPdt621ExcelBuffer,
+  descargarPdt621Excel,
+  resolverCasillasOficialesPdt621
+} from './excelEstandarEngine';
+
+export {
+  generarReporteEstandarExcelBuffer,
+  generarPdt621ExcelBuffer,
+  descargarPdt621Excel
+};
 
 export interface ColumnaReporteEstandar {
   id: string;
@@ -127,42 +140,42 @@ export function construirDefinicionRegistroComprasEstandar(
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
-  // 22 columnas del reporte
+  // 29 columnas del reporte calibradas exactamente a A4 Horizontal (287 mm útiles, margen 5 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'orden', label: 'O', align: 'center', cellWidthPdf: 6 },
-    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 14 },
-    { id: 'fechaEmision', label: 'F. Emisión', align: 'center', cellWidthPdf: 14 },
-    { id: 'fechaVenc', label: 'F. Venc.', align: 'center', cellWidthPdf: 14 },
+    { id: 'orden', label: 'O', align: 'center', cellWidthPdf: 5 },
+    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 11 },
+    { id: 'fechaEmision', label: 'F. Emis.', align: 'center', cellWidthPdf: 11.5 },
+    { id: 'fechaVenc', label: 'F. Venc.', align: 'center', cellWidthPdf: 11.5 },
     // Documento
-    { id: 'docTipo', label: 'T/D', subLabel: 'Doc', align: 'center', cellWidthPdf: 7 },
-    { id: 'docSerie', label: 'Serie', subLabel: 'Doc', align: 'center', cellWidthPdf: 10 },
-    { id: 'docNumero', label: 'Número', subLabel: 'Doc', align: 'left', cellWidthPdf: 16 },
+    { id: 'docTipo', label: 'T/D', subLabel: 'Doc', align: 'center', cellWidthPdf: 4.5 },
+    { id: 'docSerie', label: 'Serie', subLabel: 'Doc', align: 'center', cellWidthPdf: 7.5 },
+    { id: 'docNumero', label: 'Número', subLabel: 'Doc', align: 'left', cellWidthPdf: 11 },
     // Referencia
-    { id: 'refFecha', label: 'Fecha', subLabel: 'Ref', align: 'center', cellWidthPdf: 12 },
-    { id: 'refTipo', label: 'T/D', subLabel: 'Ref', align: 'center', cellWidthPdf: 7 },
-    { id: 'refSerie', label: 'Serie', subLabel: 'Ref', align: 'center', cellWidthPdf: 9 },
-    { id: 'refNumero', label: 'Número', subLabel: 'Ref', align: 'left', cellWidthPdf: 14 },
+    { id: 'refFecha', label: 'Fecha', subLabel: 'Ref', align: 'center', cellWidthPdf: 10 },
+    { id: 'refTipo', label: 'T/D', subLabel: 'Ref', align: 'center', cellWidthPdf: 4.5 },
+    { id: 'refSerie', label: 'Serie', subLabel: 'Ref', align: 'center', cellWidthPdf: 6.5 },
+    { id: 'refNumero', label: 'Número', subLabel: 'Ref', align: 'left', cellWidthPdf: 9.5 },
     // Proveedor
-    { id: 'provTipoDoc', label: 'Doc', subLabel: 'Prov', align: 'center', cellWidthPdf: 6 },
-    { id: 'provNumero', label: 'Número', subLabel: 'Prov', align: 'left', cellWidthPdf: 19 },
-    { id: 'provRazon', label: 'Razón Social', subLabel: 'Prov', align: 'left', cellWidthPdf: 40 },
+    { id: 'provTipoDoc', label: 'Doc', subLabel: 'Prov', align: 'center', cellWidthPdf: 4.5 },
+    { id: 'provNumero', label: 'Número', subLabel: 'Prov', align: 'left', cellWidthPdf: 14 },
+    { id: 'provRazon', label: 'Razón Social', subLabel: 'Prov', align: 'left', cellWidthPdf: 29 },
     // Bases e Impuestos
-    { id: 'baseA', label: 'Base Imp. A (18%)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'baseB', label: 'Base B (Prorrata)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 15 },
-    { id: 'baseC', label: 'Base C (Sin Créd)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 15 },
-    { id: 'adqNoGrav', label: 'Adq. no Grav.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 15 },
-    { id: 'isc', label: 'I.S.C.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12 },
-    { id: 'igvA', label: 'I.G.V. A 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
-    { id: 'igv10', label: 'I.G.V. 10%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 14 },
-    { id: 'igvB', label: 'I.G.V. B', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 14 },
-    { id: 'igvC', label: 'I.G.V. C', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 14 },
-    { id: 'icbper', label: 'ICBPER', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11 },
-    { id: 'otrosTrib', label: 'Otros Trib.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12 },
-    { id: 'total', label: 'Total', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'tipoCambio', label: 'T/C', align: 'right', isNumeric: true, cellWidthPdf: 10 },
+    { id: 'baseA', label: 'Base A 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12.5 },
+    { id: 'baseB', label: 'Base B Pror.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 10.5 },
+    { id: 'baseC', label: 'Base C S/C', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 10.5 },
+    { id: 'adqNoGrav', label: 'Adq. No Gr.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 10.5 },
+    { id: 'isc', label: 'I.S.C.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 8.5 },
+    { id: 'igvA', label: 'IGV 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11.5 },
+    { id: 'igv10', label: 'IGV 10%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 9.5 },
+    { id: 'igvB', label: 'IGV B', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 9 },
+    { id: 'igvC', label: 'IGV C', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 9 },
+    { id: 'icbper', label: 'ICBPER', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 8.5 },
+    { id: 'otrosTrib', label: 'Otros Trib.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 9 },
+    { id: 'total', label: 'Total', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 13 },
+    { id: 'tipoCambio', label: 'T/C', align: 'right', isNumeric: true, cellWidthPdf: 7 },
     // Spot
-    { id: 'spotFecha', label: 'Fecha', subLabel: 'Spot', align: 'center', cellWidthPdf: 13 },
-    { id: 'spotNumero', label: 'Número', subLabel: 'Spot', align: 'left', cellWidthPdf: 14 }
+    { id: 'spotFecha', label: 'Fecha', subLabel: 'Spot', align: 'center', cellWidthPdf: 10 },
+    { id: 'spotNumero', label: 'Número', subLabel: 'Spot', align: 'left', cellWidthPdf: 8 }
   ];
 
   // Super-headers agrupados
@@ -357,32 +370,33 @@ export function construirDefinicionRegistroVentasEstandar(
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 25 columnas calibradas exactamente a A4 Horizontal (287 mm útiles, margen 5 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'orden', label: 'O', align: 'center', cellWidthPdf: 6 },
-    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 14 },
-    { id: 'fechaEmision', label: 'F. Emisión', align: 'center', cellWidthPdf: 14 },
-    { id: 'fechaVenc', label: 'F. Venc.', align: 'center', cellWidthPdf: 14 },
-    { id: 'docTipo', label: 'T/D', subLabel: 'Doc', align: 'center', cellWidthPdf: 7 },
-    { id: 'docSerie', label: 'Serie', subLabel: 'Doc', align: 'center', cellWidthPdf: 10 },
-    { id: 'docNumero', label: 'Número', subLabel: 'Doc', align: 'left', cellWidthPdf: 16 },
-    { id: 'refFecha', label: 'Fecha', subLabel: 'Ref', align: 'center', cellWidthPdf: 12 },
-    { id: 'refTipo', label: 'T/D', subLabel: 'Ref', align: 'center', cellWidthPdf: 7 },
-    { id: 'refSerie', label: 'Serie', subLabel: 'Ref', align: 'center', cellWidthPdf: 9 },
-    { id: 'refNumero', label: 'Número', subLabel: 'Ref', align: 'left', cellWidthPdf: 14 },
-    { id: 'cliTipoDoc', label: 'Doc', subLabel: 'Cli', align: 'center', cellWidthPdf: 6 },
-    { id: 'cliNumero', label: 'Número', subLabel: 'Cli', align: 'left', cellWidthPdf: 19 },
-    { id: 'cliRazon', label: 'Cliente / Razón Social', subLabel: 'Cli', align: 'left', cellWidthPdf: 38 },
-    { id: 'valExp', label: 'Exportación', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
-    { id: 'baseGrav', label: 'Base Imp. 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'exonerado', label: 'Exonerada', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 15 },
-    { id: 'inafecto', label: 'Inafecta', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 15 },
-    { id: 'isc', label: 'I.S.C.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12 },
-    { id: 'igv', label: 'I.G.V. 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
-    { id: 'igv10', label: 'I.G.V. 10%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 14 },
-    { id: 'icbper', label: 'ICBPER', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11 },
-    { id: 'otrosTrib', label: 'Otros Trib.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12 },
-    { id: 'total', label: 'Total', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'tipoCambio', label: 'T/C', align: 'right', isNumeric: true, cellWidthPdf: 10 }
+    { id: 'orden', label: 'O', align: 'center', cellWidthPdf: 5 },
+    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 11 },
+    { id: 'fechaEmision', label: 'F. Emis.', align: 'center', cellWidthPdf: 12 },
+    { id: 'fechaVenc', label: 'F. Venc.', align: 'center', cellWidthPdf: 12 },
+    { id: 'docTipo', label: 'T/D', subLabel: 'Doc', align: 'center', cellWidthPdf: 5 },
+    { id: 'docSerie', label: 'Serie', subLabel: 'Doc', align: 'center', cellWidthPdf: 8 },
+    { id: 'docNumero', label: 'Número', subLabel: 'Doc', align: 'left', cellWidthPdf: 12 },
+    { id: 'refFecha', label: 'Fecha', subLabel: 'Ref', align: 'center', cellWidthPdf: 11 },
+    { id: 'refTipo', label: 'T/D', subLabel: 'Ref', align: 'center', cellWidthPdf: 5 },
+    { id: 'refSerie', label: 'Serie', subLabel: 'Ref', align: 'center', cellWidthPdf: 7.5 },
+    { id: 'refNumero', label: 'Número', subLabel: 'Ref', align: 'left', cellWidthPdf: 10.5 },
+    { id: 'cliTipoDoc', label: 'Doc', subLabel: 'Cli', align: 'center', cellWidthPdf: 5 },
+    { id: 'cliNumero', label: 'Número', subLabel: 'Cli', align: 'left', cellWidthPdf: 15 },
+    { id: 'cliRazon', label: 'Cliente / Razón Social', subLabel: 'Cli', align: 'left', cellWidthPdf: 36 },
+    { id: 'valExp', label: 'Export.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 12.5 },
+    { id: 'baseGrav', label: 'Base 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 14 },
+    { id: 'exonerado', label: 'Exoner.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11.5 },
+    { id: 'inafecto', label: 'Inafecta', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11.5 },
+    { id: 'isc', label: 'I.S.C.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 10 },
+    { id: 'igv', label: 'IGV 18%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 13.5 },
+    { id: 'igv10', label: 'IGV 10%', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11 },
+    { id: 'icbper', label: 'ICBPER', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 10 },
+    { id: 'otrosTrib', label: 'Otros', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 11 },
+    { id: 'total', label: 'Total', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
+    { id: 'tipoCambio', label: 'T/C', align: 'right', isNumeric: true, cellWidthPdf: 11 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -540,17 +554,18 @@ export function construirDefinicionLibroDiarioEstandar(
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 10 columnas calibradas exactamente a A4 Vertical (198 mm útiles, margen 6 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'cuo', label: 'N° CORR / CUO', align: 'center', cellWidthPdf: 18 },
-    { id: 'fecha', label: 'Fecha Oper.', align: 'center', cellWidthPdf: 14 },
-    { id: 'glosa', label: 'Glosa / Descripción de la Operación', align: 'left', cellWidthPdf: 55 },
+    { id: 'cuo', label: 'CUO', align: 'center', cellWidthPdf: 15 },
+    { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 13.5 },
+    { id: 'glosa', label: 'Glosa / Descripción', align: 'left', cellWidthPdf: 37.5 },
     { id: 'codLibro', label: 'Libro', align: 'center', cellWidthPdf: 10 },
-    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 14 },
-    { id: 'docSustentatorio', label: 'Doc. Sustentatorio', align: 'left', cellWidthPdf: 22 },
-    { id: 'cuentaCodigo', label: 'Cuenta PCGE', align: 'center', cellWidthPdf: 16 },
-    { id: 'cuentaDenominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 60 },
-    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 }
+    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 13.5 },
+    { id: 'docSustentatorio', label: 'Doc. Sust.', align: 'left', cellWidthPdf: 18 },
+    { id: 'cuentaCodigo', label: 'Cuenta', align: 'center', cellWidthPdf: 12.5 },
+    { id: 'cuentaDenominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 40 },
+    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 19 },
+    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 19 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -636,7 +651,7 @@ export function construirDefinicionLibroDiarioEstandar(
 
   return {
     titulo: `LIBRO DIARIO DEL MES DE ${mesNombre}`,
-    orientacion: 'landscape',
+    orientacion: 'portrait',
     empresa: {
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
       ruc: empresa.ruc || '20000000001',
@@ -664,15 +679,16 @@ export function construirDefinicionLibroMayorEstandar(
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 8 columnas calibradas exactamente a A4 Vertical (198 mm útiles, margen 6 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'fecha', label: 'Fecha Oper.', align: 'center', cellWidthPdf: 14 },
+    { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 14.5 },
     { id: 'cuo', label: 'CUO / Asiento', align: 'center', cellWidthPdf: 18 },
-    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 14 },
-    { id: 'glosa', label: 'Glosa de la Operación', align: 'left', cellWidthPdf: 75 },
-    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'saldoDeudor', label: 'Saldo Deudor', align: 'right', isNumeric: true, cellWidthPdf: 22 },
-    { id: 'saldoAcreedor', label: 'Saldo Acreedor', align: 'right', isNumeric: true, cellWidthPdf: 22 }
+    { id: 'voucher', label: 'N° VOU', align: 'center', cellWidthPdf: 15.5 },
+    { id: 'glosa', label: 'Glosa de la Operación', align: 'left', cellWidthPdf: 66 },
+    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'saldoDeudor', label: 'Saldo Deudor', align: 'right', isNumeric: true, cellWidthPdf: 21 },
+    { id: 'saldoAcreedor', label: 'Saldo Acreedor', align: 'right', isNumeric: true, cellWidthPdf: 21 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -748,7 +764,7 @@ export function construirDefinicionLibroMayorEstandar(
 
   return {
     titulo: `LIBRO MAYOR DEL MES DE ${mesNombre}`,
-    orientacion: 'landscape',
+    orientacion: 'portrait',
     empresa: {
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
       ruc: empresa.ruc || '20000000001',
@@ -776,19 +792,20 @@ export function construirDefinicionHojaTrabajo10ColEstandar(
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 12 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'codigo', label: 'Cuenta', align: 'center', cellWidthPdf: 14 },
-    { id: 'denominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 55 },
-    { id: 'debeMayor', label: 'Debe', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'haberMayor', label: 'Haber', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'saldoDeudor', label: 'Deudor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'saldoAcreedor', label: 'Acreedor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'ajusteDebe', label: 'Debe', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
-    { id: 'ajusteHaber', label: 'Haber', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 16 },
-    { id: 'balanceActivo', label: 'Activo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'balancePasivo', label: 'Pasivo/Pat.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'resultadoPerdida', label: 'Pérdidas', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 },
-    { id: 'resultadoGanancia', label: 'Ganancias', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 18 }
+    { id: 'codigo', label: 'Cuenta', align: 'center', cellWidthPdf: 15 },
+    { id: 'denominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 58 },
+    { id: 'debeMayor', label: 'Debe', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'haberMayor', label: 'Haber', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'saldoDeudor', label: 'Deudor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'saldoAcreedor', label: 'Acreedor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'ajusteDebe', label: 'Debe', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'ajusteHaber', label: 'Haber', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'balanceActivo', label: 'Activo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'balancePasivo', label: 'Pasivo/Pat.', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'resultadoPerdida', label: 'Pérdidas', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+    { id: 'resultadoGanancia', label: 'Ganancias', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -960,12 +977,13 @@ export function construirDefinicionEstadoSituacionFinancieraEstandar(
 ): EstandarReportDefinition {
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 5 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'codigo', label: 'Código', align: 'center', cellWidthPdf: 18 },
-    { id: 'rubro', label: 'Rubro / Concepto Financiero', align: 'left', cellWidthPdf: 95 },
+    { id: 'codigo', label: 'Código', align: 'center', cellWidthPdf: 16 },
+    { id: 'rubro', label: 'Rubro / Concepto Financiero', align: 'left', cellWidthPdf: 94 },
     { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 14 },
-    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 32 },
-    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 32 }
+    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 33 },
+    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 33 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -1059,11 +1077,12 @@ export function construirDefinicionEstadoResultadosEstandar(
 ): EstandarReportDefinition {
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 4 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'rubro', label: 'Concepto / Rubro del Estado de Resultados', align: 'left', cellWidthPdf: 110 },
+    { id: 'rubro', label: 'Concepto / Rubro del Estado de Resultados', align: 'left', cellWidthPdf: 108 },
     { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 14 },
-    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 35 },
-    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 35 }
+    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
+    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -1153,10 +1172,11 @@ export function construirDefinicionFlujoEfectivoEstandar(
 ): EstandarReportDefinition {
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
+  // 3 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'rubro', label: 'Concepto del Flujo de Efectivo', align: 'left', cellWidthPdf: 110 },
-    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 16 },
-    { id: 'importe', label: 'Flujo Neto (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 38 }
+    { id: 'rubro', label: 'Concepto del Flujo de Efectivo', align: 'left', cellWidthPdf: 132 },
+    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 18 },
+    { id: 'importe', label: 'Flujo Neto (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 40 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -1250,16 +1270,17 @@ export function construirDefinicionCajaBancosEstandar(
   const anio = periodo ? periodo.split('-')[0] : '2026';
   const esCtaCte = formato === '1.2';
 
+  // 9 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'correlativo', label: 'N° Corr', align: 'center', cellWidthPdf: 14 },
-    { id: 'fecha', label: 'Fecha Oper.', align: 'center', cellWidthPdf: 14 },
-    { id: 'medioPago', label: 'Medio Pago', align: 'center', cellWidthPdf: 14 },
-    { id: 'glosa', label: 'Descripción / Glosa de la Operación', align: 'left', cellWidthPdf: 70 },
+    { id: 'correlativo', label: 'N° Corr', align: 'center', cellWidthPdf: 15 },
+    { id: 'fecha', label: 'Fecha Oper.', align: 'center', cellWidthPdf: 16 },
+    { id: 'medioPago', label: 'Medio Pago', align: 'center', cellWidthPdf: 22 },
+    { id: 'glosa', label: 'Descripción / Glosa de la Operación', align: 'left', cellWidthPdf: 76 },
     { id: 'cuentaCodigo', label: 'Cta PCGE', align: 'center', cellWidthPdf: 16 },
-    { id: 'cuentaDenominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 50 },
-    { id: 'debe', label: esCtaCte ? 'Depósitos (Debe)' : 'Entradas (Debe)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'haber', label: esCtaCte ? 'Giros (Haber)' : 'Salidas (Haber)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'saldo', label: 'Saldo (S/)', align: 'right', isNumeric: true, cellWidthPdf: 22 }
+    { id: 'cuentaDenominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 60 },
+    { id: 'debe', label: esCtaCte ? 'Depósitos (Debe)' : 'Entradas (Debe)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 26 },
+    { id: 'haber', label: esCtaCte ? 'Giros (Haber)' : 'Salidas (Haber)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 26 },
+    { id: 'saldo', label: 'Saldo (S/)', align: 'right', isNumeric: true, cellWidthPdf: 26 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -1335,16 +1356,17 @@ export function construirDefinicionVoucherContableEstandar(
   const periodo = asiento.periodo || '2026-09';
   const glosa = asiento.glosa || asiento.glosaGeneral || 'Asiento contable de diario';
 
+  // 9 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'linea', label: 'Nº', align: 'center', cellWidthPdf: 8 },
+    { id: 'linea', label: 'Nº', align: 'center', cellWidthPdf: 9 },
     { id: 'codigoCuenta', label: 'Cuenta PCGE', align: 'center', cellWidthPdf: 18 },
-    { id: 'denominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 60 },
-    { id: 'centroCosto', label: 'C.Costo', align: 'center', cellWidthPdf: 14 },
-    { id: 'docRef', label: 'Doc. Referencia', align: 'center', cellWidthPdf: 24 },
-    { id: 'anexo', label: 'Anexo (RUC/DNI)', align: 'left', cellWidthPdf: 26 },
-    { id: 'glosaLinea', label: 'Glosa de la Línea', align: 'left', cellWidthPdf: 50 },
-    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
-    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 }
+    { id: 'denominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 68 },
+    { id: 'centroCosto', label: 'C.Costo', align: 'center', cellWidthPdf: 16 },
+    { id: 'docRef', label: 'Doc. Referencia', align: 'center', cellWidthPdf: 26 },
+    { id: 'anexo', label: 'Anexo (RUC/DNI)', align: 'left', cellWidthPdf: 28 },
+    { id: 'glosaLinea', label: 'Glosa de la Línea', align: 'left', cellWidthPdf: 66 },
+    { id: 'debe', label: 'Debe (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 26 },
+    { id: 'haber', label: 'Haber (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 26 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
@@ -1420,148 +1442,195 @@ export function generarReporteEstandarPdfDoc(
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const marginX = 8;
-  const marginTop = 30;
-  const marginBottom = 14;
+  const numCols = def.columnas.length;
+  const esDenso = def.orientacion === 'landscape' && numCols >= 20;
+  const esPortraitDenso = def.orientacion === 'portrait' && numCols >= 8;
+
+  // Márgenes calibrados estrictamente a A4 (297×210 landscape / 210×297 portrait)
+  const marginX = esDenso ? 5 : esPortraitDenso ? 6 : def.orientacion === 'portrait' ? 10 : 7;
+  const marginTop = def.orientacion === 'portrait' ? 32 : 28;
+  const marginBottom = 13;
+  const usableWidth = Number((pageWidth - marginX * 2).toFixed(2));
+
+  const bodyFontSize = esDenso ? 4.7 : esPortraitDenso ? 5.7 : def.orientacion === 'portrait' ? 7.4 : 6.1;
+  const headFontSize = esDenso ? 4.4 : esPortraitDenso ? 5.6 : def.orientacion === 'portrait' ? 7.3 : 6.0;
+  const cellPad = esDenso ? 0.45 : esPortraitDenso ? 0.65 : def.orientacion === 'portrait' ? 1.3 : 0.75;
+
+  // Normalización matemática exacta de anchos de columna al ancho útil A4 (0 mm de desborde)
+  const rawWidths = def.columnas.map((c) => (c.cellWidthPdf && c.cellWidthPdf > 0 ? c.cellWidthPdf : 15));
+  const rawSum = rawWidths.reduce((acc, w) => acc + w, 0) || usableWidth;
+  const scaleFactor = usableWidth / rawSum;
+  const scaledWidths = rawWidths.map((w) => Number((w * scaleFactor).toFixed(2)));
+  const residual = Number((usableWidth - scaledWidths.reduce((acc, w) => acc + w, 0)).toFixed(2));
+  let wideColIdx = 0;
+  for (let i = 1; i < scaledWidths.length; i++) {
+    if (scaledWidths[i] > scaledWidths[wideColIdx]) wideColIdx = i;
+  }
+  scaledWidths[wideColIdx] = Number((scaledWidths[wideColIdx] + residual).toFixed(2));
+
+  const footFillColor: [number, number, number] = estilo === 'actual' ? [241, 245, 249] : [255, 255, 255];
+  const footTextColor: [number, number, number] = estilo === 'actual' ? [17, 24, 39] : [0, 0, 0];
+  const headFillColor: [number, number, number] = estilo === 'actual' ? [30, 58, 95] : [248, 250, 252];
+  const headTextColor: [number, number, number] = estilo === 'actual' ? [255, 255, 255] : [0, 0, 0];
+  const headLineColor: [number, number, number] = estilo === 'actual' ? [45, 82, 128] : [0, 0, 0];
 
   // Encabezados para autoTable
   const headRows: any[] = [];
 
-  // Fila de Super-Headers si existe
   if (def.superHeaders && def.superHeaders.length > 0) {
     headRows.push(
       def.superHeaders.map((sh) => ({
         content: sh.label,
         colSpan: sh.colSpan,
         styles: {
-          halign: 'center',
-          fontStyle: 'normal',
-          fillColor: [255, 255, 255],
-          textColor: [0, 0, 0],
+          halign: 'center' as const,
+          valign: 'middle' as const,
+          fontStyle: 'bold' as const,
+          fillColor: headFillColor,
+          textColor: headTextColor,
           lineWidth: 0.15,
-          lineColor: [0, 0, 0]
+          lineColor: headLineColor,
+          overflow: 'linebreak' as const
         }
       }))
     );
   }
 
-  // Fila de Columnas Principales
   headRows.push(
     def.columnas.map((col) => ({
       content: col.label,
       styles: {
-        halign: col.align || 'left',
-        fontStyle: 'normal',
-        fillColor: [255, 255, 255],
-        textColor: [0, 0, 0],
+        halign: col.align || 'center',
+        valign: 'middle' as const,
+        fontStyle: 'bold' as const,
+        fillColor: headFillColor,
+        textColor: headTextColor,
         lineWidth: 0.15,
-        lineColor: [0, 0, 0]
+        lineColor: headLineColor,
+        overflow: 'linebreak' as const
       }
     }))
   );
 
-  // Construir filas del cuerpo agrupadas
+  // Construir filas del cuerpo agrupadas con colSpan limpio en filas de totales
+  const firstSumIdx = def.columnas.findIndex((c) => c.isNumeric && c.sumar);
   const bodyRows: any[] = [];
 
+  const construirFilaTotalesPdf = (
+    etiqueta: string,
+    totalesMap: Record<string, number>,
+    esGranTotal: boolean
+  ) => {
+    const lineWidthObj = esGranTotal
+      ? { top: 0.3, bottom: 0.6, left: 0, right: 0 }
+      : { top: 0.2, bottom: 0.2, left: 0, right: 0 };
+    const fill = esGranTotal ? footFillColor : ([255, 255, 255] as [number, number, number]);
+    const textCol = esGranTotal ? footTextColor : ([0, 0, 0] as [number, number, number]);
+    const pad = esGranTotal
+      ? { top: 1.6, bottom: 2.0, left: cellPad, right: cellPad }
+      : { top: 1.2, bottom: 1.4, left: cellPad, right: cellPad };
+
+    const row: any[] = [];
+    if (firstSumIdx > 0) {
+      row.push({
+        content: etiqueta,
+        colSpan: firstSumIdx,
+        styles: {
+          fontStyle: 'bold' as const,
+          textColor: textCol,
+          fillColor: fill,
+          halign: 'right' as const,
+          lineWidth: lineWidthObj,
+          lineColor: [0, 0, 0] as [number, number, number],
+          cellPadding: pad
+        }
+      });
+      for (let i = firstSumIdx; i < numCols; i++) {
+        const col = def.columnas[i];
+        row.push({
+          content: col.isNumeric && col.sumar ? formatearImporteEstandar(totalesMap[col.id]) : '',
+          styles: {
+            fontStyle: 'bold' as const,
+            textColor: textCol,
+            fillColor: fill,
+            halign: col.align || 'right',
+            lineWidth: lineWidthObj,
+            lineColor: [0, 0, 0] as [number, number, number],
+            cellPadding: pad
+          }
+        });
+      }
+    } else {
+      def.columnas.forEach((col, idx) => {
+        row.push({
+          content: idx === 0 ? etiqueta : col.isNumeric && col.sumar ? formatearImporteEstandar(totalesMap[col.id]) : '',
+          styles: {
+            fontStyle: 'bold' as const,
+            textColor: textCol,
+            fillColor: fill,
+            halign: idx === 0 ? 'left' : col.align || 'right',
+            lineWidth: lineWidthObj,
+            lineColor: [0, 0, 0] as [number, number, number],
+            cellPadding: pad
+          }
+        });
+      });
+    }
+    return row;
+  };
+
   def.grupos.forEach((grupo) => {
-    // 1. Fila de Subtítulo de Grupo (ej. "Tipo Doc.: 01  FACTURA")
     bodyRows.push([
       {
         content: grupo.tituloGrupo,
-        colSpan: def.columnas.length,
+        colSpan: numCols,
         styles: {
           fontStyle: 'bold',
           textColor: [0, 0, 0],
-          fillColor: [255, 255, 255],
+          fillColor: estilo === 'actual' ? [239, 246, 255] : [250, 250, 250],
           halign: 'left',
-          cellPadding: { top: 2, bottom: 1, left: 1, right: 1 }
+          cellPadding: { top: 1.6, bottom: 1.1, left: 1, right: 1 }
         }
       }
     ]);
 
-    // 2. Filas de datos del grupo (sin bordes intermedios)
     grupo.filas.forEach((fila) => {
       const rowData = def.columnas.map((col) => {
         const raw = fila[col.id];
         if (col.isNumeric) {
-          return formatearImporteEstandar(raw);
+          if ((raw === '' || raw === undefined || raw === null) && !col.sumar) return '';
+          if (col.id === 'tipoCambio') {
+            const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
+            return Number.isNaN(num) || num === 0 ? '' : num.toFixed(3);
+          }
+          return formatearImporteEstandar(typeof raw === 'number' ? raw : parseFloat(String(raw)) || 0);
         }
         return raw !== undefined && raw !== null ? String(raw) : '';
       });
       bodyRows.push(rowData);
     });
 
-    // 3. Fila de TOTALES del grupo
-    const totalRow = def.columnas.map((col, idx) => {
-      if (idx === 0) {
-        return 'TOTALES:';
-      }
-      if (col.isNumeric && col.sumar) {
-        return formatearImporteEstandar(grupo.totalesGrupo[col.id]);
-      }
-      return '';
-    });
-
-    bodyRows.push(
-      totalRow.map((cellText, idx) => ({
-        content: cellText,
-        styles: {
-          fontStyle: 'bold',
-          textColor: [0, 0, 0],
-          halign: def.columnas[idx].align || 'right',
-          lineWidth: { top: 0.2, bottom: 0.2, left: 0, right: 0 },
-          lineColor: [0, 0, 0],
-          cellPadding: { top: 1.5, bottom: 2, left: 1, right: 1 }
-        }
-      }))
-    );
+    bodyRows.push(construirFilaTotalesPdf('TOTALES:', grupo.totalesGrupo, false));
   });
 
-  // Fila TOTAL GENERAL final
-  const finalTotalRow = def.columnas.map((col, idx) => {
-    if (idx === 0) {
-      return 'TOTAL GENERAL:';
-    }
-    if (col.isNumeric && col.sumar) {
-      return formatearImporteEstandar(def.totalesGenerales[col.id]);
-    }
-    return '';
-  });
+  const footRows = [construirFilaTotalesPdf('TOTAL GENERAL:', def.totalesGenerales, true)];
 
-  // Configuración de anchos y alineación por columna
+  // Estilos por columna exactamente ajustados a usableWidth
   const columnStyles: Record<number, any> = {};
   def.columnas.forEach((col, idx) => {
+    const esDescriptiva = !col.isNumeric && /razon|glosa|denominacion|rubro|concepto/i.test(col.id);
     columnStyles[idx] = {
       halign: col.align || 'left',
-      cellWidth: col.cellWidthPdf || 'auto'
+      cellWidth: scaledWidths[idx],
+      overflow: esDescriptiva && !esDenso ? 'linebreak' : 'ellipsize'
     };
   });
-
-  const footFillColor: [number, number, number] = estilo === 'actual' ? [241, 245, 249] : [255, 255, 255];
-  const footTextColor: [number, number, number] = estilo === 'actual' ? [17, 24, 39] : [0, 0, 0];
-  const headFillColor: [number, number, number] = estilo === 'actual' ? [30, 58, 95] : [255, 255, 255];
-  const headTextColor: [number, number, number] = estilo === 'actual' ? [255, 255, 255] : [0, 0, 0];
-  const headLineColor: [number, number, number] = estilo === 'actual' ? [30, 58, 95] : [0, 0, 0];
-
-  const footRows = [
-    finalTotalRow.map((cellText, idx) => ({
-      content: cellText,
-      styles: {
-        fontStyle: 'bold' as const,
-        textColor: footTextColor,
-        halign: def.columnas[idx].align || 'right',
-        fillColor: footFillColor,
-        lineWidth: { top: 0.3, bottom: 0.6, left: 0, right: 0 },
-        lineColor: [0, 0, 0] as [number, number, number],
-        cellPadding: { top: 2, bottom: 2.5, left: 1, right: 1 }
-      }
-    }))
-  ];
 
   autoTable(doc, {
     head: headRows,
     body: bodyRows,
     foot: footRows,
+    tableWidth: usableWidth,
     showFoot: 'lastPage',
     showHead: 'everyPage',
     rowPageBreak: 'avoid',
@@ -1571,51 +1640,72 @@ export function generarReporteEstandarPdfDoc(
     styles: {
       font: 'helvetica',
       fontStyle: 'normal',
-      fontSize: 5.5,
-      cellPadding: 0.7,
+      fontSize: bodyFontSize,
+      cellPadding: cellPad,
       textColor: [0, 0, 0],
       overflow: 'ellipsize',
       valign: 'middle'
     },
     headStyles: {
       font: 'helvetica',
-      fontStyle: estilo === 'actual' ? 'bold' : 'normal',
-      fontSize: 5.5,
+      fontStyle: 'bold',
+      fontSize: headFontSize,
       textColor: headTextColor,
       fillColor: headFillColor,
       lineWidth: 0.15,
-      lineColor: headLineColor
+      lineColor: headLineColor,
+      overflow: 'linebreak'
     },
     alternateRowStyles: estilo === 'actual' ? {
       fillColor: [248, 250, 252] as [number, number, number]
     } : undefined,
     columnStyles,
     didDrawPage: () => {
-      // 1. Membrete Superior Izquierdo
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text(def.empresa.razonSocial.toUpperCase(), marginX, 8);
+      const esPortrait = def.orientacion === 'portrait';
 
-      doc.setFontSize(6.5);
-      doc.text(`PERIODO ${def.empresa.periodo}`, marginX, 12);
-      doc.text(def.empresa.direccion, marginX, 15.5);
-      doc.text(`R.U.C.: ${def.empresa.ruc}`, marginX, 19);
-
-      // 2. Título Central sin asteriscos, centrado en mayúsculas
+      // 1. Membrete Superior Izquierdo (acotado para no invadir fecha/título)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(tituloLimpio, pageWidth / 2, 12, { align: 'center' });
+      doc.setFontSize(esPortrait ? 8 : 8.5);
+      doc.setTextColor(0, 0, 0);
+      const maxIzqW = esPortrait ? usableWidth - 46 : usableWidth * 0.34;
+      doc.text(def.empresa.razonSocial.toUpperCase(), marginX, 7.5, { maxWidth: maxIzqW });
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.text(`(${def.moneda.toUpperCase()})`, pageWidth / 2, 16.5, { align: 'center' });
+      doc.setFontSize(6.5);
+      doc.text(`PERIODO ${def.empresa.periodo}`, marginX, 11.2);
+      doc.text(def.empresa.direccion || '', marginX, 14.5, { maxWidth: maxIzqW });
+      doc.text(`R.U.C.: ${def.empresa.ruc}`, marginX, 17.8);
 
-      // 3. Fecha y Hora de Impresión en 24h a la derecha (solo si está activada)
+      // 2. Fecha y Hora de Impresión en 24h a la derecha
       if (def.mostrarFechaHoraImpresion) {
         const fechaHora = `Emitido: ${formatearFechaHoraEmision24h()}`;
         doc.setFontSize(6);
-        doc.text(fechaHora, pageWidth - marginX, 8, { align: 'right' });
+        doc.setTextColor(60, 60, 60);
+        doc.text(fechaHora, pageWidth - marginX, 7.5, { align: 'right' });
+      }
+      doc.setFontSize(6);
+      doc.setTextColor(90, 90, 90);
+      doc.text(
+        esPortrait ? 'Formato A4 Vertical' : 'Formato A4 Horizontal',
+        pageWidth - marginX,
+        11,
+        { align: 'right' }
+      );
+
+      // 3. Título Central sin asteriscos ni solapamientos
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(esPortrait ? 8.8 : 9.2);
+      if (esPortrait) {
+        doc.text(tituloLimpio, pageWidth / 2, 23.2, { align: 'center', maxWidth: usableWidth });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.2);
+        doc.text(`(${def.moneda.toUpperCase()})`, pageWidth / 2, 27.3, { align: 'center' });
+      } else {
+        doc.text(tituloLimpio, pageWidth / 2, 11.5, { align: 'center', maxWidth: usableWidth * 0.52 });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text(`(${def.moneda.toUpperCase()})`, pageWidth / 2, 16, { align: 'center' });
       }
     }
   });
@@ -1650,91 +1740,52 @@ export function exportarReporteEstandarPdf(
 }
 
 /**
- * Exporta el reporte a hoja de cálculo en formato Tab-Separated Values (TSV / .xls) con UTF-8 BOM:
- * - Conserva exactamente las mismas columnas, agrupaciones y filas de totales
- * - Sin colores de fondo ni estilos invasivos
- * - Se abre en una hoja de cálculo con columnas y cifras numéricas intactas
+ * Exporta el reporte a Excel (.xlsx) real con exactamente la misma estructura,
+ * encabezados combinados, bordes finos, formatos numéricos y página A4 que el PDF.
  */
-export function exportarReporteEstandarHojaCalculo(def: EstandarReportDefinition): void {
-  const lineas: string[] = [];
-
-  // Encabezado Superior (sin asteriscos, centrado / limpio)
-  lineas.push(`${def.empresa.razonSocial.toUpperCase()}\t\t\t${def.titulo.replace(/\*/g, '').trim().toUpperCase()}`);
-  lineas.push(`PERIODO ${def.empresa.periodo}\t\t\t(${def.moneda.toUpperCase()})`);
-  lineas.push(`${def.empresa.direccion}`);
-  lineas.push(`R.U.C.: ${def.empresa.ruc}`);
-  if (def.mostrarFechaHoraImpresion) {
-    lineas.push(`FECHA EMISIÓN: ${formatearFechaHoraEmision24h()}`);
-  }
-  lineas.push(''); // Línea en blanco separadora
-
-  // Super-headers si existen
-  if (def.superHeaders && def.superHeaders.length > 0) {
-    const shRow: string[] = [];
-    def.superHeaders.forEach((sh) => {
-      shRow.push(sh.label);
-      for (let i = 1; i < sh.colSpan; i++) {
-        shRow.push('');
-      }
-    });
-    lineas.push(shRow.join('\t'));
-  }
-
-  // Fila de Columnas
-  lineas.push(def.columnas.map((c) => c.label).join('\t'));
-
-  // Grupos y Filas
-  def.grupos.forEach((grupo) => {
-    lineas.push(`>>> ${grupo.tituloGrupo}`);
-
-    grupo.filas.forEach((fila) => {
-      const row = def.columnas.map((col) => {
-        const val = fila[col.id];
-        if (col.isNumeric) {
-          const num = typeof val === 'number' ? val : parseFloat(val) || 0;
-          return num.toFixed(2);
-        }
-        return val !== undefined && val !== null ? String(val).replace(/\t/g, ' ') : '';
-      });
-      lineas.push(row.join('\t'));
-    });
-
-    // Fila TOTALES del grupo
-    const totalRow = def.columnas.map((col, idx) => {
-      if (idx === 0) return 'TOTALES:';
-      if (col.isNumeric && col.sumar) {
-        return (grupo.totalesGrupo[col.id] || 0).toFixed(2);
-      }
-      return '';
-    });
-    lineas.push(totalRow.join('\t'));
-    lineas.push(''); // Separador visual de grupo
-  });
-
-  // TOTAL GENERAL final
-  const finalRow = def.columnas.map((col, idx) => {
-    if (idx === 0) return 'TOTAL GENERAL:';
-    if (col.isNumeric && col.sumar) {
-      return (def.totalesGenerales[col.id] || 0).toFixed(2);
-    }
-    return '';
-  });
-  lineas.push(finalRow.join('\t'));
-
-  const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/tab-separated-values;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${def.titulo.replace(/\s+/g, '_')}_${def.empresa.ruc}_${def.empresa.periodo.replace(/[^0-9]/g, '')}.xls`;
-  a.click();
-  URL.revokeObjectURL(url);
+export async function exportarReporteEstandarHojaCalculo(
+  def: EstandarReportDefinition,
+  estilo: 'estandar' | 'actual' = 'estandar'
+): Promise<void> {
+  await descargarReporteEstandarExcel(def, estilo);
 }
 
-/**
- * Genera el Resumen Imprimible de la Declaración Mensual IGV-Renta (PDT 621)
- * en PDF Formato estándar Atlob (monocromo de alta densidad con casillas oficiales).
- */
-export function exportarResumenPdt621EstandarPdf(params: {
+export interface Pdt621CasillasOficiales {
+  cas100: number; cas101: number;
+  cas154: number; cas155: number;
+  cas102: number; cas103: number;
+  cas160: number; cas161: number;
+  cas162: number; cas163: number;
+  cas106: number; cas127: number;
+  cas105: number; cas109: number; cas112: number;
+  cas131: number;
+  cas107: number; cas108: number;
+  cas156: number; cas157: number;
+  cas110: number; cas111: number; cas113: number;
+  cas114: number; cas115: number;
+  cas116: number; cas117: number; cas119: number;
+  cas120: number; cas122: number;
+  cas178: number; cas172: number; cas173: number;
+  cas340: number; cas341: number; cas182: number;
+  cas301: number; cas312: number;
+  cas380: number; cas315: number; cas894: number; cas336: number;
+  cas140: number; cas353: number; cas302: number;
+  cas145: number; cas351: number; cas303: number;
+  cas184: number; cas352: number; cas304: number;
+  cas171: number; cas168: number; cas164: number;
+  cas179: number; cas176: number; cas165: number;
+  cas326: number; cas327: number;
+  cas347: number; cas305: number;
+  cas328: number;
+  cas681: number; cas683: number; cas682: number;
+  cas185: number; cas342: number; cas317: number;
+  cas187: number; cas343: number; cas319: number;
+  cas188: number; cas344: number; cas324: number;
+  saldoFavorArrastrable: number;
+  totalDeudaGeneral: number;
+}
+
+export interface Pdt621ResumenPdfParams {
   empresa: {
     razonSocial: string;
     ruc: string;
@@ -1761,113 +1812,628 @@ export function exportarResumenPdt621EstandarPdf(params: {
   nuevoSaldoFavorIgv: number;
   pagoCuentaRenta: number;
   totalPagarSunat: number;
-}): void {
+  casillasOficiales?: Pdt621CasillasOficiales;
+}
+
+/**
+ * Genera el documento jsPDF de la Declaración Mensual IGV-Renta (PDT 621)
+ * replicando 1:1 el diseño oficial SUNAT 0621 de 2 páginas A4 Verticales
+ * exactamente igual a la vista del sistema, con bordes finos y tarjeta ejecutiva Atlob Consultores.
+ */
+export function generarResumenPdt621OficialPdfDoc(params: Pdt621ResumenPdfParams): jsPDF {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 12;
+  const pageWidth = doc.internal.pageSize.getWidth(); // 210
+  const pageHeight = doc.internal.pageSize.getHeight(); // 297
+  const marginX = 10;
+  const usableW = pageWidth - marginX * 2; // 190 mm exactos
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text(params.empresa.razonSocial.toUpperCase(), marginX, 11);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text(`R.U.C.: ${params.empresa.ruc}`, marginX, 15);
-  doc.text(`RÉGIMEN: ${params.empresa.regimenTributario || 'MYPE_TRIBUTARIO'}`, marginX, 19);
+  const c = resolverCasillasOficialesPdt621(params);
+  const periodoCompacto = params.periodo.replace('-', '');
+  const tipoDecl = params.esRectificatoria ? 'Rectificatoria' : 'Original';
+  const nroOrden = params.numeroOrden || '1212488542';
+  const fechaPres = params.fechaPresentacion || '21/10/2026';
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text('HOJA DE TRABAJO — DECLARACIÓN MENSUAL IGV-RENTA (PDT 621)', pageWidth / 2, 12, { align: 'center' });
-  doc.setFontSize(8);
-  doc.text(
-    `PERÍODO TRIBUTARIO: ${params.periodo}   |   ESTADO: ${params.estado} (V.${params.version}${params.esRectificatoria ? ' - RECTIFICATORIA' : ''})`,
-    pageWidth / 2,
-    17,
-    { align: 'center' }
-  );
+  const fmtMonto = (val: number | undefined | null, mostrarCero = false): string => {
+    if (val === undefined || val === null || Number.isNaN(val)) return '';
+    if (val === 0 && !mostrarCero) return '';
+    return formatearImporteEstandar(val);
+  };
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.text('Formato estándar Atlob (SOLES)', pageWidth - marginX, 11, { align: 'right' });
-  if (params.numeroOrden) {
-    doc.text(`N° ORDEN: ${params.numeroOrden} (${params.fechaPresentacion || ''})`, pageWidth - marginX, 15, { align: 'right' });
-  }
-  if (params.asientoNumero) {
-    doc.text(`VOUCHER DETERMINACIÓN: ${params.asientoNumero}`, pageWidth - marginX, 19, { align: 'right' });
-  }
+  const fmtRatio = (val: number | undefined | null): string => {
+    if (val === undefined || val === null || Number.isNaN(val)) return '';
+    return Number(val).toFixed(4);
+  };
 
-  doc.setLineWidth(0.3);
-  doc.line(marginX, 22, pageWidth - marginX, 22);
+  // Helper: Encabezado Oficial SUNAT 0621 (idéntico al sistema)
+  const dibujarEncabezadoSunat = (paginaNum: number): number => {
+    const y0 = 8;
+    const hTotal = 25;
+    const wIzq = 44;
+    const wDer = 34;
+    const wCen = usableW - wIzq - wDer; // 112 mm
+    const xCen = marginX + wIzq;
+    const xDer = xCen + wCen;
 
-  const bodyRows = params.filasCasillas.map((f) => [
-    f.seccion,
-    f.concepto,
-    f.casillaBase || '—',
-    f.montoBase !== undefined && f.montoBase !== null ? formatearImporteEstandar(f.montoBase) : '—',
-    `Cas. ${f.casillaTributo}`,
-    formatearImporteEstandar(f.montoTributo),
-    String(Math.round(f.enteroSunat))
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(100, 116, 139); // slate-500 hairline
+    doc.setLineWidth(0.25);
+    doc.rect(marginX, y0, usableW, hTotal, 'FD');
+
+    // Divisores verticales
+    doc.line(xCen, y0, xCen, y0 + hTotal);
+    doc.line(xDer, y0, xDer, y0 + hTotal);
+
+    // Columna Izquierda: SUNAT / DECLARACIÓN PAGO / 0621
+    doc.setTextColor(15, 23, 42);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('SUNAT', marginX + wIzq / 2, y0 + 6, { align: 'center' });
+    doc.setFontSize(6.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text('DECLARACIÓN PAGO', marginX + wIzq / 2, y0 + 10, { align: 'center' });
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(17);
+    doc.setTextColor(15, 23, 42);
+    doc.text('0621', marginX + wIzq / 2, y0 + 21, { align: 'center' });
+
+    // Columna Centro: barra título + metadatos
+    doc.setFillColor(248, 250, 252);
+    doc.rect(xCen, y0, wCen, 5.5, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text('PDT IGV - RENTA MENSUAL', xCen + wCen / 2, y0 + 3.9, { align: 'center' });
+
+    const mx = xCen + 2.5;
+    const valX = xCen + 23;
+    const col2LblX = xCen + 62;
+    const col2ValX = xCen + 86;
+
+    doc.setFontSize(6.8);
+    const pintarMeta = (lbl: string, val: string, xL: number, xV: number, y: number, mono = false, maxW = 86) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(71, 85, 105);
+      doc.text(lbl, xL, y);
+      doc.setFont(mono ? 'courier' : 'helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(val, xV, y, { maxWidth: maxW });
+    };
+
+    pintarMeta('RUC', params.empresa.ruc, mx, valX, y0 + 9.2, true);
+    pintarMeta('Razón Social', params.empresa.razonSocial.toUpperCase().slice(0, 52), mx, valX, y0 + 12.8, false);
+    pintarMeta('N° de Orden', nroOrden, mx, valX, y0 + 16.4, true, 36);
+    pintarMeta('Período', periodoCompacto, col2LblX, col2ValX, y0 + 16.4, true, 24);
+    pintarMeta('Declaración', tipoDecl, mx, valX, y0 + 20.0, false, 36);
+    pintarMeta('F. Presentación', fechaPres, col2LblX, col2ValX, y0 + 20.0, true, 24);
+    pintarMeta('Moneda', 'Soles', mx, valX, y0 + 23.5, false, 36);
+    pintarMeta('Estado', `${params.estado} (v${params.version})`, col2LblX, col2ValX, y0 + 23.5, false, 24);
+
+    // Columna Derecha: Copia contribuyente / (Pag. N) / ATLOB ERP v2.0
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Copia para el', xDer + wDer / 2, y0 + 5.5, { align: 'center' });
+    doc.text('contribuyente', xDer + wDer / 2, y0 + 8.8, { align: 'center' });
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`(Pag. ${paginaNum})`, xDer + wDer / 2, y0 + 15.5, { align: 'center' });
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(148, 163, 184);
+    doc.text('ATLOB ERP v2.0', xDer + wDer / 2, y0 + 22.8, { align: 'center' });
+
+    return y0 + hTotal;
+  };
+
+  // Helper: Celda de Casilla SUNAT [100 | 110,021.16] con borde fino exacto
+  const dibujarCeldaCasilla = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    casilla?: string,
+    valorTexto?: string,
+    opts?: { negativo?: boolean; destacado?: boolean }
+  ) => {
+    const padX = 1.2;
+    const padY = 0.7;
+    const bx = x + padX;
+    const by = y + padY;
+    const bw = w - padX * 2;
+    const bh = h - padY * 2;
+    const wNum = 9.5;
+
+    if (!casilla) return;
+
+    // Caja blanca externa
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(186, 198, 212);
+    doc.setLineWidth(0.15);
+    doc.rect(bx, by, bw, bh, 'FD');
+
+    // Mini-caja de código de casilla en gris suave
+    doc.setFillColor(241, 245, 249);
+    doc.rect(bx, by, wNum, bh, 'FD');
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(6.3);
+    doc.setTextColor(51, 65, 85);
+    doc.text(casilla, bx + wNum / 2, by + bh / 2 + 1.1, { align: 'center' });
+
+    if (valorTexto) {
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(opts?.destacado ? 7.2 : 6.9);
+      if (opts?.negativo) {
+        doc.setTextColor(190, 18, 60);
+      } else {
+        doc.setTextColor(15, 23, 42);
+      }
+      doc.text(valorTexto, bx + bw - 1.4, by + bh / 2 + 1.1, { align: 'right' });
+    }
+  };
+
+  // Helper: Renderizar tabla de 3 columnas (Pág. 1: CONCEPTO | BASE | TRIBUTO)
+  const dibujarSeccionPag1 = (
+    yStart: number,
+    tituloIzq: string,
+    tituloDer: string,
+    filas: Array<{
+      concepto: string;
+      casBase?: string;
+      txtBase?: string;
+      negBase?: boolean;
+      casTrib?: string;
+      txtTrib?: string;
+      negTrib?: boolean;
+      destacado?: boolean;
+      sinBanda?: boolean;
+    }>,
+    bandas?: Array<{ label: string; startIdx: number; count: number }>
+  ): number => {
+    const hHeader = 5.0;
+    const hSub = 4.5;
+    const hRow = 5.45;
+    const wBanda = 5.5;
+    const wBase = 44;
+    const wTrib = 44;
+    const wConceptoTotal = usableW - wBase - wTrib; // 102 mm
+    const xBase = marginX + wConceptoTotal;
+    const xTrib = xBase + wBase;
+    const hTotal = hHeader + hSub + filas.length * hRow;
+
+    // 1. Barra de título de sección
+    doc.setFillColor(241, 245, 249);
+    doc.setDrawColor(100, 116, 139);
+    doc.setLineWidth(0.25);
+    doc.rect(marginX, yStart, usableW, hHeader, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.4);
+    doc.setTextColor(15, 23, 42);
+    doc.text(tituloIzq, marginX + 2, yStart + 3.5);
+    doc.setFontSize(6.8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(tituloDer, marginX + usableW - 2, yStart + 3.5, { align: 'right' });
+
+    // 2. Subcabecera CONCEPTO | BASE | TRIBUTO
+    const ySub = yStart + hHeader;
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX, ySub, usableW, hSub, 'FD');
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.18);
+    doc.line(xBase, ySub, xBase, ySub + hSub);
+    doc.line(xTrib, ySub, xTrib, ySub + hSub);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.6);
+    doc.setTextColor(30, 41, 59);
+    doc.text('CONCEPTO', marginX + 2, ySub + 3.2);
+    doc.text('BASE', xBase + wBase / 2, ySub + 3.2, { align: 'center' });
+    doc.text('TRIBUTO', xTrib + wTrib / 2, ySub + 3.2, { align: 'center' });
+
+    // 3. Filas
+    let y = ySub + hSub;
+    const yFilasStart = y;
+
+    filas.forEach((f) => {
+      if (f.destacado) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(marginX, y, usableW, hRow, 'F');
+      }
+
+      // Líneas divisorias finas de fila y columnas
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.15);
+      const xLineaIzq = !f.sinBanda && bandas ? marginX + wBanda : marginX;
+      doc.line(xLineaIzq, y + hRow, marginX + usableW, y + hRow);
+
+      doc.setDrawColor(186, 198, 212);
+      doc.line(xBase, y, xBase, y + hRow);
+      doc.line(xTrib, y, xTrib, y + hRow);
+
+      if (f.destacado) {
+        doc.setDrawColor(100, 116, 139);
+        doc.setLineWidth(0.22);
+        doc.line(marginX, y, marginX + usableW, y);
+      }
+
+      // Texto concepto
+      const xTxt = !f.sinBanda && bandas ? marginX + wBanda + 2 : marginX + 2;
+      doc.setFont('helvetica', f.destacado ? 'bold' : 'normal');
+      doc.setFontSize(6.6);
+      doc.setTextColor(15, 23, 42);
+      doc.text(f.concepto, xTxt, y + hRow / 2 + 1.1, { maxWidth: xBase - xTxt - 1.5 });
+
+      // Casillas Base y Tributo
+      dibujarCeldaCasilla(xBase, y, wBase, hRow, f.casBase, f.txtBase, {
+        negativo: f.negBase,
+        destacado: f.destacado
+      });
+      dibujarCeldaCasilla(xTrib, y, wTrib, hRow, f.casTrib, f.txtTrib, {
+        negativo: f.negTrib,
+        destacado: f.destacado
+      });
+
+      y += hRow;
+    });
+
+    // 4. Bandas laterales verticales (Gravadas, Exportación, Nacionales, Importadas)
+    if (bandas) {
+      for (const b of bandas) {
+        const by = yFilasStart + b.startIdx * hRow;
+        const bh = b.count * hRow;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(186, 198, 212);
+        doc.setLineWidth(0.18);
+        doc.rect(marginX, by, wBanda, bh, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.4);
+        doc.setTextColor(51, 65, 85);
+        const tw = doc.getTextWidth(b.label);
+        const txtX = marginX + wBanda / 2 + 0.9;
+        const txtY = by + (bh + tw) / 2;
+        doc.text(b.label, txtX, txtY, { angle: 90 });
+      }
+    }
+
+    // Marco exterior nítido
+    doc.setDrawColor(100, 116, 139);
+    doc.setLineWidth(0.25);
+    doc.rect(marginX, yStart, usableW, hTotal, 'S');
+
+    return yStart + hTotal;
+  };
+
+  // =========================================================================
+  // PÁGINA 1: BASES, DÉBITO, CRÉDITO, IVAP Y RENTA
+  // =========================================================================
+  let yCursor = dibujarEncabezadoSunat(1) + 2.8;
+
+  yCursor = dibujarSeccionPag1(
+    yCursor,
+    'IGV VENTAS',
+    'IGV CUENTA PROPIA',
+    [
+      { concepto: 'Ventas Netas', casBase: '100', txtBase: fmtMonto(c.cas100), casTrib: '101', txtTrib: fmtMonto(c.cas101) },
+      { concepto: 'Ventas Netas Gravadas Ley N° 31556 y modificatorias', casBase: '154', txtBase: fmtMonto(c.cas154), casTrib: '155', txtTrib: fmtMonto(c.cas155) },
+      { concepto: 'Descuentos Concedidos y/o devoluciones de Ventas', casBase: '102', txtBase: fmtMonto(c.cas102), negBase: c.cas102 > 0, casTrib: '103', txtTrib: fmtMonto(c.cas103), negTrib: c.cas103 > 0 },
+      { concepto: 'Ventas de bienes (ley 27037 inc. 11.1, 12.1, 12.3 y 12.4)', casBase: '160', txtBase: fmtMonto(c.cas160), casTrib: '161', txtTrib: fmtMonto(c.cas161) },
+      { concepto: 'Descuentos y devoluciones (ley 27037)', casBase: '162', txtBase: fmtMonto(c.cas162), casTrib: '163', txtTrib: fmtMonto(c.cas163) },
+      { concepto: 'Facturadas en el período', casBase: '106', txtBase: fmtMonto(c.cas106) },
+      { concepto: 'Embarcadas en el período', casBase: '127', txtBase: fmtMonto(c.cas127) },
+      { concepto: 'Ventas no Gravadas (Sin Considerar exportaciones)', casBase: '105', txtBase: fmtMonto(c.cas105), sinBanda: true },
+      { concepto: 'Ventas no Gravadas (Sin efecto en ratio)', casBase: '109', txtBase: fmtMonto(c.cas109), sinBanda: true },
+      { concepto: 'Otras ventas (inciso ii), numeral 6.2 - art. 6 del Reglamento', casBase: '112', txtBase: fmtMonto(c.cas112), sinBanda: true },
+      { concepto: 'TOTAL', casTrib: '131', txtTrib: fmtMonto(c.cas131, true), destacado: true, sinBanda: true }
+    ],
+    [
+      { label: 'Gravadas', startIdx: 0, count: 5 },
+      { label: 'Exportación', startIdx: 5, count: 2 }
+    ]
+  ) + 2.8;
+
+  yCursor = dibujarSeccionPag1(
+    yCursor,
+    'IGV COMPRAS',
+    'IGV CUENTA PROPIA',
+    [
+      { concepto: 'Compras netas destinada a ventas gravadas exclusivamente', casBase: '107', txtBase: fmtMonto(c.cas107), casTrib: '108', txtTrib: fmtMonto(c.cas108) },
+      { concepto: 'Compras Netas destinadas a Vtas Gravadas Ley N° 31556 y modificatorias', casBase: '156', txtBase: fmtMonto(c.cas156), casTrib: '157', txtTrib: fmtMonto(c.cas157) },
+      { concepto: 'Compras netas destinada a ventas gravadas y no gravadas', casBase: '110', txtBase: fmtMonto(c.cas110), casTrib: '111', txtTrib: fmtMonto(c.cas111) },
+      { concepto: 'Compras netas destinada a ventas no gravadas exclusivamente', casBase: '113', txtBase: fmtMonto(c.cas113) },
+      { concepto: 'Compras netas destinada a ventas gravadas exclusivamente', casBase: '114', txtBase: fmtMonto(c.cas114), casTrib: '115', txtTrib: fmtMonto(c.cas115) },
+      { concepto: 'Compras netas destinada a ventas gravadas y no gravadas', casBase: '116', txtBase: fmtMonto(c.cas116), casTrib: '117', txtTrib: fmtMonto(c.cas117) },
+      { concepto: 'Compras netas destinada a ventas no gravadas exclusivamente', casBase: '119', txtBase: fmtMonto(c.cas119) },
+      { concepto: 'Compras internas no gravadas', casBase: '120', txtBase: fmtMonto(c.cas120), sinBanda: true },
+      { concepto: 'Compras importadas no gravadas', casBase: '122', txtBase: fmtMonto(c.cas122), sinBanda: true },
+      { concepto: 'TOTAL', casTrib: '178', txtTrib: fmtMonto(c.cas178, true), destacado: true, sinBanda: true },
+      { concepto: 'CRÉDITO FISCAL ESPECIAL', casTrib: '172', txtTrib: fmtMonto(c.cas172), destacado: true, sinBanda: true },
+      { concepto: 'COEFICIENTE', casBase: '173', txtBase: fmtRatio(c.cas173), destacado: true, sinBanda: true }
+    ],
+    [
+      { label: 'Nacionales', startIdx: 0, count: 4 },
+      { label: 'Importadas', startIdx: 4, count: 3 }
+    ]
+  ) + 2.8;
+
+  yCursor = dibujarSeccionPag1(yCursor, 'IVAP', 'IVAP', [
+    { concepto: 'Ventas Gravadas', casBase: '340', txtBase: fmtMonto(c.cas340), casTrib: '341', txtTrib: fmtMonto(c.cas341), sinBanda: true },
+    { concepto: 'Otros Créditos IVAP', casTrib: '182', txtTrib: fmtMonto(c.cas182), sinBanda: true }
+  ]) + 2.8;
+
+  dibujarSeccionPag1(yCursor, 'RENTA', 'RENTA', [
+    { concepto: 'Ingresos Netos', casBase: '301', txtBase: fmtMonto(c.cas301), casTrib: '312', txtTrib: fmtMonto(c.cas312, true), destacado: true, sinBanda: true },
+    { concepto: 'Coeficiente', casBase: '380', txtBase: fmtRatio(c.cas380), sinBanda: true },
+    { concepto: 'Porcentaje', casBase: '315', txtBase: fmtMonto(c.cas315, true), sinBanda: true },
+    { concepto: 'Coeficiente Calculado (aplicado para el Cálculo de la Cas312)', casBase: '894', txtBase: fmtRatio(c.cas894), sinBanda: true },
+    { concepto: 'Pagos a Cuenta en Exceso del Presente Ejercicio', casTrib: '336', txtTrib: fmtMonto(c.cas336), sinBanda: true }
   ]);
 
-  autoTable(doc, {
-    startY: 25,
-    margin: { left: marginX, right: marginX },
-    head: [[
-      'SECCIÓN',
-      'CONCEPTO / DESCRIPCIÓN DE CASILLA',
-      'CAS. BASE',
-      'BASE IMPONIBLE (S/)',
-      'CAS. TRIB.',
-      'TRIBUTO CALC. (S/)',
-      'ENTERO PDT'
-    ]],
-    body: bodyRows,
-    theme: 'plain',
-    styles: {
-      font: 'helvetica',
-      fontSize: 7.5,
-      cellPadding: 1.5,
-      textColor: [0, 0, 0],
-      lineColor: [180, 180, 180],
-      lineWidth: 0.1
-    },
-    headStyles: {
-      fontStyle: 'bold',
-      fillColor: [235, 238, 242],
-      textColor: [0, 0, 0],
-      lineColor: [0, 0, 0],
-      lineWidth: 0.25
-    },
-    columnStyles: {
-      0: { cellWidth: 24, fontStyle: 'bold' },
-      1: { cellWidth: 64 },
-      2: { cellWidth: 16, halign: 'center' },
-      3: { cellWidth: 25, halign: 'right' },
-      4: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
-      5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
-      6: { cellWidth: 16, halign: 'right', fontStyle: 'bold' }
-    }
-  });
+  // Pie de página Pág. 1
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Atlob Consultores ERP · Declaración Mensual PDT 621 — Período ${params.periodo}`, marginX, pageHeight - 7);
+  doc.text('Pág. 1 de 2', pageWidth - marginX, pageHeight - 7, { align: 'right' });
 
-  const finalY = ((doc as any).lastAutoTable?.finalY || 140) + 6;
-  doc.setLineWidth(0.3);
-  doc.line(marginX, finalY, pageWidth - marginX, finalY);
+  // =========================================================================
+  // PÁGINA 2: DETERMINACIÓN DE LA DEUDA + RESUMEN EJECUTIVO ATLOB CONSULTORES
+  // =========================================================================
+  doc.addPage('a4', 'portrait');
+  let y2 = dibujarEncabezadoSunat(2) + 4;
+
+  const hBar2 = 5.6;
+  const hSub2 = 5.0;
+  const hRow2 = 6.4;
+  const wColTributo = 36;
+  const wColConcepto2 = usableW - wColTributo * 3; // 82 mm
+  const xIgv = marginX + wColConcepto2;
+  const xIvap = xIgv + wColTributo;
+  const xRenta = xIvap + wColTributo;
+
+  const filasDeuda: Array<{
+    concepto: string;
+    igv?: [string, number];
+    ivap?: [string, number];
+    renta?: [string, number];
+    destacado?: boolean;
+    totalFinal?: boolean;
+  }> = [
+    { concepto: 'Impuesto Resultante o Saldo a Favor', igv: ['140', c.cas140], ivap: ['353', c.cas353], renta: ['302', c.cas302] },
+    { concepto: 'Saldo a Favor del Período anterior', igv: ['145', c.cas145], ivap: ['351', c.cas351], renta: ['303', c.cas303] },
+    { concepto: 'Tributo a Pagar o Saldo a Favor', igv: ['184', c.cas184], ivap: ['352', c.cas352], renta: ['304', c.cas304], destacado: true },
+    { concepto: 'Percepciones declaradas en el período', igv: ['171', c.cas171] },
+    { concepto: 'Saldo de percepciones de períodos anteriores', igv: ['168', c.cas168] },
+    { concepto: 'Saldo de percepciones no aplicadas', igv: ['164', c.cas164] },
+    { concepto: 'Retenciones declaradas en el período', igv: ['179', c.cas179] },
+    { concepto: 'Saldo de retenciones de períodos anteriores', igv: ['176', c.cas176] },
+    { concepto: 'Saldo de Retenciones no aplicadas', igv: ['165', c.cas165] },
+    { concepto: 'Retenciones de tercera declaradas en período', renta: ['326', c.cas326] },
+    { concepto: 'Retenciones de tercera declaradas en periodos anteriores', renta: ['327', c.cas327] },
+    { concepto: 'Compensación Saldo a Favor del Exportador', ivap: ['347', c.cas347], renta: ['305', c.cas305] },
+    { concepto: 'Impuesto Temporal a los Activos Netos', renta: ['328', c.cas328] },
+    { concepto: 'Sub Total', igv: ['681', c.cas681], ivap: ['683', c.cas683], renta: ['682', c.cas682], destacado: true },
+    { concepto: 'Pagos previos', igv: ['185', c.cas185], ivap: ['342', c.cas342], renta: ['317', c.cas317] },
+    { concepto: 'Interés moratorio', igv: ['187', c.cas187], ivap: ['343', c.cas343], renta: ['319', c.cas319] },
+    { concepto: 'TOTAL DEUDA TRIBUTARIA', igv: ['188', c.cas188], ivap: ['344', c.cas344], renta: ['324', c.cas324], destacado: true, totalFinal: true }
+  ];
+
+  const hTabla2 = hBar2 + hSub2 + filasDeuda.length * hRow2;
+
+  // Barra Determinación
+  doc.setFillColor(241, 245, 249);
+  doc.setDrawColor(100, 116, 139);
+  doc.setLineWidth(0.25);
+  doc.rect(marginX, y2, usableW, hBar2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.6);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DETERMINACIÓN DE LA DEUDA', marginX + 2.5, y2 + 3.9);
+  doc.setFontSize(6.8);
+  doc.setTextColor(51, 65, 85);
+  doc.text('DETERMINACIÓN DE LA DEUDA', marginX + usableW - 2.5, y2 + 3.9, { align: 'right' });
+
+  // Subcabecera CONCEPTO | IGV | IVAP | RENTA
+  const ySub2 = y2 + hBar2;
+  doc.setFillColor(248, 250, 252);
+  doc.rect(marginX, ySub2, usableW, hSub2, 'FD');
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.18);
+  doc.line(xIgv, ySub2, xIgv, ySub2 + hSub2);
+  doc.line(xIvap, ySub2, xIvap, ySub2 + hSub2);
+  doc.line(xRenta, ySub2, xRenta, ySub2 + hSub2);
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text(`IGV A PAGAR (CASILLA 188): S/ ${formatearImporteEstandar(params.totalDeudaIgv)}`, marginX, finalY + 6);
-  doc.text(`SALDO A FAVOR PRÓXIMO MES: S/ ${formatearImporteEstandar(params.nuevoSaldoFavorIgv)}`, marginX, finalY + 11);
-  doc.text(`PAGO A CUENTA RENTA (CASILLA 304): S/ ${formatearImporteEstandar(params.pagoCuentaRenta)}`, pageWidth / 2, finalY + 6);
-  doc.text(`TOTAL TRIBUTOS POR PAGAR: S/ ${formatearImporteEstandar(params.totalPagarSunat)}`, pageWidth / 2, finalY + 11);
+  doc.setFontSize(6.8);
+  doc.setTextColor(30, 41, 59);
+  doc.text('CONCEPTO', marginX + 2.5, ySub2 + 3.5);
+  doc.text('IGV', xIgv + wColTributo / 2, ySub2 + 3.5, { align: 'center' });
+  doc.text('IVAP', xIvap + wColTributo / 2, ySub2 + 3.5, { align: 'center' });
+  doc.text('RENTA', xRenta + wColTributo / 2, ySub2 + 3.5, { align: 'center' });
+
+  let yFila2 = ySub2 + hSub2;
+  for (const fd of filasDeuda) {
+    if (fd.totalFinal) {
+      doc.setFillColor(241, 245, 249);
+      doc.rect(marginX, yFila2, usableW, hRow2, 'F');
+    } else if (fd.destacado) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(marginX, yFila2, usableW, hRow2, 'F');
+    }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.15);
+    doc.line(marginX, yFila2 + hRow2, marginX + usableW, yFila2 + hRow2);
+    doc.setDrawColor(186, 198, 212);
+    doc.line(xIgv, yFila2, xIgv, yFila2 + hRow2);
+    doc.line(xIvap, yFila2, xIvap, yFila2 + hRow2);
+    doc.line(xRenta, yFila2, xRenta, yFila2 + hRow2);
+
+    if (fd.totalFinal) {
+      doc.setDrawColor(71, 85, 105);
+      doc.setLineWidth(0.35);
+      doc.line(marginX, yFila2, marginX + usableW, yFila2);
+    } else if (fd.destacado) {
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.2);
+      doc.line(marginX, yFila2, marginX + usableW, yFila2);
+    }
+
+    doc.setFont('helvetica', fd.destacado || fd.totalFinal ? 'bold' : 'normal');
+    doc.setFontSize(fd.totalFinal ? 7.2 : 6.8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(fd.concepto, marginX + 2.5, yFila2 + hRow2 / 2 + 1.1, { maxWidth: wColConcepto2 - 4 });
+
+    if (fd.igv) {
+      dibujarCeldaCasilla(xIgv, yFila2, wColTributo, hRow2, fd.igv[0], fmtMonto(fd.igv[1], !!(fd.destacado || fd.totalFinal)), {
+        negativo: fd.igv[1] < 0,
+        destacado: fd.destacado || fd.totalFinal
+      });
+    }
+    if (fd.ivap) {
+      dibujarCeldaCasilla(xIvap, yFila2, wColTributo, hRow2, fd.ivap[0], fmtMonto(fd.ivap[1], false), {
+        negativo: fd.ivap[1] < 0,
+        destacado: fd.destacado || fd.totalFinal
+      });
+    }
+    if (fd.renta) {
+      dibujarCeldaCasilla(xRenta, yFila2, wColTributo, hRow2, fd.renta[0], fmtMonto(fd.renta[1], !!(fd.destacado || fd.totalFinal)), {
+        negativo: fd.renta[1] < 0,
+        destacado: fd.destacado || fd.totalFinal
+      });
+    }
+
+    yFila2 += hRow2;
+  }
+
+  doc.setDrawColor(100, 116, 139);
+  doc.setLineWidth(0.25);
+  doc.rect(marginX, y2, usableW, hTabla2, 'S');
+
+  // Tarjeta Resumen Ejecutivo — Atlob Consultores (idéntica al pie del sistema)
+  const yExec = y2 + hTabla2 + 6;
+  const hExec = 38;
+  doc.setFillColor(15, 23, 42); // Slate-900
+  doc.setDrawColor(71, 85, 105);
+  doc.setLineWidth(0.3);
+  doc.rect(marginX, yExec, usableW, hExec, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('ATLOB CONSULTORES · RESUMEN EJECUTIVO DE OBLIGACIÓN MENSUAL', marginX + 4, yExec + 6);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
+  doc.setFontSize(7.5);
+  doc.setTextColor(203, 213, 225);
+  doc.text(`IGV Propio (1011): `, marginX + 4, yExec + 12.5);
+  doc.setFont('courier', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text(`S/ ${formatearImporteEstandar(c.cas188)}`, marginX + 30, yExec + 12.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(203, 213, 225);
+  doc.text(`Renta 3ra Cat (3031): `, marginX + 64, yExec + 12.5);
+  doc.setFont('courier', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text(`S/ ${formatearImporteEstandar(c.cas324)}`, marginX + 94, yExec + 12.5);
+
+  if (c.cas344 > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(203, 213, 225);
+    doc.text(`IVAP (1021): `, marginX + 4, yExec + 17);
+    doc.setFont('courier', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(`S/ ${formatearImporteEstandar(c.cas344)}`, marginX + 24, yExec + 17);
+  }
+
+  // Total a Pagar SUNAT a la derecha
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.3);
+  doc.setTextColor(148, 163, 184);
+  doc.text('TOTAL A PAGAR SUNAT (GUÍA 1662 / NPS)', marginX + usableW - 4, yExec + 6, { align: 'right' });
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(52, 211, 153); // Emerald-400
+  doc.text(`S/ ${formatearImporteEstandar(c.totalDeudaGeneral)}`, marginX + usableW - 4, yExec + 14.5, { align: 'right' });
+
+  // Línea divisoria + 3 sub-tarjetas de créditos/saldos arrastrables
+  doc.setDrawColor(51, 65, 85);
+  doc.setLineWidth(0.2);
+  doc.line(marginX + 4, yExec + 20, marginX + usableW - 4, yExec + 20);
+
+  const subW = (usableW - 12) / 3;
+  const subY = yExec + 23;
+  const subH = 11.5;
+  const subTarjetas: Array<{ lbl: string; val: string; rgb: [number, number, number] }> = [
+    { lbl: 'Saldo a Favor IGV Próximo Mes:', val: `S/ ${formatearImporteEstandar(c.saldoFavorArrastrable)}`, rgb: [110, 231, 183] },
+    { lbl: 'Saldo Percepciones no aplicadas [164]:', val: `S/ ${formatearImporteEstandar(c.cas164)}`, rgb: [147, 197, 253] },
+    { lbl: 'Saldo Retenciones no aplicadas [165]:', val: `S/ ${formatearImporteEstandar(c.cas165)}`, rgb: [252, 211, 77] }
+  ];
+
+  subTarjetas.forEach((st, i) => {
+    const sx = marginX + 4 + i * (subW + 2);
+    doc.setFillColor(30, 41, 59);
+    doc.setDrawColor(71, 85, 105);
+    doc.setLineWidth(0.18);
+    doc.rect(sx, subY, subW, subH, 'FD');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.1);
+    doc.setTextColor(148, 163, 184);
+    doc.text(st.lbl, sx + 2.5, subY + 4.3);
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8.2);
+    doc.setTextColor(st.rgb[0], st.rgb[1], st.rgb[2]);
+    doc.text(st.val, sx + 2.5, subY + 9.2);
+  });
+
+  // Nota formal al pie
+  const yNota = yExec + hExec + 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.7);
+  doc.setTextColor(71, 85, 105);
+  const infoVoucher = params.asientoNumero ? ` · Voucher Determinación: ${params.asientoNumero}` : '';
   doc.text(
-    'Nota: Hoja de trabajo generada por Atlob Consultores ERP para llenado de casillas del PDT 621 / Declara Fácil. No constituye envío telemático a SUNAT.',
+    `Régimen: ${params.empresa.regimenTributario || 'MYPE_TRIBUTARIO'}${infoVoucher} · Emitido: ${formatearFechaHoraEmision24h()}`,
     marginX,
-    finalY + 19
+    yNota
+  );
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    'Documento de liquidación tributaria generado por Atlob Consultores ERP conforme a la estructura oficial SUNAT PDT 621. No constituye envío telemático directo a SUNAT.',
+    marginX,
+    yNota + 4.2,
+    { maxWidth: usableW }
   );
 
-  const nombreArchivo = `RESUMEN_PDT621_${params.empresa.ruc}_${params.periodo.replace('-', '')}_V${params.version}.pdf`;
+  // Pie de página Pág. 2
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Atlob Consultores ERP · Declaración Mensual PDT 621 — Período ${params.periodo}`, marginX, pageHeight - 7);
+  doc.text('Pág. 2 de 2', pageWidth - marginX, pageHeight - 7, { align: 'right' });
+
+  doc.setProperties({
+    title: `DECLARACION MENSUAL PDT 621 - ${params.periodo}`,
+    subject: 'Declaración Pago 0621 IGV - Renta Mensual',
+    author: 'ATLOB ERP'
+  });
+
+  return doc;
+}
+
+/**
+ * Exporta el PDF Oficial de la Declaración Mensual IGV-Renta (PDT 621)
+ * con las 2 páginas oficiales idénticas a la interfaz del sistema.
+ */
+export function exportarResumenPdt621EstandarPdf(params: Pdt621ResumenPdfParams): void {
+  const doc = generarResumenPdt621OficialPdfDoc(params);
+  const nombreArchivo = `PDT621_${params.empresa.ruc}_${params.periodo.replace('-', '')}_V${params.version}.pdf`;
   doc.save(nombreArchivo);
 }
 
@@ -2364,17 +2930,18 @@ export function construirDefinicionAnalisisCuentasEstandar(
   },
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
+  // 10 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 18 },
-    { id: 'voucher', label: 'N° Asiento', align: 'center', cellWidthPdf: 22 },
-    { id: 'cuenta', label: 'Cuenta', align: 'center', cellWidthPdf: 18 },
-    { id: 'anexo', label: 'RUC/DNI', align: 'center', cellWidthPdf: 24 },
-    { id: 'razonSocial', label: 'Denominación del Anexo', align: 'left', cellWidthPdf: 55 },
-    { id: 'docRef', label: 'Doc. Referencia', align: 'center', cellWidthPdf: 24 },
-    { id: 'glosa', label: 'Glosa del Asiento', align: 'left', cellWidthPdf: 55 },
-    { id: 'debe', label: 'Cargos S/', align: 'right', cellWidthPdf: 22 },
-    { id: 'haber', label: 'Abonos S/', align: 'right', cellWidthPdf: 22 },
-    { id: 'saldo', label: 'Saldo S/', align: 'right', cellWidthPdf: 24 }
+    { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 17 },
+    { id: 'voucher', label: 'N° Asiento', align: 'center', cellWidthPdf: 20 },
+    { id: 'cuenta', label: 'Cuenta', align: 'center', cellWidthPdf: 16 },
+    { id: 'anexo', label: 'RUC/DNI', align: 'center', cellWidthPdf: 23 },
+    { id: 'razonSocial', label: 'Denominación del Anexo', align: 'left', cellWidthPdf: 57 },
+    { id: 'docRef', label: 'Doc. Referencia', align: 'center', cellWidthPdf: 25 },
+    { id: 'glosa', label: 'Glosa del Asiento', align: 'left', cellWidthPdf: 57 },
+    { id: 'debe', label: 'Cargos S/', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
+    { id: 'haber', label: 'Abonos S/', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 22 },
+    { id: 'saldo', label: 'Saldo S/', align: 'right', isNumeric: true, cellWidthPdf: 24 }
   ];
 
   const filas = movimientos.map((m) => ({

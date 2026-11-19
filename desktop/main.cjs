@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, safeStorage, session, utilityProcess } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, safeStorage, session, utilityProcess } = require('electron');
 const { createHash } = require('node:crypto');
 const { existsSync, readFileSync, statSync } = require('node:fs');
 const { mkdir, readFile, writeFile } = require('node:fs/promises');
@@ -17,6 +17,10 @@ const {
   validarConexion,
   validarServidorRemoto,
 } = require('./desktop-config.cjs');
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('pe.atlob.erp');
+}
 
 if (process.env.ATLOB_USER_DATA_DIR) {
   app.setPath('userData', process.env.ATLOB_USER_DATA_DIR);
@@ -362,14 +366,37 @@ function archivoConfiguracion() {
   return join(app.getPath('userData'), 'instalacion.bin');
 }
 
+function resolverIconoVentana() {
+  const baseDesempaquetada = __dirname.replace(/app\.asar([\\/])/i, 'app.asar.unpacked$1');
+  const candidatos = process.platform === 'win32'
+    ? [
+        join(baseDesempaquetada, 'build', 'icon.ico'),
+        join(baseDesempaquetada, 'build', 'icon.png'),
+        join(__dirname, 'build', 'icon.ico'),
+        join(__dirname, 'build', 'icon.png'),
+        join(__dirname, 'assets', 'atlob_isotipo.png'),
+      ]
+    : [
+        join(baseDesempaquetada, 'build', 'icon.png'),
+        join(__dirname, 'build', 'icon.png'),
+        join(__dirname, 'assets', 'atlob_isotipo.png'),
+      ];
+  for (const ruta of candidatos) {
+    if (existsSync(ruta)) {
+      const img = nativeImage.createFromPath(ruta);
+      if (!img.isEmpty()) return img;
+      return ruta;
+    }
+  }
+  return join(__dirname, 'build', 'icon.ico');
+}
+
 function nuevaVentana(opciones, permiteNavegacion) {
-  const rutaIcono = process.platform === 'win32'
-    ? join(__dirname, 'build', 'icon.ico')
-    : join(__dirname, 'build', 'icon.png');
+  const iconoVentana = resolverIconoVentana();
   const ventana = new BrowserWindow({
     ...opciones,
     title: 'ATLOB ERP',
-    icon: rutaIcono,
+    icon: iconoVentana,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -380,6 +407,13 @@ function nuevaVentana(opciones, permiteNavegacion) {
       devTools: false,
     },
   });
+  if (typeof ventana.setIcon === 'function' && iconoVentana) {
+    try {
+      ventana.setIcon(iconoVentana);
+    } catch {
+      // Algunos entornos sin escritorio gráfico no soportan setIcon dinámico.
+    }
+  }
   ventana.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   function verificarNavegacion(evento, url) {
     if (!permiteNavegacion(evento.url ?? url)) evento.preventDefault();

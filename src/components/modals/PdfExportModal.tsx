@@ -21,7 +21,9 @@ import {
 import { useReportStyle } from '../../context/ReportStyleContext';
 import { 
   exportarReporteEstandarPdf,
-  construirDefinicionRegistroComprasEstandar
+  construirDefinicionRegistroComprasEstandar,
+  construirDefinicionRegistroVentasEstandar,
+  construirDefinicionLibroDiarioEstandar
 } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 
 export type TipoReportePdf = 'COMPRAS' | 'VENTAS' | 'DIARIO' | 'HONORARIOS';
@@ -64,21 +66,29 @@ export const PdfExportModal: React.FC<PdfExportModalProps> = ({
       try {
         if (tipoReporte === 'COMPRAS') {
           if (reportStyle === 'estandar') {
-            exportarReporteEstandarPdf(construirDefinicionRegistroComprasEstandar(empresa, compras, periodo));
+            exportarReporteEstandarPdf(construirDefinicionRegistroComprasEstandar(empresa, compras, periodo), 'estandar');
           } else {
             exportarRegistroComprasPdf(empresa, compras, periodo);
           }
         } else if (tipoReporte === 'VENTAS') {
-          exportarRegistroVentasPdf(empresa, ventas, periodo);
+          if (reportStyle === 'estandar') {
+            exportarReporteEstandarPdf(construirDefinicionRegistroVentasEstandar(empresa, ventas, periodo), 'estandar');
+          } else {
+            exportarRegistroVentasPdf(empresa, ventas, periodo);
+          }
         } else if (tipoReporte === 'DIARIO') {
-          exportarLibroDiarioPdf(empresa, asientos, periodo);
+          if (reportStyle === 'estandar') {
+            exportarReporteEstandarPdf(construirDefinicionLibroDiarioEstandar(empresa, asientos, periodo), 'estandar');
+          } else {
+            exportarLibroDiarioPdf(empresa, asientos, periodo);
+          }
         } else if (tipoReporte === 'HONORARIOS') {
-          // Si es honorarios, exportar como libro diario filtrado o vista
-          exportarLibroDiarioPdf(
-            empresa, 
-            asientos.filter(a => a.subdiario === '06'), 
-            periodo
-          );
+          const asientosHon = asientos.filter(a => a.subdiario === '06');
+          if (reportStyle === 'estandar') {
+            exportarReporteEstandarPdf(construirDefinicionLibroDiarioEstandar(empresa, asientosHon, periodo), 'estandar');
+          } else {
+            exportarLibroDiarioPdf(empresa, asientosHon, periodo);
+          }
         }
         setExportSuccess(true);
         setTimeout(() => setExportSuccess(false), 3000);

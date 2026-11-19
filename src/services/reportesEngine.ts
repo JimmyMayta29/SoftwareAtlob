@@ -1,5 +1,9 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  descargarReporteEstandarExcel
+} from './reports/formato_estandar/excelEstandarEngine';
+import type { EstandarReportDefinition } from './reports/formato_estandar/formatoEstandarEngine';
 import { AsientoContable, EmpresaCliente } from '../types';
 import { buscarCuentaPCGE } from '../data/pcgeAccounts';
 
@@ -665,158 +669,148 @@ export function calcularLibroDiarioESTANDAR(
 /**
  * Exporta la Hoja de Trabajo 10 Columnas a hoja de cálculo (formato CSV/TSV profesional estructurado)
  */
-export function exportarHojaTrabajoHojaCalculo(
+export async function exportarHojaTrabajoHojaCalculo(
   reporte: HojaTrabajo10ColumnasReporte,
   opciones?: OpcionesExportacionImpresion
 ) {
-  const lineas: string[] = [];
-
-  // Encabezado
-  lineas.push(`RAZÓN SOCIAL:\t${reporte.razonSocial}`);
-  lineas.push(`RUC:\t${reporte.ruc}`);
-  lineas.push(`DIRECCIÓN:\t${reporte.direccion}`);
-  lineas.push(`TÍTULO:\t${reporte.titulo}`);
-  lineas.push(`PERIODO:\t${reporte.periodo} (${reporte.acumuladoAlMes ? 'Acumulado al mes' : 'Solo el mes'})`);
-  lineas.push(`MONEDA:\tSOLES (PEN)`);
-  if (opciones?.incluirFechaImpresion) {
-    lineas.push(`FECHA DE IMPRESIÓN:\t${new Date().toLocaleString('es-PE')}`);
-  }
-  if (opciones?.incluirUsuario) {
-    lineas.push(`USUARIO:\t${opciones.usuarioNombre || 'Administrador'}`);
-  }
-  lineas.push('');
-
-  // Cabecera de 10 columnas
-  lineas.push('CUENTA\tNOMBRE\tMONTOS DÉBITO\tMONTOS CRÉDITO\tSALDO DEUDOR\tSALDO ACREEDOR\tINVENTARIO ACTIVO\tINVENTARIO PASIVO\tNATURALEZA PÉRDIDA\tNATURALEZA GANANCIA\tFUNCIÓN PÉRDIDA\tFUNCIÓN GANANCIA');
-
-  for (const f of reporte.filas) {
-    lineas.push([
-      f.codigoCuenta,
-      `"${f.nombreCuenta.replace(/"/g, '""')}"`,
-      f.montosDebe.toFixed(2),
-      f.montosHaber.toFixed(2),
-      f.saldoDeudor.toFixed(2),
-      f.saldoAcreedor.toFixed(2),
-      f.inventarioActivo.toFixed(2),
-      f.inventarioPasivo.toFixed(2),
-      f.naturalezaPerdida.toFixed(2),
-      f.naturalezaGanancia.toFixed(2),
-      f.funcionPerdida.toFixed(2),
-      f.funcionGanancia.toFixed(2)
-    ].join('\t'));
-  }
-
-  // Fila TOTALES
-  lineas.push([
-    'TOTALES',
-    '',
-    reporte.totales.montosDebe.toFixed(2),
-    reporte.totales.montosHaber.toFixed(2),
-    reporte.totales.saldoDeudor.toFixed(2),
-    reporte.totales.saldoAcreedor.toFixed(2),
-    reporte.totales.inventarioActivo.toFixed(2),
-    reporte.totales.inventarioPasivo.toFixed(2),
-    reporte.totales.naturalezaPerdida.toFixed(2),
-    reporte.totales.naturalezaGanancia.toFixed(2),
-    reporte.totales.funcionPerdida.toFixed(2),
-    reporte.totales.funcionGanancia.toFixed(2)
-  ].join('\t'));
-
-  // Fila RESULTADO DEL EJERCICIO
-  lineas.push([
-    reporte.filaResultado.etiqueta,
-    '',
-    '',
-    '',
-    '',
-    '',
-    reporte.filaResultado.inventarioActivo > 0 ? reporte.filaResultado.inventarioActivo.toFixed(2) : '',
-    reporte.filaResultado.inventarioPasivo > 0 ? reporte.filaResultado.inventarioPasivo.toFixed(2) : '',
-    reporte.filaResultado.naturalezaPerdida > 0 ? reporte.filaResultado.naturalezaPerdida.toFixed(2) : '',
-    reporte.filaResultado.naturalezaGanancia > 0 ? reporte.filaResultado.naturalezaGanancia.toFixed(2) : '',
-    reporte.filaResultado.funcionPerdida > 0 ? reporte.filaResultado.funcionPerdida.toFixed(2) : '',
-    reporte.filaResultado.funcionGanancia > 0 ? reporte.filaResultado.funcionGanancia.toFixed(2) : ''
-  ].join('\t'));
-
-  // Fila SUMAS IGUALES
-  lineas.push([
-    'SUMAS IGUALES',
-    '',
-    reporte.sumasIguales.montosDebe.toFixed(2),
-    reporte.sumasIguales.montosHaber.toFixed(2),
-    reporte.sumasIguales.saldoDeudor.toFixed(2),
-    reporte.sumasIguales.saldoAcreedor.toFixed(2),
-    reporte.sumasIguales.inventarioActivo.toFixed(2),
-    reporte.sumasIguales.inventarioPasivo.toFixed(2),
-    reporte.sumasIguales.naturalezaPerdida.toFixed(2),
-    reporte.sumasIguales.naturalezaGanancia.toFixed(2),
-    reporte.sumasIguales.funcionPerdida.toFixed(2),
-    reporte.sumasIguales.funcionGanancia.toFixed(2)
-  ].join('\t'));
-
-  const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/tab-separated-values;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `HOJA_TRABAJO_10COL_${reporte.ruc}_${reporte.periodo.replace('-', '')}.xls`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const def: EstandarReportDefinition = {
+    titulo: reporte.titulo.toUpperCase(),
+    orientacion: 'landscape',
+    empresa: {
+      razonSocial: reporte.razonSocial,
+      ruc: reporte.ruc,
+      direccion: reporte.direccion || 'LIMA - PERÚ',
+      periodo: `${reporte.periodo} (${reporte.acumuladoAlMes ? 'Acumulado al mes' : 'Solo el mes'})`
+    },
+    moneda: 'SOLES',
+    superHeaders: [
+      { label: 'Cuenta PCGE', colSpan: 2 },
+      { label: 'Montos', colSpan: 2 },
+      { label: 'Saldo', colSpan: 2 },
+      { label: 'Inventario', colSpan: 2 },
+      { label: 'Naturaleza', colSpan: 2 },
+      { label: 'Función', colSpan: 2 }
+    ],
+    columnas: [
+      { id: 'codigoCuenta', label: 'Cuenta', align: 'center', cellWidthPdf: 16 },
+      { id: 'nombreCuenta', label: 'Nombre de la Cuenta', align: 'left', cellWidthPdf: 57 },
+      { id: 'montosDebe', label: 'Débito', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'montosHaber', label: 'Crédito', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'saldoDeudor', label: 'Deudor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'saldoAcreedor', label: 'Acreedor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'inventarioActivo', label: 'Activo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'inventarioPasivo', label: 'Pasivo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'naturalezaPerdida', label: 'Pérdida', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'naturalezaGanancia', label: 'Ganancia', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'funcionPerdida', label: 'Pérdida', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'funcionGanancia', label: 'Ganancia', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 }
+    ],
+    grupos: [
+      {
+        grupoId: 'HOJA_10COL',
+        tituloGrupo: 'BALANCE DE COMPROBACIÓN — HOJA DE TRABAJO (10 COLUMNAS)',
+        filas: [
+          ...reporte.filas.map((f) => ({
+            codigoCuenta: f.codigoCuenta,
+            nombreCuenta: f.nombreCuenta,
+            montosDebe: f.montosDebe,
+            montosHaber: f.montosHaber,
+            saldoDeudor: f.saldoDeudor,
+            saldoAcreedor: f.saldoAcreedor,
+            inventarioActivo: f.inventarioActivo,
+            inventarioPasivo: f.inventarioPasivo,
+            naturalezaPerdida: f.naturalezaPerdida,
+            naturalezaGanancia: f.naturalezaGanancia,
+            funcionPerdida: f.funcionPerdida,
+            funcionGanancia: f.funcionGanancia
+          })),
+          {
+            codigoCuenta: '',
+            nombreCuenta: reporte.filaResultado.etiqueta,
+            montosDebe: 0,
+            montosHaber: 0,
+            saldoDeudor: 0,
+            saldoAcreedor: 0,
+            inventarioActivo: reporte.filaResultado.inventarioActivo,
+            inventarioPasivo: reporte.filaResultado.inventarioPasivo,
+            naturalezaPerdida: reporte.filaResultado.naturalezaPerdida,
+            naturalezaGanancia: reporte.filaResultado.naturalezaGanancia,
+            funcionPerdida: reporte.filaResultado.funcionPerdida,
+            funcionGanancia: reporte.filaResultado.funcionGanancia
+          }
+        ],
+        totalesGrupo: { ...reporte.totales }
+      }
+    ],
+    totalesGenerales: { ...reporte.sumasIguales },
+    mostrarFechaHoraImpresion: opciones?.incluirFechaImpresion ?? true
+  };
+  await descargarReporteEstandarExcel(def, 'estandar');
 }
 
 /**
- * Exporta el Libro Diario a hoja de cálculo con estructura jerárquica
+ * Exporta el Libro Diario a Excel (.xlsx) real con estructura jerárquica en A4 Vertical
  */
-export function exportarLibroDiarioHojaCalculo(
+export async function exportarLibroDiarioHojaCalculo(
   reporte: LibroDiarioESTANDARReporte,
   opciones?: OpcionesExportacionImpresion
 ) {
-  const lineas: string[] = [];
-
-  lineas.push(`RAZÓN SOCIAL:\t${reporte.razonSocial}`);
-  lineas.push(`RUC:\t${reporte.ruc}`);
-  lineas.push(`LIBRO:\tLIBRO DIARIO (FORMATO 5.1)`);
-  lineas.push(`PERIODO:\t${reporte.periodo}`);
-  lineas.push(`MONEDA:\tSOLES (PEN)`);
-  if (opciones?.incluirFechaImpresion) {
-    lineas.push(`FECHA DE IMPRESIÓN:\t${new Date().toLocaleString('es-PE')}`);
-  }
-  if (opciones?.incluirUsuario) {
-    lineas.push(`USUARIO:\t${opciones.usuarioNombre || 'Administrador'}`);
-  }
-  lineas.push('');
-
-  lineas.push('FECHA\tCÓDIGO\tNOMBRE CUENTA\tCONCEPTO (GLOSA)\tDÉBITO\tCRÉDITO\tCUO');
-
-  for (const sub of reporte.subdiarios) {
-    lineas.push(`>>> SUBDIARIO ${sub.codigo}: ${sub.descripcion}\t\t\t\t\t\t`);
-    for (const v of sub.vouchers) {
-      lineas.push(`[VOUCHER ${v.numeroVoucher}]\tCUO: ${v.cuo}\tFecha: ${v.fecha}\tGlosa: ${v.glosa}\t\t\t`);
-      for (const lin of v.lineas) {
-        lineas.push([
-          lin.fechaEmision,
-          lin.codigoCuenta,
-          `"${lin.nombreCuenta.replace(/"/g, '""')}"`,
-          `"${lin.concepto.replace(/"/g, '""')}"`,
-          lin.debito > 0 ? lin.debito.toFixed(2) : '0.00',
-          lin.credito > 0 ? lin.credito.toFixed(2) : '0.00',
-          v.cuo
-        ].join('\t'));
+  const def: EstandarReportDefinition = {
+    titulo: `LIBRO DIARIO (FORMATO 5.1) — PERIODO ${reporte.periodo}`,
+    orientacion: 'portrait',
+    empresa: {
+      razonSocial: reporte.razonSocial,
+      ruc: reporte.ruc,
+      direccion: 'LIMA - PERÚ',
+      periodo: reporte.periodo
+    },
+    moneda: 'SOLES',
+    superHeaders: [
+      { label: 'Operación Contable', colSpan: 4 },
+      { label: 'Movimiento (Soles)', colSpan: 2 },
+      { label: 'Control', colSpan: 1 }
+    ],
+    columnas: [
+      { id: 'fecha', label: 'Fecha', align: 'center', cellWidthPdf: 18 },
+      { id: 'codigo', label: 'Código', align: 'center', cellWidthPdf: 16 },
+      { id: 'nombreCuenta', label: 'Nombre Cuenta', align: 'left', cellWidthPdf: 52 },
+      { id: 'concepto', label: 'Concepto (Glosa)', align: 'left', cellWidthPdf: 52 },
+      { id: 'debito', label: 'Débito (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'credito', label: 'Crédito (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'cuo', label: 'CUO', align: 'center', cellWidthPdf: 18 }
+    ],
+    grupos: reporte.subdiarios.map((sub) => {
+      const filas: Array<Record<string, any>> = [];
+      for (const v of sub.vouchers) {
+        for (const lin of v.lineas) {
+          filas.push({
+            fecha: lin.fechaEmision,
+            codigo: lin.codigoCuenta,
+            nombreCuenta: lin.nombreCuenta,
+            concepto: `${v.numeroVoucher} · ${lin.concepto}`,
+            debito: lin.debito,
+            credito: lin.credito,
+            cuo: v.cuo
+          });
+        }
       }
-      lineas.push(`TOTAL COMPROBANTE ${v.numeroVoucher}:\t\t\t\t${v.totalDebito.toFixed(2)}\t${v.totalCredito.toFixed(2)}\t`);
-    }
-    lineas.push(`TOTAL SUBDIARIO ${sub.codigo}:\t\t\t\t${sub.totalDebitoSubdiario.toFixed(2)}\t${sub.totalCreditoSubdiario.toFixed(2)}\t`);
-    lineas.push('');
-  }
-
-  lineas.push(`TOTAL GENERAL DEL MES:\t\t\t\t${reporte.totalGeneralDebito.toFixed(2)}\t${reporte.totalGeneralCredito.toFixed(2)}\t`);
-
-  const blob = new Blob(['\uFEFF' + lineas.join('\r\n')], { type: 'text/tab-separated-values;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `LIBRO_DIARIO_${reporte.ruc}_${reporte.periodo.replace('-', '')}.xls`;
-  a.click();
-  URL.revokeObjectURL(url);
+      return {
+        grupoId: sub.codigo,
+        tituloGrupo: `SUBDIARIO ${sub.codigo}: ${sub.descripcion}`,
+        filas,
+        totalesGrupo: {
+          debito: sub.totalDebitoSubdiario,
+          credito: sub.totalCreditoSubdiario
+        }
+      };
+    }),
+    totalesGenerales: {
+      debito: reporte.totalGeneralDebito,
+      credito: reporte.totalGeneralCredito
+    },
+    mostrarFechaHoraImpresion: opciones?.incluirFechaImpresion ?? true
+  };
+  await descargarReporteEstandarExcel(def, 'estandar');
 }
 
 /**
@@ -909,12 +903,13 @@ export function exportarHojaTrabajoPdf(
     head: headers as any,
     body: rows,
     foot: foot as any,
-    startY: 38,
-    margin: { top: 38, bottom: 20, left: 10, right: 10 },
+    tableWidth: 277,
+    startY: 32,
+    margin: { top: 32, bottom: 16, left: 10, right: 10 },
     theme: 'grid',
     styles: {
-      fontSize: 6.5,
-      cellPadding: 1.2,
+      fontSize: 6.4,
+      cellPadding: 1.1,
       textColor: [30, 41, 59],
       lineColor: [203, 213, 225],
       lineWidth: 0.15
@@ -931,23 +926,21 @@ export function exportarHojaTrabajoPdf(
       fontStyle: 'bold'
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 16, fontStyle: 'bold' },
-      1: { halign: 'left', cellWidth: 45 },
-      2: { halign: 'right', cellWidth: 20 },
-      3: { halign: 'right', cellWidth: 20 },
-      4: { halign: 'right', cellWidth: 20 },
-      5: { halign: 'right', cellWidth: 20 },
-      6: { halign: 'right', cellWidth: 20 },
-      7: { halign: 'right', cellWidth: 20 },
-      8: { halign: 'right', cellWidth: 20 },
-      9: { halign: 'right', cellWidth: 20 },
-      10: { halign: 'right', cellWidth: 20 },
-      11: { halign: 'right', cellWidth: 20 }
+      0: { halign: 'center', cellWidth: 15, fontStyle: 'bold' },
+      1: { halign: 'left', cellWidth: 52 },
+      2: { halign: 'right', cellWidth: 21 },
+      3: { halign: 'right', cellWidth: 21 },
+      4: { halign: 'right', cellWidth: 21 },
+      5: { halign: 'right', cellWidth: 21 },
+      6: { halign: 'right', cellWidth: 21 },
+      7: { halign: 'right', cellWidth: 21 },
+      8: { halign: 'right', cellWidth: 21 },
+      9: { halign: 'right', cellWidth: 21 },
+      10: { halign: 'right', cellWidth: 21 },
+      11: { halign: 'right', cellWidth: 21 }
     },
-    didDrawPage: (data) => {
+    didDrawPage: () => {
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const totalPages = (doc as any).internal.getNumberOfPages();
 
       // Membrete Superior
       doc.setFont('helvetica', 'bold');
@@ -971,7 +964,7 @@ export function exportarHojaTrabajoPdf(
       doc.text(`Modalidad: ${reporte.acumuladoAlMes ? 'Acumulado al mes' : 'Solo el mes'}  |  Correctoras: ${reporte.correctorasActivoEnNegativo ? 'Activo negativo' : 'En Pasivo'}`, 10, 26);
 
       // Bloque de fecha y usuario si aplican
-      let xOffset = pageWidth - 10;
+      const xOffset = pageWidth - 10;
       doc.setFontSize(7);
       doc.setTextColor(100, 116, 139);
       if (opciones?.incluirFechaImpresion) {
@@ -982,16 +975,23 @@ export function exportarHojaTrabajoPdf(
         const usrTxt = `Usuario: ${opciones.usuarioNombre || 'Administrador'}`;
         doc.text(usrTxt, xOffset, 16.5, { align: 'right' });
       }
-
-      // Pie de página con número de página
-      if (opciones?.incluirNumeroPagina !== false) {
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`Página ${data.pageNumber} de ${totalPages}`, pageWidth - 10, pageHeight - 8, { align: 'right' });
-      }
-      doc.text('Atlob Consultores ERP - Hoja de Trabajo 10 Columnas Oficial (Reglamento PCGE / SUNAT)', 10, pageHeight - 8);
     }
   });
+
+  // Segunda pasada: pie de página exacto A4 ("Página X de Y")
+  const totalPagesHT = doc.getNumberOfPages();
+  const pageWidthHT = doc.internal.pageSize.getWidth();
+  const pageHeightHT = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= totalPagesHT; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Atlob Consultores ERP - Hoja de Trabajo 10 Columnas Oficial (Reglamento PCGE / SUNAT)', 10, pageHeightHT - 7);
+    if (opciones?.incluirNumeroPagina !== false) {
+      doc.text(`Página ${i} de ${totalPagesHT}`, pageWidthHT - 10, pageHeightHT - 7, { align: 'right' });
+    }
+  }
 
   const nombreArchivo = `HOJA_TRABAJO_10COL_${reporte.ruc}_${reporte.periodo.replace('-', '')}.pdf`;
   doc.save(nombreArchivo);
@@ -1098,12 +1098,13 @@ export function exportarLibroDiarioESTANDARPdf(
     head: headers as any,
     body: rows,
     foot: foot as any,
-    startY: 38,
-    margin: { top: 38, bottom: 20, left: 12, right: 12 },
+    tableWidth: 190,
+    startY: 30,
+    margin: { top: 30, bottom: 16, left: 10, right: 10 },
     theme: 'grid',
     styles: {
       fontSize: 6.8,
-      cellPadding: 1.4,
+      cellPadding: 1.3,
       textColor: [30, 41, 59],
       lineColor: [226, 232, 240],
       lineWidth: 0.15
@@ -1122,30 +1123,28 @@ export function exportarLibroDiarioESTANDARPdf(
     columnStyles: {
       0: { halign: 'center', cellWidth: 18 },
       1: { halign: 'center', cellWidth: 18, fontStyle: 'bold', textColor: [30, 58, 138] },
-      2: { halign: 'left' },
+      2: { halign: 'left', cellWidth: 106 },
       3: { halign: 'right', cellWidth: 24, fontStyle: 'bold' },
       4: { halign: 'right', cellWidth: 24, fontStyle: 'bold' }
     },
-    didDrawPage: (data) => {
+    didDrawPage: () => {
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const totalPages = (doc as any).internal.getNumberOfPages();
 
       // Membrete Superior
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(15, 23, 42);
-      doc.text(reporte.razonSocial.toUpperCase(), 12, 12);
+      doc.text(reporte.razonSocial.toUpperCase(), 10, 12);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(71, 85, 105);
-      doc.text(`RUC: ${reporte.ruc}  |  LIBRO DIARIO (FORMATO 5.1 SUNAT)`, 12, 16.5);
+      doc.text(`RUC: ${reporte.ruc}  |  LIBRO DIARIO (FORMATO 5.1 SUNAT)`, 10, 16.5);
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(30, 58, 138);
-      doc.text(`PERIODO: ${reporte.periodo}  |  MONEDA: SOLES (PEN)`, 12, 22);
+      doc.text(`PERIODO: ${reporte.periodo}  |  MONEDA: SOLES (PEN)`, 10, 22);
 
       // Switches de impresión
       doc.setFont('helvetica', 'normal');
@@ -1153,22 +1152,29 @@ export function exportarLibroDiarioESTANDARPdf(
       doc.setTextColor(100, 116, 139);
       if (opciones?.incluirFechaImpresion) {
         const fechaTxt = `Impreso: ${new Date().toLocaleDateString('es-PE')} ${new Date().toLocaleTimeString('es-PE')}`;
-        doc.text(fechaTxt, pageWidth - 12, 12, { align: 'right' });
+        doc.text(fechaTxt, pageWidth - 10, 12, { align: 'right' });
       }
       if (opciones?.incluirUsuario) {
         const usrTxt = `Usuario: ${opciones.usuarioNombre || 'Administrador'}`;
-        doc.text(usrTxt, pageWidth - 12, 16.5, { align: 'right' });
+        doc.text(usrTxt, pageWidth - 10, 16.5, { align: 'right' });
       }
-
-      // Pie de página
-      if (opciones?.incluirNumeroPagina !== false) {
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`Página ${data.pageNumber} de ${totalPages}`, pageWidth - 12, pageHeight - 8, { align: 'right' });
-      }
-      doc.text('Atlob Consultores ERP - Libro Diario (Consistente con PLE 5.1)', 12, pageHeight - 8);
     }
   });
+
+  // Segunda pasada: pie de página exacto A4 ("Página X de Y")
+  const totalPagesLD = doc.getNumberOfPages();
+  const pageWidthLD = doc.internal.pageSize.getWidth();
+  const pageHeightLD = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= totalPagesLD; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Atlob Consultores ERP - Libro Diario (Consistente con PLE 5.1)', 10, pageHeightLD - 7);
+    if (opciones?.incluirNumeroPagina !== false) {
+      doc.text(`Página ${i} de ${totalPagesLD}`, pageWidthLD - 10, pageHeightLD - 7, { align: 'right' });
+    }
+  }
 
   const nombreArchivo = `LIBRO_DIARIO_${reporte.ruc}_${reporte.periodo.replace('-', '')}.pdf`;
   doc.save(nombreArchivo);

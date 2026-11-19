@@ -219,6 +219,7 @@ export function exportarRegistroComprasPdf(
     head: headers,
     body: rows,
     foot: foot,
+    tableWidth: 269,
     startY: 42,
     margin: { top: 42, bottom: 25, left: 14, right: 14 },
     theme: 'grid',
@@ -247,24 +248,26 @@ export function exportarRegistroComprasPdf(
       3: { halign: 'center', cellWidth: 12 },
       4: { halign: 'center', cellWidth: 16 },
       5: { halign: 'center', cellWidth: 22 },
-      6: { halign: 'left' },
+      6: { halign: 'left', cellWidth: 79 },
       7: { halign: 'right', cellWidth: 20 },
       8: { halign: 'right', cellWidth: 18 },
       9: { halign: 'right', cellWidth: 18 },
       10: { halign: 'right', cellWidth: 22, fontStyle: 'bold' },
       11: { halign: 'center', cellWidth: 14 },
       12: { halign: 'center', cellWidth: 14 }
-    },
-    didDrawPage: (data) => {
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      dibujarMembreteLegal(doc, empresa, {
-        tituloLibro: 'Registro de Compras Electrónico',
-        codigoLibroSunat: 'FORMATO SUNAT SIRE 8.4',
-        periodo
-      }, data.pageNumber, totalPages);
     }
   });
 
+  const totalPagesCompras = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPagesCompras; i++) {
+    doc.setPage(i);
+    dibujarMembreteLegal(doc, empresa, {
+      tituloLibro: 'Registro de Compras Electrónico',
+      codigoLibroSunat: 'FORMATO SUNAT SIRE 8.4',
+      periodo
+    }, i, totalPagesCompras);
+  }
+  doc.setPage(totalPagesCompras);
   dibujarPieDePaginaLegal(doc, empresa);
 
   const nombreArchivo = `REG_COMPRAS_${empresa.ruc}_${periodo.replace('-', '')}.pdf`;
@@ -342,6 +345,7 @@ export function exportarRegistroVentasPdf(
     head: headers,
     body: rows,
     foot: foot,
+    tableWidth: 269,
     startY: 42,
     margin: { top: 42, bottom: 25, left: 14, right: 14 },
     theme: 'grid',
@@ -370,23 +374,25 @@ export function exportarRegistroVentasPdf(
       3: { halign: 'center', cellWidth: 14 },
       4: { halign: 'center', cellWidth: 18 },
       5: { halign: 'center', cellWidth: 24 },
-      6: { halign: 'left' },
+      6: { halign: 'left', cellWidth: 63 },
       7: { halign: 'right', cellWidth: 24 },
       8: { halign: 'right', cellWidth: 22 },
       9: { halign: 'right', cellWidth: 20 },
       10: { halign: 'right', cellWidth: 26, fontStyle: 'bold' },
       11: { halign: 'center', cellWidth: 20 }
-    },
-    didDrawPage: (data) => {
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      dibujarMembreteLegal(doc, empresa, {
-        tituloLibro: 'Registro de Ventas e Ingresos Electrónico',
-        codigoLibroSunat: 'FORMATO SUNAT SIRE 14.4',
-        periodo
-      }, data.pageNumber, totalPages);
     }
   });
 
+  const totalPagesVentas = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPagesVentas; i++) {
+    doc.setPage(i);
+    dibujarMembreteLegal(doc, empresa, {
+      tituloLibro: 'Registro de Ventas e Ingresos Electrónico',
+      codigoLibroSunat: 'FORMATO SUNAT SIRE 14.4',
+      periodo
+    }, i, totalPagesVentas);
+  }
+  doc.setPage(totalPagesVentas);
   dibujarPieDePaginaLegal(doc, empresa);
 
   const nombreArchivo = `REG_VENTAS_${empresa.ruc}_${periodo.replace('-', '')}.pdf`;
@@ -467,6 +473,7 @@ export function exportarLibroDiarioPdf(
     head: headers,
     body: rows,
     foot: foot,
+    tableWidth: 182,
     startY: 42,
     margin: { top: 42, bottom: 25, left: 14, right: 14 },
     theme: 'grid',
@@ -492,20 +499,22 @@ export function exportarLibroDiarioPdf(
       0: { halign: 'center', cellWidth: 20 },
       1: { halign: 'center', cellWidth: 18 },
       2: { halign: 'center', cellWidth: 20, fontStyle: 'bold', textColor: [30, 58, 138] },
-      3: { halign: 'left' },
+      3: { halign: 'left', cellWidth: 80 },
       4: { halign: 'right', cellWidth: 22, fontStyle: 'bold' },
       5: { halign: 'right', cellWidth: 22, fontStyle: 'bold' }
-    },
-    didDrawPage: (data) => {
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      dibujarMembreteLegal(doc, empresa, {
-        tituloLibro: 'Libro Diario Oficial',
-        codigoLibroSunat: 'FORMATO SUNAT 5.1',
-        periodo
-      }, data.pageNumber, totalPages);
     }
   });
 
+  const totalPagesDiario = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPagesDiario; i++) {
+    doc.setPage(i);
+    dibujarMembreteLegal(doc, empresa, {
+      tituloLibro: 'Libro Diario Oficial',
+      codigoLibroSunat: 'FORMATO SUNAT 5.1',
+      periodo
+    }, i, totalPagesDiario);
+  }
+  doc.setPage(totalPagesDiario);
   dibujarPieDePaginaLegal(doc, empresa);
 
   const nombreArchivo = `LIBRO_DIARIO_${empresa.ruc}_${periodo.replace('-', '')}.pdf`;
