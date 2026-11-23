@@ -11,6 +11,7 @@ import { periodoService } from './periodoService';
 import { asientoService, ASIENTOS_MEMORIA } from './asientoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { parametroRepository } from '../repositories/parametroRepository';
+import { empresaRepository } from '../repositories/empresaRepository';
 import { sireLayoutService, generarCarOficial } from './sireLayoutService';
 
 export type EstadoConciliacionSire =
@@ -1015,8 +1016,8 @@ export const conciliadorSireService = {
 
     const ticketReemplazo = `TCK-REEMP-${Date.now()}`;
 
-    // Generar archivo plano de reemplazo oficial con layout validado
-    const ruc = '20601234567';
+    const empresa = await empresaRepository.obtenerPorId(empresaId);
+    const ruc = empresa?.ruc || '20601234567';
     const archivoGen = tipo === 'COMPRAS'
       ? sireLayoutService.generarReemplazoRce(ruc, periodo, comprobantesReemplazo)
       : sireLayoutService.generarReemplazoRvie(ruc, periodo, comprobantesReemplazo);

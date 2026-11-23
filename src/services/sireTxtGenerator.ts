@@ -1,59 +1,63 @@
 import { Comprobante } from '../types';
 
 /**
- * Genera el archivo plano oficial de Registro de Compras Electrónico (RCE) - Formato SUNAT SIRE 8.4
- * Nomenclatura oficial: LE + RUC (11) + AÑO (4) + MES (2) + '00080400001111.txt'
+ * Genera el archivo plano oficial de Registro de Compras Electrónico (RCE) - Anexo 11 (Reemplazo 08040002, 41 campos)
+ * Nomenclatura oficial SIRE: LE + RUC (11) + AÑO (4) + MES (2) + '00080400021' + I + M + '2.txt'
  */
 export function generarSireRceTxt(ruc: string, periodo: string, comprobantes: Comprobante[]): { nombreArchivo: string; contenido: string } {
-  // Periodo viene como '2026-09'
   const [anio, mes] = periodo.split('-');
-  const nombreArchivo = `LE${ruc}${anio}${mes}00080400001111.txt`;
+  const indCont = comprobantes.length > 0 ? '1' : '0';
+  const indMon = comprobantes.some(c => c.moneda !== 'PEN') ? '2' : '1';
+  const nombreArchivo = `LE${ruc}${anio}${mes}00080400021${indCont}${indMon}2.txt`;
 
   const lineas: string[] = [];
 
   comprobantes.forEach((c) => {
-    // Campos según Resolución de Superintendencia N° 000112-2021/SUNAT y anexos SIRE RCE
-    const fechaEmisionArr = c.fechaEmision.split('-'); // YYYY-MM-DD
-    const fechaEmisionFmt = `${fechaEmisionArr[2]}/${fechaEmisionArr[1]}/${fechaEmisionArr[0]}`;
-    
-    const fechaVencArr = (c.fechaVencimiento || c.fechaEmision).split('-');
-    const fechaVencFmt = `${fechaVencArr[2]}/${fechaVencArr[1]}/${fechaVencArr[0]}`;
+    const fechaEmisionArr = c.fechaEmision.slice(0, 10).split('-');
+    const fechaEmisionFmt = fechaEmisionArr.length === 3 ? `${fechaEmisionArr[2]}/${fechaEmisionArr[1]}/${fechaEmisionArr[0]}` : c.fechaEmision;
+
+    const fechaVencArr = (c.fechaVencimiento || c.fechaEmision).slice(0, 10).split('-');
+    const fechaVencFmt = fechaVencArr.length === 3 ? `${fechaVencArr[2]}/${fechaVencArr[1]}/${fechaVencArr[0]}` : (c.fechaVencimiento || '');
+    const tipoDocPrv = c.rucEmisor.length === 11 ? '6' : c.rucEmisor.length === 8 ? '1' : '0';
 
     const campos = [
-      c.rucReceptor, // 1. RUC del adquiriente
-      c.razonSocialReceptor, // 2. Apellidos y nombres o razón social
-      `${anio}${mes}00`, // 3. Periodo
-      c.car, // 4. CAR SUNAT
-      fechaEmisionFmt, // 5. Fecha de emisión
-      fechaVencFmt, // 6. Fecha de vencimiento
-      c.tipoDoc, // 7. Tipo de Comprobante de Pago (01, 03, etc.)
-      c.serie, // 8. Serie del comprobante
-      c.numero, // 9. Número del comprobante
-      '', // 10. Número final (rango)
-      '6', // 11. Tipo de documento de identidad del proveedor (6 = RUC)
-      c.rucEmisor, // 12. RUC del proveedor
-      c.razonSocialEmisor, // 13. Razón social del proveedor
-      c.baseImponibleGravada.toFixed(2), // 14. Base imponible adquisiciones gravadas (destinadas a oper. gravadas)
-      c.igv.toFixed(2), // 15. IGV / IPM
-      '0.00', // 16. Base imponible adq. gravadas destinadas a oper. gravadas y no gravadas
-      '0.00', // 17. IGV
-      '0.00', // 18. Base imponible adq. gravadas destinadas a oper. no gravadas
-      '0.00', // 19. IGV
-      (c.adquisicionesNoGravadas || 0).toFixed(2), // 20. Valor de adquisiciones no gravadas
-      (c.isc || 0).toFixed(2), // 21. ISC
-      (c.icbper || 0).toFixed(2), // 22. Impuesto bolsas de plástico ICBPER
-      (c.otrosTributos || 0).toFixed(2), // 23. Otros conceptos / tributos
-      c.total.toFixed(2), // 24. Importe Total
-      c.moneda, // 25. Código de moneda (PEN, USD)
-      c.tipoCambio.toFixed(3), // 26. Tipo de cambio SBS
-      // Información de Comprobante que se modifica (Para Notas de Crédito / Débito)
-      '', '', '', '', 
-      // Información del SPOT (Detracciones)
-      c.constanciaDetraccion ? (c.fechaPagoDetraccion || '') : '',
-      c.constanciaDetraccion || '',
-      c.sujetoARetencion ? '1' : '',
-      c.clasificacionBienServicio,
-      '1' // Estado de la anotación (1: Dentro del plazo)
+      c.rucReceptor || ruc, // 1. RUC Generador
+      c.razonSocialReceptor || 'EMPRESA CONTRIBUYENTE S.A.C.', // 2. Razón social
+      `${anio}${mes}`, // 3. Periodo AAAAMM
+      c.car || '', // 4. CAR SUNAT
+      fechaEmisionFmt, // 5. Fecha emisión
+      fechaVencFmt, // 6. Fecha vencimiento
+      c.tipoDoc, // 7. Tipo CP
+      c.serie, // 8. Serie
+      '', // 9. Año DUA/DSI
+      c.numero, // 10. Número
+      '', // 11. Número final
+      tipoDocPrv, // 12. Tipo doc proveedor
+      c.rucEmisor, // 13. Num doc proveedor
+      c.razonSocialEmisor, // 14. Razón social proveedor
+      c.baseImponibleGravada.toFixed(2), // 15. BI DG
+      c.igv.toFixed(2), // 16. IGV DG
+      '0.00', // 17. BI DGNG
+      '0.00', // 18. IGV DGNG
+      '0.00', // 19. BI DNG
+      '0.00', // 20. IGV DNG
+      (c.adquisicionesNoGravadas || 0).toFixed(2), // 21. No gravadas
+      (c.isc || 0).toFixed(2), // 22. ISC
+      (c.icbper || 0).toFixed(2), // 23. ICBPER
+      (c.otrosTributos || 0).toFixed(2), // 24. Otros tributos
+      c.total.toFixed(2), // 25. Total
+      c.moneda, // 26. Moneda
+      c.moneda === 'PEN' ? '' : c.tipoCambio.toFixed(3), // 27. Tipo cambio
+      '', '', '', '', '', // 28-32. Doc modificado
+      c.clasificacionBienServicio || '', // 33. Clasificación bienes
+      '', // 34. ID Contrato/Proyecto
+      '', // 35. PorcPart
+      '', // 36. IMB
+      '', // 37. CAR CP a modificar
+      c.sujetoADetraccion ? '1' : '', // 38. Marca detracción
+      '', // 39. Tipo nota
+      c.estadoSunat === 'ANULADO' ? '2' : '1', // 40. Estado
+      '' // 41. Incal
     ];
 
     lineas.push(campos.join('|') + '|');
@@ -61,56 +65,63 @@ export function generarSireRceTxt(ruc: string, periodo: string, comprobantes: Co
 
   return {
     nombreArchivo,
-    contenido: lineas.join('\r\n')
+    contenido: lineas.length > 0 ? lineas.join('\r\n') + '\r\n' : ''
   };
 }
 
 /**
- * Genera el archivo plano oficial de Registro de Ventas e Ingresos Electrónico (RVIE) - Formato SUNAT SIRE 14.4
+ * Genera el archivo plano oficial de Registro de Ventas e Ingresos Electrónico (RVIE) - Anexo 3 (Reemplazo 14040002, 34 campos)
  */
 export function generarSireRvieTxt(ruc: string, periodo: string, comprobantes: Comprobante[]): { nombreArchivo: string; contenido: string } {
   const [anio, mes] = periodo.split('-');
-  const nombreArchivo = `LE${ruc}${anio}${mes}00140400001111.txt`;
+  const indCont = comprobantes.length > 0 ? '1' : '0';
+  const indMon = comprobantes.some(c => c.moneda !== 'PEN') ? '2' : '1';
+  const nombreArchivo = `LE${ruc}${anio}${mes}00140400021${indCont}${indMon}2.txt`;
 
   const lineas: string[] = [];
 
   comprobantes.forEach((c) => {
-    const fechaEmisionArr = c.fechaEmision.split('-');
-    const fechaEmisionFmt = `${fechaEmisionArr[2]}/${fechaEmisionArr[1]}/${fechaEmisionArr[0]}`;
+    const esAnulado = c.estadoSunat === 'ANULADO';
+    const fechaEmisionArr = c.fechaEmision.slice(0, 10).split('-');
+    const fechaEmisionFmt = fechaEmisionArr.length === 3 ? `${fechaEmisionArr[2]}/${fechaEmisionArr[1]}/${fechaEmisionArr[0]}` : c.fechaEmision;
 
-    const tipoDocIdentidad = c.rucReceptor.length === 11 ? '6' : '1'; // 6: RUC, 1: DNI
+    const fechaVencArr = (c.fechaVencimiento || c.fechaEmision).slice(0, 10).split('-');
+    const fechaVencFmt = fechaVencArr.length === 3 ? `${fechaVencArr[2]}/${fechaVencArr[1]}/${fechaVencArr[0]}` : fechaEmisionFmt;
+
+    const tipoDocIdentidad = c.rucReceptor.length === 11 ? '6' : c.rucReceptor.length === 8 ? '1' : '0';
 
     const campos = [
-      c.rucEmisor,
-      c.razonSocialEmisor,
-      `${anio}${mes}00`,
-      c.car,
-      fechaEmisionFmt,
-      fechaEmisionFmt,
-      c.tipoDoc,
-      c.serie,
-      c.numero,
-      '',
-      tipoDocIdentidad,
-      c.rucReceptor,
-      c.razonSocialReceptor,
-      '0.00', // Valor exportación
-      c.baseImponibleGravada.toFixed(2),
-      '0.00', // Descuento de base imponible
-      c.igv.toFixed(2),
-      '0.00', // Descuento de IGV
-      '0.00', // Exonerado
-      '0.00', // Inafecto
-      (c.isc || 0).toFixed(2),
-      '0.00', // Base arroz pilado
-      '0.00', // Impuesto arroz pilado
-      (c.icbper || 0).toFixed(2),
-      (c.otrosTributos || 0).toFixed(2),
-      c.total.toFixed(2),
-      c.moneda,
-      c.tipoCambio.toFixed(3),
-      '', '', '', '', // Referencia modificación
-      '1'
+      c.rucEmisor || ruc, // 1. RUC Emisor
+      c.razonSocialEmisor || 'EMPRESA CONTRIBUYENTE S.A.C.', // 2. Razón social
+      `${anio}${mes}`, // 3. Periodo AAAAMM
+      c.car || '', // 4. CAR SUNAT
+      fechaEmisionFmt, // 5. Fecha emisión
+      fechaVencFmt, // 6. Fecha vencimiento
+      c.tipoDoc, // 7. Tipo CP
+      c.serie, // 8. Serie
+      c.numero, // 9. Número
+      '', // 10. Número final
+      tipoDocIdentidad, // 11. Tipo doc cliente
+      c.rucReceptor, // 12. Num doc cliente
+      c.razonSocialReceptor, // 13. Razón social cliente
+      '0.00', // 14. Exportación
+      (esAnulado ? 0 : c.baseImponibleGravada).toFixed(2), // 15. Base gravada
+      '0.00', // 16. Descuento base
+      (esAnulado ? 0 : c.igv).toFixed(2), // 17. IGV
+      '0.00', // 18. Descuento IGV
+      '0.00', // 19. Exonerado
+      (esAnulado ? 0 : (c.adquisicionesNoGravadas || 0)).toFixed(2), // 20. Inafecto
+      (esAnulado ? 0 : (c.isc || 0)).toFixed(2), // 21. ISC
+      '0.00', // 22. Base IVAP
+      '0.00', // 23. IVAP
+      (esAnulado ? 0 : (c.icbper || 0)).toFixed(2), // 24. ICBPER
+      (esAnulado ? 0 : (c.otrosTributos || 0)).toFixed(2), // 25. Otros tributos
+      (esAnulado ? 0 : c.total).toFixed(2), // 26. Total
+      c.moneda, // 27. Moneda
+      c.moneda === 'PEN' ? '' : c.tipoCambio.toFixed(3), // 28. Tipo de cambio
+      '', '', '', '', // 29-32. Doc modificado
+      '', // 33. Proyecto
+      '' // 34. Tipo nota
     ];
 
     lineas.push(campos.join('|') + '|');
@@ -118,7 +129,7 @@ export function generarSireRvieTxt(ruc: string, periodo: string, comprobantes: C
 
   return {
     nombreArchivo,
-    contenido: lineas.join('\r\n')
+    contenido: lineas.length > 0 ? lineas.join('\r\n') + '\r\n' : ''
   };
 }
 

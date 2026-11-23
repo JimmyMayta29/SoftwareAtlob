@@ -119,54 +119,96 @@ export const ESPECIFICACION_COLUMNAS_PLE: Record<string, { nombre: string; total
 
 export const ESPECIFICACION_COLUMNAS_SIRE: Record<string, { nombre: string; totalCampos: number; campos: string[] }> = {
   'SIRE_RCE_REEMPLAZO': {
-    nombre: 'SIRE RCE - Reemplazo de Propuesta (Anexo 8)',
-    totalCampos: 42,
+    nombre: 'SIRE RCE - Reemplazo de Propuesta (Anexo 11)',
+    totalCampos: 41,
     campos: [
-      'RucEmisor', 'RazonSocialEmisor', 'TipoComprobante', 'Serie', 'Numero', 'NumeroFinal',
-      'FechaEmision', 'FechaVencimiento', 'TipoDocProveedor', 'NumDocProveedor', 'RazonSocialProveedor',
+      'RucEmisor', 'RazonSocialEmisor', 'Periodo', 'CAR', 'FechaEmision', 'FechaVencimiento',
+      'TipoComprobante', 'Serie', 'AnioDua', 'Numero', 'NumeroFinal',
+      'TipoDocProveedor', 'NumDocProveedor', 'RazonSocialProveedor',
       'BaseGravada1', 'Igv1', 'BaseGravada2', 'Igv2', 'BaseGravada3', 'Igv3', 'NoGravadas',
       'ISC', 'ICBPER', 'OtrosTributos', 'Total', 'Moneda', 'TipoCambio', 'FechaDocModificado',
-      'TipoDocModificado', 'SerieDocModificado', 'AduanaModificado', 'NumeroDocModificado',
-      'Detraccion', 'FechaDetraccion', 'NumeroDetraccion', 'Retencion', 'Clasificacion',
-      'ContratoProyecto', 'Error1', 'Error2', 'Error3', 'Error4', 'MedioPago', 'Estado', 'CAR'
+      'TipoDocModificado', 'SerieDocModificado', 'CodigoDuaModificado', 'NumeroDocModificado',
+      'ClasificacionBienes', 'IdProyecto', 'PorcPart', 'IMB', 'CarModificar',
+      'Detraccion', 'TipoNota', 'EstadoComp', 'Incal'
     ]
   },
   'SIRE_RVIE_REEMPLAZO': {
     nombre: 'SIRE RVIE - Reemplazo de Propuesta (Anexo 2/3)',
     totalCampos: 34,
     campos: [
-      'RucEmisor', 'RazonSocialEmisor', 'TipoComprobante', 'Serie', 'Numero', 'NumeroFinal',
-      'FechaEmision', 'FechaVencimiento', 'TipoDocCliente', 'NumDocCliente', 'RazonSocialCliente',
+      'RucEmisor', 'RazonSocialEmisor', 'Periodo', 'CAR', 'FechaEmision', 'FechaVencimiento',
+      'TipoComprobante', 'Serie', 'Numero', 'NumeroFinal', 'TipoDocCliente', 'NumDocCliente', 'RazonSocialCliente',
       'Exportacion', 'BaseGravada', 'DescuentoBase', 'IGV', 'DescuentoIgv', 'Exonerado', 'Inafecto',
       'ISC', 'BaseIvap', 'IVAP', 'ICBPER', 'OtrosTributos', 'Total', 'Moneda', 'TipoCambio',
       'FechaDocModificado', 'TipoDocModificado', 'SerieDocModificado', 'NumeroDocModificado',
-      'Proyecto', 'TipoNota', 'Estado', 'CAR'
+      'Proyecto', 'TipoNota'
     ]
   },
   'SIRE_RCE_AJUSTE': {
-    nombre: 'SIRE RCE - Ajustes Posteriores (Anexo 11)',
-    totalCampos: 43,
+    nombre: 'SIRE RCE - Ajustes Posteriores (Anexo 12.1 / 13.1)',
+    totalCampos: 41,
     campos: [
-      'PeriodoAfectado', 'CarOriginal', 'RucEmisor', 'RazonSocialEmisor', 'TipoComprobante',
-      'Serie', 'Numero', 'NumeroFinal', 'FechaEmision', 'FechaVencimiento', 'TipoDocProveedor',
-      'NumDocProveedor', 'RazonSocialProveedor', 'BaseGravada', 'IGV', 'Base2', 'Igv2', 'Base3', 'Igv3',
-      'ISC', 'ICBPER', 'Otros', 'Total', 'Moneda', 'TipoCambio', 'FechaMod', 'TipoMod', 'SerieMod',
-      'NumMod', 'Detraccion', 'FecDet', 'NumDet', 'Retencion', 'Bienes', 'Proyecto', 'Err1', 'Err2',
-      'Err3', 'Err4', 'MedioPago', 'Estado', 'CAR', 'IndicadorAjuste'
+      'RucEmisor', 'RazonSocialEmisor', 'PeriodoAfectado', 'CAR', 'FechaEmision', 'FechaVencimiento',
+      'TipoComprobante', 'Serie', 'AnioDua', 'Numero', 'NumeroFinal',
+      'TipoDocProveedor', 'NumDocProveedor', 'RazonSocialProveedor',
+      'BaseGravada1', 'Igv1', 'BaseGravada2', 'Igv2', 'BaseGravada3', 'Igv3', 'NoGravadas',
+      'ISC', 'ICBPER', 'OtrosTributos', 'Total', 'Moneda', 'TipoCambio', 'FechaDocModificado',
+      'TipoDocModificado', 'SerieDocModificado', 'CodigoDuaModificado', 'NumeroDocModificado',
+      'ClasificacionBienes', 'IdProyecto', 'PorcPart', 'IMB', 'CarOriginalModificar',
+      'Detraccion', 'TipoNota', 'EstadoComp', 'Incal'
     ]
   },
   'SIRE_RVIE_AJUSTE': {
-    nombre: 'SIRE RVIE - Ajustes Posteriores (Anexo 4/5)',
+    nombre: 'SIRE RVIE - Ajustes Posteriores (Anexo 4 / 5)',
     totalCampos: 35,
     campos: [
-      'PeriodoAfectado', 'CarOriginal', 'RucEmisor', 'RazonSocialEmisor', 'TipoComprobante',
-      'Serie', 'Numero', 'NumeroFinal', 'FechaEmision', 'FechaVencimiento', 'TipoDocCliente',
-      'NumDocCliente', 'RazonSocialCliente', 'Exportacion', 'BaseGravada', 'DescuentoBase',
-      'IGV', 'DescuentoIgv', 'Exonerado', 'Inafecto', 'ISC', 'BaseIvap', 'IVAP', 'ICBPER',
-      'Otros', 'Total', 'Moneda', 'TipoCambio', 'FechaMod', 'TipoMod', 'SerieMod', 'NumMod',
-      'Proyecto', 'Estado', 'CAR'
+      'RucEmisor', 'RazonSocialEmisor', 'PeriodoAfectado', 'CAR', 'FechaEmision', 'FechaVencimiento',
+      'TipoComprobante', 'Serie', 'Numero', 'NumeroFinal', 'TipoDocCliente', 'NumDocCliente', 'RazonSocialCliente',
+      'Exportacion', 'BaseGravada', 'DescuentoBase', 'IGV', 'DescuentoIgv', 'Exonerado', 'Inafecto',
+      'ISC', 'BaseIvap', 'IVAP', 'ICBPER', 'OtrosTributos', 'Total', 'Moneda', 'TipoCambio',
+      'FechaDocModificado', 'TipoDocModificado', 'SerieDocModificado', 'NumeroDocModificado',
+      'Proyecto', 'TipoNota', 'CarOriginalModificar'
     ]
+  },
+  'SIRE_RCE_NO_DOMICILIADOS': {
+    nombre: 'SIRE RCE - Sujetos No Domiciliados (Anexo 9 / 12.2 / 13.2)',
+    totalCampos: 35,
+    campos: [
+      'Periodo', 'CAR', 'FechaEmision', 'TipoComprobante', 'Serie', 'Numero',
+      'ValorAdquisiciones', 'OtrosConceptos', 'ImporteTotal',
+      'TipoDocSustenta', 'SerieDocSustenta', 'AnioDua', 'NumDocSustenta', 'RetencionIgv',
+      'Moneda', 'TipoCambio', 'PaisResidencia', 'RazonSocialNoDomiciliado', 'DomicilioExtranjero',
+      'NumIdFiscal', 'NumIdBeneficiario', 'RazonSocialBeneficiario', 'PaisBeneficiario',
+      'Vinculo', 'RentaBruta', 'DeduccionCosto', 'RentaNeta', 'TasaRetencion', 'ImpuestoRetenido',
+      'Convenio', 'Exoneracion', 'TipoRenta', 'ModalidadServicio', 'AplicaArt76', 'CarOriginalModificar'
+    ]
+  },
+  'SIRE_RCE_TC': {
+    nombre: 'SIRE RCE - Complemento Tipo de Cambio (Anexo 10 RCETCA)',
+    totalCampos: 5,
+    campos: ['Periodo', 'FechaEmision', 'Moneda', 'TipoCambio', 'CAR']
+  },
+  'SIRE_RCE_INEX': {
+    nombre: 'SIRE RCE - Inclusión / Exclusión (Anexo 8 RCEINEX)',
+    totalCampos: 3,
+    campos: ['Periodo', 'CAR', 'IndicadorInclusionExclusion']
   }
+};
+
+const ALIAS_LAYOUT_SIRE: Record<string, string> = {
+  RVIE_ANEXO_2: 'SIRE_RVIE_REEMPLAZO',
+  RVIE_ANEXO_3: 'SIRE_RVIE_REEMPLAZO',
+  RVIE_ANEXO_4: 'SIRE_RVIE_AJUSTE',
+  RVIE_ANEXO_5: 'SIRE_RVIE_AJUSTE',
+  RCE_ANEXO_8_CP: 'SIRE_RCE_REEMPLAZO',
+  RCE_ANEXO_8_INEX: 'SIRE_RCE_INEX',
+  RCE_ANEXO_9: 'SIRE_RCE_NO_DOMICILIADOS',
+  RCE_ANEXO_10: 'SIRE_RCE_TC',
+  RCE_ANEXO_11: 'SIRE_RCE_REEMPLAZO',
+  RCE_ANEXO_12_1: 'SIRE_RCE_AJUSTE',
+  RCE_ANEXO_12_2: 'SIRE_RCE_NO_DOMICILIADOS',
+  RCE_ANEXO_13_1: 'SIRE_RCE_AJUSTE',
+  RCE_ANEXO_13_2: 'SIRE_RCE_NO_DOMICILIADOS',
 };
 
 export const archivoValidadorService = {
@@ -175,9 +217,14 @@ export const archivoValidadorService = {
    */
   detectarTipoLayout(nombreArchivo: string): string {
     const nom = nombreArchivo.toUpperCase();
+    if (nom.includes('-RCETCA-')) return 'SIRE_RCE_TC';
+    if (nom.includes('-RCEINEX-')) return 'SIRE_RCE_INEX';
+    if (nom.includes('-CP-')) return 'SIRE_RCE_REEMPLAZO';
+    if (nom.includes('080500')) return 'SIRE_RCE_NO_DOMICILIADOS';
+    if (nom.includes('08040003') || nom.includes('08040004') || nom.includes('08040005')) return 'SIRE_RCE_AJUSTE';
     if (nom.includes('080400')) return 'SIRE_RCE_REEMPLAZO';
+    if (nom.includes('14040003') || nom.includes('14040004') || nom.includes('14040005')) return 'SIRE_RVIE_AJUSTE';
     if (nom.includes('140400')) return 'SIRE_RVIE_REEMPLAZO';
-    if (nom.includes('080500')) return 'SIRE_RCE_AJUSTE';
     if (nom.includes('140500')) return 'SIRE_RVIE_AJUSTE';
 
     // PLE
@@ -196,14 +243,17 @@ export const archivoValidadorService = {
     tipoLayout?: string,
     nombreArchivo?: string
   ): ResultadoValidacionTxt {
-    const layout = tipoLayout || (nombreArchivo ? this.detectarTipoLayout(nombreArchivo) : '080100');
+    const layoutBruto = tipoLayout || (nombreArchivo ? this.detectarTipoLayout(nombreArchivo) : '080100');
+    const layout = ALIAS_LAYOUT_SIRE[layoutBruto] || layoutBruto;
     const spec = ESPECIFICACION_COLUMNAS_PLE[layout] || ESPECIFICACION_COLUMNAS_SIRE[layout];
 
     const errores: ErrorValidacionLinea[] = [];
     const advertencias: string[] = [];
 
-    // Validar si el archivo es un mes sin movimiento (I = 0)
-    const esMesSinMovimiento = nombreArchivo ? nombreArchivo.includes('001011.txt') || nombreArchivo.includes('000011.txt') : false;
+    // Validar si el archivo es un mes sin movimiento (I = 0 en PLE o SIRE)
+    const esMesSinMovimiento = nombreArchivo
+      ? /00[012]0[12][12]\d*\.txt$/i.test(nombreArchivo)
+      : false;
 
     const lineas = contenidoTxt.split(/\r?\n/).filter(l => l.trim().length > 0);
 

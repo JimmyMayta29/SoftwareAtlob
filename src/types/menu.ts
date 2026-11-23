@@ -390,6 +390,18 @@ export const MENU_DATA: MenuGroup[] = [
             vista: 'SireConciliadorView'
           },
           {
+            id: 'sire-no-domiciliados',
+            label: 'Compras No Domiciliados (080500)',
+            estado: 'activo',
+            vista: 'SireNoDomiciliadosView'
+          },
+          {
+            id: 'sire-complementos-tc',
+            label: 'Complementos y Tipo de Cambio (Anexos 2, 8, 10)',
+            estado: 'activo',
+            vista: 'SireComplementosTcView'
+          },
+          {
             id: 'sire-txt-ajustes',
             label: 'Ajustes y reemplazo TXT',
             estado: 'activo',

@@ -1,9 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  sireApi, 
-  SunatConexionEstado, 
-  SireConciliacionResumen, 
-  ReglaProveedorSire 
+import {
+  sireApi,
+  SunatConexionEstado,
+  SireConciliacionResumen,
+  ReglaProveedorSire,
+  CodigoAnexoSire,
+  SireNoDomiciliado,
+  SireAjusteAnexo,
 } from '../api/sireApi';
 
 // Hook de Conexión SUNAT SIRE
@@ -210,4 +213,144 @@ export function useImportarComprobantesXml(empresaId: string) {
 // Compatibilidad retroactiva
 export const useSunatConexionEstado = useSireConexionEstado;
 export const useValidarConexionSunat = useValidarConexionSire;
+
+// Hooks de Anexos Oficiales SIRE (Propuesta real, No Domiciliados 080500, Complementos, Tipo Cambio y Ajustes)
+export function useSirePropuestaPeriodo(empresaId: string, tipo: 'COMPRAS' | 'VENTAS', periodo: string) {
+  return useQuery({
+    queryKey: ['sirePropuestaPeriodo', empresaId, tipo, periodo],
+    queryFn: () => sireApi.obtenerPropuestaPeriodo(empresaId, tipo, periodo),
+    enabled: Boolean(empresaId && periodo),
+    staleTime: 0,
+  });
+}
+
+export function useSireAnexosResumen(empresaId: string, periodo: string) {
+  return useQuery({
+    queryKey: ['sireAnexosResumen', empresaId, periodo],
+    queryFn: () => sireApi.obtenerResumenAnexos(empresaId, periodo),
+    enabled: Boolean(empresaId && periodo),
+    staleTime: 0,
+  });
+}
+
+export function useGenerarAnexoSire(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: {
+      anexo: CodigoAnexoSire;
+      periodo: string;
+      periodoAfectado?: string;
+      oportunidad?: '01' | '02' | '03' | '04' | '05';
+      correlativo?: string;
+      sinMovimiento?: boolean;
+      incluirComprasMeAuto?: boolean;
+    }) => sireApi.generarPaqueteAnexo(empresaId, params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireHistorial', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+    },
+  });
+}
+
+export function useSireNoDomiciliados(empresaId: string, periodo?: string) {
+  return useQuery({
+    queryKey: ['sireNoDomiciliados', empresaId, periodo],
+    queryFn: () => sireApi.listarNoDomiciliados(empresaId, periodo),
+    enabled: Boolean(empresaId),
+    staleTime: 0,
+  });
+}
+
+export function useCrearNoDomiciliado(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (datos: Omit<SireNoDomiciliado, 'id' | 'empresaId'>) =>
+      sireApi.crearNoDomiciliado(empresaId, datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireNoDomiciliados', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+    },
+  });
+}
+
+export function useActualizarNoDomiciliado(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registroId, datos }: { registroId: string; datos: Omit<SireNoDomiciliado, 'id' | 'empresaId'> }) =>
+      sireApi.actualizarNoDomiciliado(empresaId, registroId, datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireNoDomiciliados', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+    },
+  });
+}
+
+export function useEliminarNoDomiciliado(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registroId: string) => sireApi.eliminarNoDomiciliado(empresaId, registroId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireNoDomiciliados', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+    },
+  });
+}
+
+export function useSireAjustesAnexos(
+  empresaId: string,
+  filtros?: { periodo?: string; registro?: string; codigoAnexo?: string }
+) {
+  return useQuery({
+    queryKey: ['sireAjustesAnexos', empresaId, filtros?.periodo, filtros?.registro, filtros?.codigoAnexo],
+    queryFn: () => sireApi.listarAjustesAnexos(empresaId, filtros),
+    enabled: Boolean(empresaId),
+    staleTime: 0,
+  });
+}
+
+export function useCrearAjusteAnexoSire(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (datos: Omit<SireAjusteAnexo, 'id' | 'empresaId' | 'createdAt'>) =>
+      sireApi.crearAjusteAnexo(empresaId, datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireAjustesAnexos', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireTipoCambioCandidatos', empresaId] });
+    },
+  });
+}
+
+export function useActualizarAjusteAnexoSire(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ajusteId, datos }: { ajusteId: string; datos: Partial<SireAjusteAnexo> }) =>
+      sireApi.actualizarAjusteAnexo(empresaId, ajusteId, datos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireAjustesAnexos', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+    },
+  });
+}
+
+export function useEliminarAjusteAnexoSire(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ajusteId: string) => sireApi.eliminarAjusteAnexo(empresaId, ajusteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sireAjustesAnexos', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireAnexosResumen', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['sireTipoCambioCandidatos', empresaId] });
+    },
+  });
+}
+
+export function useSireTipoCambioCandidatos(empresaId: string, periodo: string) {
+  return useQuery({
+    queryKey: ['sireTipoCambioCandidatos', empresaId, periodo],
+    queryFn: () => sireApi.listarCandidatosTipoCambio(empresaId, periodo),
+    enabled: Boolean(empresaId && periodo),
+    staleTime: 0,
+  });
+}
 

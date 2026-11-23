@@ -69,6 +69,8 @@ import { TRegistroView } from './components/views/TRegistroView';
 import { SirePropuestaComprasView } from './components/views/SirePropuestaComprasView';
 import { SirePropuestaVentasView } from './components/views/SirePropuestaVentasView';
 import { SireConciliadorView } from './components/views/SireConciliadorView';
+import { SireNoDomiciliadosView } from './components/views/SireNoDomiciliadosView';
+import { SireComplementosTcView } from './components/views/SireComplementosTcView';
 import { SireAjustesReemplazoView } from './components/views/SireAjustesReemplazoView';
 import { LibrosElectronicosView } from './components/views/LibrosElectronicosView';
 import { ValidarLibrosElectronicosView } from './components/views/ValidarLibrosElectronicosView';
@@ -796,6 +798,8 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   periodo={periodo}
                 />
               )}
+              {activeModuleId === 'sire-no-domiciliados' && <SireNoDomiciliadosView />}
+              {activeModuleId === 'sire-complementos-tc' && <SireComplementosTcView />}
               {(activeModuleId === 'sire-txt-ajustes' || activeModuleId === 'sire-ajustes-reemplazo') && <SireAjustesReemplazoView />}
               {(activeModuleId === 'libros-electronicos' || activeModuleId === 'generar-libros-electronicos') && <LibrosElectronicosView />}
               {activeModuleId === 'validar-libros-electronicos' && <ValidarLibrosElectronicosView />}

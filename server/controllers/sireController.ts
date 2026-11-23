@@ -3,7 +3,8 @@ import { sanitizarMensaje } from '../utils/seguridadDatos';
 import { z } from 'zod';
 import { sireService } from '../services/sireService';
 import { conciliadorSireService } from '../services/conciliadorSireService';
-import { sireLayoutService } from '../services/sireLayoutService';
+import { sireLayoutService, CodigoAnexoSire } from '../services/sireLayoutService';
+import { sireAnexosService } from '../services/sireAnexosService';
 import { archivoValidadorService } from '../services/archivoValidadorService';
 import { historialGeneracionesService } from '../services/historialGeneracionesService';
 import { empresaDemoService } from '../services/empresaDemoService';
@@ -85,7 +86,82 @@ export const revertirLineaSchema = z.object({
 
 export const validarSireTxtSchema = z.object({
   contenidoTxt: z.string().min(1, 'Contenido del archivo TXT requerido'),
-  tipoLayout: z.enum(['RCE_REEMPLAZO', 'RVIE_REEMPLAZO', 'RCE_AJUSTE', 'RVIE_AJUSTE'])
+  tipoLayout: z.enum([
+    'RCE_REEMPLAZO', 'RVIE_REEMPLAZO', 'RCE_AJUSTE', 'RVIE_AJUSTE',
+    'RVIE_ANEXO_2', 'RVIE_ANEXO_3', 'RVIE_ANEXO_4', 'RVIE_ANEXO_5',
+    'RCE_ANEXO_8_CP', 'RCE_ANEXO_8_INEX', 'RCE_ANEXO_9', 'RCE_ANEXO_10',
+    'RCE_ANEXO_11', 'RCE_ANEXO_12_1', 'RCE_ANEXO_12_2', 'RCE_ANEXO_13_1', 'RCE_ANEXO_13_2',
+  ])
+});
+
+const generarAnexoSireSchema = z.object({
+  anexo: z.enum([
+    'RVIE_ANEXO_2', 'RVIE_ANEXO_3', 'RVIE_ANEXO_4', 'RVIE_ANEXO_5',
+    'RCE_ANEXO_8_CP', 'RCE_ANEXO_8_INEX', 'RCE_ANEXO_9', 'RCE_ANEXO_10',
+    'RCE_ANEXO_11', 'RCE_ANEXO_12_1', 'RCE_ANEXO_12_2', 'RCE_ANEXO_13_1', 'RCE_ANEXO_13_2',
+  ]),
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
+  periodoAfectado: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  oportunidad: z.enum(['01', '02', '03', '04', '05']).optional(),
+  correlativo: z.string().max(4).optional(),
+  sinMovimiento: z.boolean().optional(),
+  incluirComprasMeAuto: z.boolean().optional(),
+});
+
+const noDomiciliadoSchema = z.object({
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe tener formato YYYY-MM'),
+  carSunat: z.string().optional(),
+  fechaEmision: z.string().min(8),
+  tipoComprobante: z.string().min(1).max(4).optional().default('91'),
+  serie: z.string().max(20).optional().default(''),
+  numero: z.string().min(1).max(30),
+  valorAdquisiciones: z.number().min(0),
+  otrosConceptos: z.number().min(0).optional().default(0),
+  importeTotal: z.number().min(0).optional(),
+  tipoDocSustentaCredito: z.string().optional(),
+  serieDocSustentaCredito: z.string().optional(),
+  anioDua: z.string().optional(),
+  numeroDocSustentaCredito: z.string().optional(),
+  retencionIgv: z.number().min(0).optional().default(0),
+  moneda: z.enum(['PEN', 'USD']).optional().default('USD'),
+  tipoCambio: z.number().positive().optional().default(1),
+  paisResidencia: z.string().min(1).optional().default('9249'),
+  razonSocialNoDomiciliado: z.string().min(2),
+  domicilioExtranjero: z.string().optional(),
+  numIdFiscal: z.string().optional(),
+  numIdBeneficiario: z.string().optional(),
+  razonSocialBeneficiario: z.string().optional(),
+  paisBeneficiario: z.string().optional(),
+  vinculoContribuyente: z.string().optional().default('00'),
+  rentaBruta: z.number().min(0).optional(),
+  deduccionCosto: z.number().min(0).optional().default(0),
+  rentaNeta: z.number().min(0).optional(),
+  tasaRetencion: z.number().min(0).max(100).optional().default(0),
+  impuestoRetenido: z.number().min(0).optional(),
+  convenioDobleImposicion: z.string().optional().default('00'),
+  exoneracionAplicada: z.string().optional(),
+  tipoRenta: z.string().optional().default('00'),
+  modalidadServicio: z.string().optional(),
+  aplicaArt76: z.boolean().optional().default(false),
+  carCpModificar: z.string().optional(),
+  estado: z.enum(['BORRADOR', 'REGISTRADO', 'ANULADO']).optional().default('REGISTRADO'),
+});
+
+const ajusteAnexoSireSchema = z.object({
+  periodoPresentacion: z.string().regex(/^\d{4}-\d{2}$/),
+  periodoAjustado: z.string().regex(/^\d{4}-\d{2}$/),
+  registro: z.enum(['RVIE', 'RCE', 'RCE_NO_DOMICILIADO']),
+  codigoAnexo: z.enum([
+    'RVIE_ANEXO_2', 'RVIE_ANEXO_4', 'RVIE_ANEXO_5',
+    'RCE_ANEXO_8_CP', 'RCE_ANEXO_8_INEX', 'RCE_ANEXO_10',
+    'RCE_ANEXO_12_1', 'RCE_ANEXO_12_2', 'RCE_ANEXO_13_1', 'RCE_ANEXO_13_2',
+  ]),
+  tipoOperacion: z.enum(['INCLUSION', 'EXCLUSION', 'MODIFICACION', 'TIPO_CAMBIO']).optional().default('MODIFICACION'),
+  oportunidad: z.enum(['01', '02', '03', '04', '05']).optional().default('03'),
+  correlativo: z.string().max(4).optional().default('01'),
+  carOriginal: z.string().optional().default(''),
+  datosJson: z.record(z.string(), z.any()).optional().default({}),
+  estado: z.enum(['BORRADOR', 'GENERADO', 'ENVIADO']).optional().default('BORRADOR'),
 });
 
 export const sireController = {
@@ -387,6 +463,172 @@ export const sireController = {
       const periodo = req.query.periodo as string | undefined;
       const historial = historialGeneracionesService.listarPorEmpresa(empresaId, { modulo: 'SIRE', periodo });
       return successResponse(res, historial);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  // 8. Propuesta real + Anexos Oficiales completos SIRE
+  async obtenerPropuestaPeriodo(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const tipo = ((req.query.tipo as string) || 'COMPRAS').toUpperCase() === 'VENTAS' ? 'VENTAS' : 'COMPRAS';
+      const periodo = (req.query.periodo as string) || '2026-09';
+      const data = await sireAnexosService.obtenerPropuestaYResumenPeriodo(empresaId, tipo, periodo);
+      return successResponse(res, data);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async obtenerResumenAnexos(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const periodo = (req.query.periodo as string) || '2026-09';
+      const userId = (req as any).user?.id;
+      const data = await sireAnexosService.obtenerResumenAnexosPeriodo(empresaId, periodo, userId);
+      return successResponse(res, data);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async generarPaqueteAnexo(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const data = generarAnexoSireSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const paquete = await sireAnexosService.generarPaqueteAnexo(
+        empresaId,
+        {
+          anexo: data.anexo as CodigoAnexoSire,
+          periodo: data.periodo,
+          periodoAfectado: data.periodoAfectado,
+          oportunidad: data.oportunidad,
+          correlativo: data.correlativo,
+          sinMovimiento: data.sinMovimiento,
+          incluirComprasMeAuto: data.incluirComprasMeAuto,
+        },
+        userId
+      );
+      return successResponse(res, paquete, `Paquete ${paquete.nombreArchivoZip} generado y validado.`);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async listarNoDomiciliados(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const periodo = req.query.periodo as string | undefined;
+      const userId = (req as any).user?.id;
+      const filas = await sireAnexosService.listarNoDomiciliados(empresaId, periodo, userId);
+      return successResponse(res, filas);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async crearNoDomiciliado(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const data = noDomiciliadoSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const creado = await sireAnexosService.crearNoDomiciliado(empresaId, data, userId);
+      return successResponse(res, creado, 'Registro No Domiciliado guardado en PostgreSQL.', 201);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async actualizarNoDomiciliado(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const registroId = req.params.registroId;
+      const data = noDomiciliadoSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const actualizado = await sireAnexosService.actualizarNoDomiciliado(empresaId, registroId, data, userId);
+      return successResponse(res, actualizado, 'Registro No Domiciliado actualizado.');
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async eliminarNoDomiciliado(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const registroId = req.params.registroId;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const result = await sireAnexosService.eliminarNoDomiciliado(empresaId, registroId, userId);
+      return successResponse(res, result, 'Registro No Domiciliado eliminado.');
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async listarAjustesAnexos(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const userId = (req as any).user?.id;
+      const filas = await sireAnexosService.listarAjustes(
+        empresaId,
+        {
+          periodo: req.query.periodo as string | undefined,
+          registro: req.query.registro as string | undefined,
+          codigoAnexo: req.query.codigoAnexo as string | undefined,
+        },
+        userId
+      );
+      return successResponse(res, filas);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async crearAjusteAnexo(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const data = ajusteAnexoSireSchema.parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const creado = await sireAnexosService.crearAjuste(empresaId, data, userId);
+      return successResponse(res, creado, 'Registro de anexo SIRE guardado.', 201);
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async actualizarAjusteAnexo(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const ajusteId = req.params.ajusteId;
+      const data = ajusteAnexoSireSchema.partial().parse(req.body);
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const actualizado = await sireAnexosService.actualizarAjuste(empresaId, ajusteId, data, userId);
+      return successResponse(res, actualizado, 'Registro de anexo SIRE actualizado.');
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async eliminarAjusteAnexo(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const ajusteId = req.params.ajusteId;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const result = await sireAnexosService.eliminarAjuste(empresaId, ajusteId, userId);
+      return successResponse(res, result, 'Registro de anexo SIRE eliminado.');
+    } catch (err: any) {
+      return errorResponse(res, sanitizarMensaje(err));
+    }
+  },
+
+  async listarCandidatosTipoCambio(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const periodo = (req.query.periodo as string) || '2026-09';
+      const userId = (req as any).user?.id;
+      const data = await sireAnexosService.listarCandidatosTipoCambio(empresaId, periodo, userId);
+      return successResponse(res, data);
     } catch (err: any) {
       return errorResponse(res, sanitizarMensaje(err));
     }

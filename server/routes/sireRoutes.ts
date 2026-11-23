@@ -44,5 +44,19 @@ router.post('/sire/validar-txt', sireController.validarTxtSire);
 // 7. Historial de generaciones SIRE con hash SHA-256
 router.get('/empresas/:id/sire/historial', sireController.listarHistorial);
 
+// 8. Anexos Completos SIRE (Propuesta real, No Domiciliados 080500, Complementos, Tipo de Cambio y Ajustes)
+router.get('/empresas/:id/sire/propuesta', sireController.obtenerPropuestaPeriodo);
+router.get('/empresas/:id/sire/anexos/resumen', sireController.obtenerResumenAnexos);
+router.post('/empresas/:id/sire/anexos/generar', sireController.generarPaqueteAnexo);
+router.get('/empresas/:id/sire/no-domiciliados', sireController.listarNoDomiciliados);
+router.post('/empresas/:id/sire/no-domiciliados', sireController.crearNoDomiciliado);
+router.put('/empresas/:id/sire/no-domiciliados/:registroId', sireController.actualizarNoDomiciliado);
+router.delete('/empresas/:id/sire/no-domiciliados/:registroId', sireController.eliminarNoDomiciliado);
+router.get('/empresas/:id/sire/ajustes', sireController.listarAjustesAnexos);
+router.post('/empresas/:id/sire/ajustes', sireController.crearAjusteAnexo);
+router.put('/empresas/:id/sire/ajustes/:ajusteId', sireController.actualizarAjusteAnexo);
+router.delete('/empresas/:id/sire/ajustes/:ajusteId', sireController.eliminarAjusteAnexo);
+router.get('/empresas/:id/sire/tipo-cambio-candidatos', sireController.listarCandidatosTipoCambio);
+
 export const sireRoutes = router;
 

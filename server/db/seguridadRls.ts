@@ -40,7 +40,7 @@ export const ETAPAS_RLS = [
   { id: '5.2c', categoria: 'ALTA', tablas: politicas([
     'comprobantes_xml', 'declaraciones_pdt621', 'declaraciones_prorrata_igv', 'declaraciones_renta_anual',
     'daot_exclusiones', 'sire_propuestas', 'sire_propuesta_lineas', 'sire_conciliaciones',
-    'sire_conciliacion_lineas', 'ple_exportaciones', 'reportes_generados',
+    'sire_conciliacion_lineas', 'sire_no_domiciliados', 'sire_ajustes_posteriores', 'ple_exportaciones', 'reportes_generados',
   ]) },
   { id: '5.3', categoria: 'BAJA', tablas: politicas([
     'conceptos_planilla', 'config_estados_financieros', 'configuracion_reportes', 'subdiarios',

@@ -343,10 +343,12 @@ async function ejecutarSuiteFase6() {
   // --------------------------------------------------------------------------
   // TEST 4: Layouts Oficiales de Reemplazo y Ajustes SIRE (RCE y RVIE)
   // --------------------------------------------------------------------------
-  console.log('\n🔹 Test 4: Layouts Oficiales de Reemplazo y Ajustes SIRE (RCE Anexo 8 y 11; RVIE Anexo 2/3 y 4/5)');
+  console.log('\n🔹 Test 4: Layouts Oficiales de Reemplazo, Complementos, No Domiciliados, TC y Ajustes SIRE (RVIE Anexos 2–5 y RCE Anexos 8–13)');
   {
+    const carEjemplo = generarCarOficial('20100035392', '01', 'F001', '0001001');
     const comprobantesDemo = [
       {
+        car: carEjemplo,
         tipoComprobante: '01',
         serie: 'F001',
         numero: '0001001',
@@ -356,39 +358,94 @@ async function ejecutarSuiteFase6() {
         total: 5900.00,
         proveedorRuc: '20100035392',
         proveedorNombre: 'DISTRIBUIDORA FERRETERA S.A.C.',
+        clienteRuc: '20500040301',
+        clienteNombre: 'CLIENTE CORPORATIVO S.A.C.',
         moneda: 'PEN',
-        tipoCambio: 1.0
+        tipoCambio: 1.0,
+        tipoAdquisicion: '1',
       }
     ];
 
-    // 1. Reemplazo RCE (Anexo 8 oficial SUNAT - 42 campos)
-    const rceReemplazo = sireLayoutService.generarReemplazoRce('20601234567', PERIODO_TEST, comprobantesDemo);
-    assert(rceReemplazo.totalCampos === 42, 'Reemplazo RCE estructurado con exactamente 42 campos oficiales');
-    assert(rceReemplazo.nombreArchivoTxt.startsWith('LE2060123456720260900080400001111.txt'), 'Nomenclatura oficial Anexo 8 correcta');
-    assert(rceReemplazo.zipBuffer.length > 0, 'Empaquetado en ZIP generado para carga en portal SUNAT');
+    // 1. RVIE Anexo 2 (Complemento 14040001...2) y Anexo 3 (Reemplazo 14040002...2) — 34 cols
+    const rvieAnexo2 = sireLayoutService.generarComplementoRvieAnexo2('20601234567', PERIODO_TEST, comprobantesDemo);
+    assert(rvieAnexo2.totalCampos === 34, 'RVIE Anexo 2 estructurado con 34 campos');
+    assert(rvieAnexo2.nombreArchivoTxt === 'LE2060123456720260900140400011112.txt', 'Nomenclatura oficial RVIE Anexo 2 (G=2)');
+    assert(sireLayoutService.validarLayoutTxt(rvieAnexo2.contenidoTxt, 'RVIE_ANEXO_2').esValido, 'Validador RVIE Anexo 2');
 
-    const valRce = sireLayoutService.validarLayoutTxt(rceReemplazo.contenidoTxt, 'RCE_REEMPLAZO');
-    assert(valRce.esValido === true && valRce.totalErrores === 0, 'Validación estricta de columnas y formato del Anexo 8 superada');
-
-    // 2. Reemplazo RVIE (Anexo 2 / 3 oficial SUNAT - 34 campos)
     const rvieReemplazo = sireLayoutService.generarReemplazoRvie('20601234567', PERIODO_TEST, comprobantesDemo);
-    assert(rvieReemplazo.totalCampos === 34, 'Reemplazo RVIE estructurado con exactamente 34 campos oficiales');
-    assert(rvieReemplazo.nombreArchivoTxt.startsWith('LE2060123456720260900140400001111.txt'), 'Nomenclatura oficial RVIE correcta');
+    assert(rvieReemplazo.totalCampos === 34, 'RVIE Anexo 3 estructurado con 34 campos oficiales');
+    assert(rvieReemplazo.nombreArchivoTxt === 'LE2060123456720260900140400021112.txt', 'Nomenclatura oficial RVIE Anexo 3 (14040002, G=2)');
+    assert(sireLayoutService.validarLayoutTxt(rvieReemplazo.contenidoTxt, 'RVIE_REEMPLAZO').esValido, 'Validador RVIE Anexo 3');
 
-    const valRvie = sireLayoutService.validarLayoutTxt(rvieReemplazo.contenidoTxt, 'RVIE_REEMPLAZO');
-    assert(valRvie.esValido === true && valRvie.totalErrores === 0, 'Validación estricta del layout RVIE superada');
+    // 2. RVIE Anexo 4 (CC=03) y Anexo 5 (CC=04) — 35 cols con correlativo NN
+    const rvieAj4 = sireLayoutService.generarAjustesRvie('20601234567', '2026-10', '2026-09', [{ ...comprobantesDemo[0], carCpModificar: carEjemplo }]);
+    assert(rvieAj4.totalCampos === 35, 'RVIE Anexo 4 con 35 campos');
+    assert(rvieAj4.nombreArchivoTxt === 'LE206012345672026100014040003111201.txt', 'Nomenclatura oficial RVIE Anexo 4 (03 + NN)');
+    assert(sireLayoutService.validarLayoutTxt(rvieAj4.contenidoTxt, 'RVIE_ANEXO_4').esValido, 'Validador RVIE Anexo 4');
 
-    // 3. Ajustes Posteriores RCE (Anexo 11 oficial SUNAT - 43 campos)
-    const rceAjuste = sireLayoutService.generarAjustesRce('20601234567', '2026-10', '2026-09', comprobantesDemo);
-    assert(rceAjuste.totalCampos === 43, 'Ajustes RCE estructurado con exactamente 43 campos oficiales');
-    assert(rceAjuste.nombreArchivoTxt.includes('080500'), 'Código de libro 080500 para ajustes RCE presente');
+    const rvieAj5 = sireLayoutService.generarAjustesRvie('20601234567', '2026-10', '2026-08', comprobantesDemo, { esPreSire: true, correlativo: '02' });
+    assert(rvieAj5.totalCampos === 35 && rvieAj5.nombreArchivoTxt === 'LE206012345672026100014040004111202.txt', 'RVIE Anexo 5 pre-SIRE');
+    assert(sireLayoutService.validarLayoutTxt(rvieAj5.contenidoTxt, 'RVIE_ANEXO_5').esValido, 'Validador RVIE Anexo 5');
 
-    const valAjuste = sireLayoutService.validarLayoutTxt(rceAjuste.contenidoTxt, 'RCE_AJUSTE');
-    assert(valAjuste.esValido === true && valAjuste.totalErrores === 0, 'Validación estricta del layout Anexo 11 superada');
+    // 3. RCE Anexo 8 (-CP- 41 cols y -RCEINEX- 3 cols)
+    const rceCp = sireLayoutService.generarComplementoRceAnexo8('20601234567', PERIODO_TEST, comprobantesDemo, { correlativo: '01' });
+    assert(rceCp.totalCampos === 41 && rceCp.nombreArchivoTxt === '20601234567-CP-202609-01.txt', 'RCE Anexo 8 -CP-');
+    assert(sireLayoutService.validarLayoutTxt(rceCp.contenidoTxt, 'RCE_ANEXO_8_CP').esValido, 'Validador RCE Anexo 8 -CP-');
 
-    // 4. Ajustes Posteriores RVIE (Anexo 4 / 5 oficial SUNAT - 35 campos)
-    const rvieAjuste = sireLayoutService.generarAjustesRvie('20601234567', '2026-10', '2026-09', comprobantesDemo);
-    assert(rvieAjuste.totalCampos === 35, 'Ajustes RVIE estructurado con exactamente 35 campos oficiales');
+    const rceInex = sireLayoutService.generarExclusionInclusionRceAnexo8('20601234567', PERIODO_TEST, [{ carSunat: carEjemplo, tipoOperacion: 'EXCLUSION' }]);
+    assert(rceInex.totalCampos === 3 && rceInex.nombreArchivoTxt === '20601234567-RCEINEX-202609-01.txt', 'RCE Anexo 8 -RCEINEX-');
+    assert(sireLayoutService.validarLayoutTxt(rceInex.contenidoTxt, 'RCE_ANEXO_8_INEX').esValido, 'Validador RCE Anexo 8 -RCEINEX-');
+
+    // 4. RCE Anexo 9 No Domiciliados (08050002, 35 cols)
+    const noDomRegistro = {
+      fechaEmision: '2026-09-12',
+      tipoComprobante: '91',
+      serie: 'INV',
+      numero: '9001',
+      valorAdquisiciones: 1200,
+      otrosConceptos: 0,
+      importeTotal: 1200,
+      moneda: 'USD',
+      tipoCambio: 3.75,
+      paisResidencia: '9249',
+      razonSocialNoDomiciliado: 'CLOUD SERVICES INC',
+      rentaBruta: 1200,
+      rentaNeta: 1200,
+      tasaRetencion: 30,
+      impuestoRetenido: 360,
+      tipoRenta: '17',
+    };
+    const rceNoDom = sireLayoutService.generarNoDomiciliadosAnexo9('20601234567', PERIODO_TEST, [noDomRegistro]);
+    assert(rceNoDom.totalCampos === 35 && rceNoDom.nombreArchivoTxt === 'LE2060123456720260900080500021122.txt', 'RCE Anexo 9 No Domiciliados (08050002, G=2)');
+    assert(sireLayoutService.validarLayoutTxt(rceNoDom.contenidoTxt, 'RCE_ANEXO_9').esValido, 'Validador RCE Anexo 9');
+
+    // 5. RCE Anexo 10 Tipo de Cambio (-RCETCA- 5 cols)
+    const rceTc = sireLayoutService.generarTipoCambioAnexo10('20601234567', PERIODO_TEST, [{ fechaEmision: '2026-09-05', moneda: 'USD', tipoCambio: 3.755, carSunat: carEjemplo }]);
+    assert(rceTc.totalCampos === 5 && rceTc.nombreArchivoTxt === '20601234567-RCETCA-202609-01.txt', 'RCE Anexo 10 -RCETCA-');
+    assert(sireLayoutService.validarLayoutTxt(rceTc.contenidoTxt, 'RCE_ANEXO_10').esValido, 'Validador RCE Anexo 10');
+
+    // 6. RCE Anexo 11 Reemplazo (08040002, 41 cols)
+    const rceReemplazo = sireLayoutService.generarReemplazoRce('20601234567', PERIODO_TEST, comprobantesDemo);
+    assert(rceReemplazo.totalCampos === 41 && rceReemplazo.nombreArchivoTxt === 'LE2060123456720260900080400021112.txt', 'Nomenclatura oficial RCE Anexo 11 (08040002, G=2)');
+    assert(rceReemplazo.zipBuffer.length > 0, 'Empaquetado ZIP generado');
+    assert(sireLayoutService.validarLayoutTxt(rceReemplazo.contenidoTxt, 'RCE_REEMPLAZO').esValido, 'Validador RCE Anexo 11');
+
+    // 7. RCE Anexos 12.1 / 12.2 (SIRE CC=03) y 13.1 / 13.2 (Pre-SIRE CC=04)
+    const rceAj121 = sireLayoutService.generarAjustesRce('20601234567', '2026-10', '2026-09', [{ ...comprobantesDemo[0], carCpModificar: carEjemplo }]);
+    assert(rceAj121.totalCampos === 41 && rceAj121.nombreArchivoTxt === 'LE206012345672026100008040003111201.txt', 'RCE Anexo 12.1 (08040003 + NN)');
+    assert(sireLayoutService.validarLayoutTxt(rceAj121.contenidoTxt, 'RCE_ANEXO_12_1').esValido, 'Validador RCE Anexo 12.1');
+
+    const rceAj122 = sireLayoutService.generarAjustesNoDomiciliados('20601234567', '2026-10', '2026-09', [{ ...noDomRegistro, carCpModificar: carEjemplo }]);
+    assert(rceAj122.totalCampos === 35 && rceAj122.nombreArchivoTxt === 'LE206012345672026100008050003112201.txt', 'RCE Anexo 12.2 No Domiciliados (08050003 + NN)');
+    assert(sireLayoutService.validarLayoutTxt(rceAj122.contenidoTxt, 'RCE_ANEXO_12_2').esValido, 'Validador RCE Anexo 12.2');
+
+    const rceAj131 = sireLayoutService.generarAjustesRce('20601234567', '2026-10', '2026-08', comprobantesDemo, { esPreSire: true });
+    assert(rceAj131.nombreArchivoTxt === 'LE206012345672026100008040004111201.txt', 'RCE Anexo 13.1 pre-SIRE');
+    assert(sireLayoutService.validarLayoutTxt(rceAj131.contenidoTxt, 'RCE_ANEXO_13_1').esValido, 'Validador RCE Anexo 13.1');
+
+    const rceAj132 = sireLayoutService.generarAjustesNoDomiciliados('20601234567', '2026-10', '2026-08', [noDomRegistro], { esPreSire: true });
+    assert(rceAj132.nombreArchivoTxt === 'LE206012345672026100008050004112201.txt', 'RCE Anexo 13.2 pre-SIRE');
+    assert(sireLayoutService.validarLayoutTxt(rceAj132.contenidoTxt, 'RCE_ANEXO_13_2').esValido, 'Validador RCE Anexo 13.2');
   }
 
   // --------------------------------------------------------------------------

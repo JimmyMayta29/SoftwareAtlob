@@ -15,6 +15,7 @@ import { detraccionService } from '../../services/detraccionService';
 import { honorariosService } from '../../services/honorariosService';
 import { sireLayoutService, generarCarOficial } from '../../services/sireLayoutService';
 import { sireService } from '../../services/sireService';
+import { sireAnexosService } from '../../services/sireAnexosService';
 import { conciliadorSireService } from '../../services/conciliadorSireService';
 import { pleExportService } from '../../services/pleExportService';
 import { archivoValidadorService } from '../../services/archivoValidadorService';
@@ -847,8 +848,8 @@ async function main() {
           tipoCambio: 1.0,
         },
       ]);
-      assert.strictEqual(rvieReemplazo.nombreArchivoTxt, `LE${rucMype}20260900140400001111.txt`, 'Nomenclatura oficial SIRE RVIE Reemplazo');
-      assert.strictEqual(rvieReemplazo.totalCampos, 34, 'RVIE Reemplazo Anexo 2/3 tiene 34 campos oficiales');
+      assert.strictEqual(rvieReemplazo.nombreArchivoTxt, `LE${rucMype}20260900140400021112.txt`, 'Nomenclatura oficial SIRE RVIE Reemplazo (Anexo 3, G=2)');
+      assert.strictEqual(rvieReemplazo.totalCampos, 34, 'RVIE Reemplazo Anexo 3 tiene 34 campos oficiales');
       assert.ok(rvieReemplazo.contenidoTxt.includes(carVenta), 'Layout RVIE debe incluir el CAR oficial de 27 dígitos');
       const valRvieReemplazo = archivoValidadorService.validarArchivoTxt(rvieReemplazo.contenidoTxt, 'SIRE_RVIE_REEMPLAZO', rvieReemplazo.nombreArchivoTxt);
       assert.strictEqual(valRvieReemplazo.esValido, true, 'Validador TXT debe aprobar estructura SIRE RVIE Reemplazo');
@@ -861,6 +862,7 @@ async function main() {
           {
             carOriginal: generarCarOficial(rucMype, '01', 'F001', '4001'),
             car: generarCarOficial(rucMype, '07', 'FC01', '15'),
+            carCpModificar: generarCarOficial(rucMype, '01', 'F001', '4001'),
             razonSocialEmpresa: 'CORPORACION MYPE NORMATIVA 2026 S.A.C.',
             tipoComprobante: '07',
             serie: 'FC01',
@@ -880,8 +882,8 @@ async function main() {
           },
         ]
       );
-      assert.strictEqual(rvieAjuste.nombreArchivoTxt, `LE${rucMype}20260900140500001111.txt`, 'Nomenclatura oficial SIRE RVIE Ajustes Posteriores');
-      assert.strictEqual(rvieAjuste.totalCampos, 35, 'RVIE Ajustes Posteriores Anexo 4/5 tiene 35 campos oficiales con CAR');
+      assert.strictEqual(rvieAjuste.nombreArchivoTxt, `LE${rucMype}2026090014040003111201.txt`, 'Nomenclatura oficial SIRE RVIE Ajustes Posteriores (Anexo 4, CC=03, G=2)');
+      assert.strictEqual(rvieAjuste.totalCampos, 35, 'RVIE Ajustes Posteriores Anexo 4 tiene 35 campos oficiales con CAR');
       const valRvieAjuste = archivoValidadorService.validarArchivoTxt(rvieAjuste.contenidoTxt, 'SIRE_RVIE_AJUSTE', rvieAjuste.nombreArchivoTxt);
       assert.strictEqual(valRvieAjuste.esValido, true, 'Validador TXT debe aprobar estructura SIRE RVIE Ajustes (35 campos)');
 
@@ -902,10 +904,77 @@ async function main() {
           tipoCambio: 1.0,
         },
       ]);
-      assert.strictEqual(rceReemplazo.nombreArchivoTxt, `LE${rucMype}20260900080400001111.txt`, 'Nomenclatura oficial SIRE RCE Reemplazo');
-      assert.strictEqual(rceReemplazo.totalCampos, 42, 'RCE Reemplazo Anexo 8 tiene 42 campos oficiales con CAR');
+      assert.strictEqual(rceReemplazo.nombreArchivoTxt, `LE${rucMype}20260900080400021112.txt`, 'Nomenclatura oficial SIRE RCE Reemplazo (Anexo 11, G=2)');
+      assert.strictEqual(rceReemplazo.totalCampos, 41, 'RCE Reemplazo Anexo 11 tiene 41 campos oficiales con CAR');
       const valRceReemplazo = archivoValidadorService.validarArchivoTxt(rceReemplazo.contenidoTxt, 'SIRE_RCE_REEMPLAZO', rceReemplazo.nombreArchivoTxt);
-      assert.strictEqual(valRceReemplazo.esValido, true, 'Validador TXT debe aprobar estructura SIRE RCE Reemplazo (42 campos)');
+      assert.strictEqual(valRceReemplazo.esValido, true, 'Validador TXT debe aprobar estructura SIRE RCE Reemplazo (41 campos)');
+
+      // Persistencia real y aislamiento RLS de No Domiciliados (Anexo 9) + Anexos 8/10/12/13 en PostgreSQL
+      const carCompraEjemplo = generarCarOficial('20100070970', '01', 'F001', '00009001');
+      await sireAnexosService.crearNoDomiciliado(
+        empresaMypeId,
+        {
+          periodo: '2026-09',
+          fechaEmision: '2026-09-14',
+          tipoComprobante: '91',
+          serie: 'INV',
+          numero: '00008888',
+          valorAdquisiciones: 5000,
+          otrosConceptos: 0,
+          moneda: 'USD',
+          tipoCambio: 3.75,
+          paisResidencia: '9249',
+          razonSocialNoDomiciliado: 'US CLOUD PROVIDER LLC',
+          tasaRetencion: 30,
+          tipoRenta: '17',
+          modalidadServicio: '3',
+        },
+        userId
+      );
+      await sireAnexosService.crearAjuste(
+        empresaMypeId,
+        {
+          periodoPresentacion: '2026-09',
+          periodoAjustado: '2026-09',
+          registro: 'RCE',
+          codigoAnexo: 'RCE_ANEXO_10',
+          tipoOperacion: 'TIPO_CAMBIO',
+          oportunidad: '01',
+          correlativo: '01',
+          carOriginal: carCompraEjemplo,
+          datosJson: { fechaEmision: '2026-09-08', moneda: 'USD', tipoCambio: 3.755, carSunat: carCompraEjemplo },
+        },
+        userId
+      );
+      await sireAnexosService.crearAjuste(
+        empresaMypeId,
+        {
+          periodoPresentacion: '2026-09',
+          periodoAjustado: '2026-09',
+          registro: 'RCE',
+          codigoAnexo: 'RCE_ANEXO_8_INEX',
+          tipoOperacion: 'EXCLUSION',
+          oportunidad: '01',
+          correlativo: '01',
+          carOriginal: carCompraEjemplo,
+          datosJson: { carSunat: carCompraEjemplo, indicador: '2' },
+        },
+        userId
+      );
+
+      const listaNoDomMype = await sireAnexosService.listarNoDomiciliados(empresaMypeId, '2026-09', userId);
+      assert.strictEqual(listaNoDomMype.length, 1, 'Debe persistir operación No Domiciliado en PostgreSQL');
+      assert.strictEqual(listaNoDomMype[0].impuestoRetenido, 1500, 'Debe calcular retención 30% sobre USD 5,000');
+
+      const paqAnexo9 = await sireAnexosService.generarPaqueteAnexo(empresaMypeId, { anexo: 'RCE_ANEXO_9', periodo: '2026-09' }, userId);
+      assert.strictEqual(paqAnexo9.nombreArchivoZip, `LE${rucMype}20260900080500021122.zip`);
+      assert.strictEqual(paqAnexo9.validacion.esValido, true);
+      const paqAnexo10 = await sireAnexosService.generarPaqueteAnexo(empresaMypeId, { anexo: 'RCE_ANEXO_10', periodo: '2026-09' }, userId);
+      assert.strictEqual(paqAnexo10.nombreArchivoZip, `${rucMype}-RCETCA-202609-01.zip`);
+      assert.strictEqual(paqAnexo10.validacion.esValido, true);
+      const paqAnexo8Inex = await sireAnexosService.generarPaqueteAnexo(empresaMypeId, { anexo: 'RCE_ANEXO_8_INEX', periodo: '2026-09' }, userId);
+      assert.strictEqual(paqAnexo8Inex.nombreArchivoZip, `${rucMype}-RCEINEX-202609-01.zip`);
+      assert.strictEqual(paqAnexo8Inex.validacion.esValido, true);
 
       // Conciliación SIRE en PostgreSQL real
       const propuestaTxt = sireLayoutService.generarPropuestaSireTxt([
@@ -1146,6 +1215,7 @@ async function main() {
         `SELECT codigo_libro, nombre_archivo, total_filas, hash_sha256
          FROM ple_exportaciones
          WHERE empresa_id = $1 AND periodo = '2026-09'
+           AND codigo_libro IN ('050100', '050200', '060100', '080100', '080200', '140100')
          ORDER BY codigo_libro ASC`,
         [empresaMypeId]
       );
@@ -1155,6 +1225,11 @@ async function main() {
         'Las 6 exportaciones oficiales PLE (5.1, 5.2, 6.1, 8.1, 8.2, 14.1) deben estar persistidas en PostgreSQL real'
       );
     });
+
+    const listaNoDomRg = await conContextoEmpresa(empresaRgId, userId, () =>
+      sireAnexosService.listarNoDomiciliados(empresaRgId, '2026-09', userId)
+    );
+    assert.strictEqual(listaNoDomRg.length, 0, 'Aislamiento RLS: Empresa RG no debe ver No Domiciliados de Empresa MYPE');
 
     console.log('  ✅ [OK] Sistemas SUNAT: SPOT (cálculo, bloqueo crédito fiscal y depósito BN), Retenciones 3%, Percepciones, SIRE RVIE/RCE con CAR y PLE (5.1, 5.2, 6.1, 8.1, 8.2, 14.1) con CRLF en PostgreSQL.');
 
@@ -1175,6 +1250,8 @@ async function main() {
           [empId, userId]
         );
         await cleanClient.query(`DELETE FROM ple_exportaciones WHERE empresa_id = $1`, [empId]);
+        await cleanClient.query(`DELETE FROM sire_ajustes_posteriores WHERE empresa_id = $1`, [empId]);
+        await cleanClient.query(`DELETE FROM sire_no_domiciliados WHERE empresa_id = $1`, [empId]);
         await cleanClient.query(`DELETE FROM sire_conciliaciones WHERE empresa_id = $1`, [empId]);
         await cleanClient.query(`DELETE FROM sire_propuestas WHERE empresa_id = $1`, [empId]);
         await cleanClient.query(`DELETE FROM declaraciones_renta_anual WHERE empresa_id = $1`, [empId]);
