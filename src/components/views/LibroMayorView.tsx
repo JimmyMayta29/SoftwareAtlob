@@ -1,26 +1,24 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { 
   Calculator, 
   Search, 
-  ArrowRight, 
-  CheckCircle2, 
-  FileSpreadsheet, 
-  Filter, 
   X,
-  Layers,
-  ArrowUpRight,
-  ArrowDownLeft,
-  FileText
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 import { AsientoContable, EmpresaCliente } from '../../types';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { construirDefinicionLibroMayorEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
+import { reportesApi } from '../../api/reportesApi';
+import { obtenerAccessToken } from '../../api/session';
 
 interface LibroMayorViewProps {
   asientos: AsientoContable[];
   empresa: EmpresaCliente;
   periodo: string;
+  persistente?: boolean;
 }
 
 interface MovimientoMayor {
@@ -36,12 +34,23 @@ interface MovimientoMayor {
 export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
   asientos,
   empresa,
-  periodo
+  periodo,
+  persistente
 }) => {
   const { cruceNavegacion, limpiarCruceNavegacion, navegarCruzado } = useEmpresaPeriodo();
   const [cuentaSeleccionada, setCuentaSeleccionada] = useState<string>('TODAS');
   const [filtroTexto, setFiltroTexto] = useState<string>('');
+  const [acumuladoAlMes, setAcumuladoAlMes] = useState<boolean>(false);
   const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
+
+  const usarServidor = persistente ?? Boolean(obtenerAccessToken() && empresa?.id);
+
+  const mayorQuery = useQuery({
+    queryKey: ['reportes', empresa?.id, 'libro-mayor', periodo, acumuladoAlMes],
+    queryFn: () => reportesApi.getLibroMayor(empresa.id, periodo, acumuladoAlMes),
+    enabled: usarServidor && Boolean(empresa?.id),
+    staleTime: 0
+  });
 
   // Si viene de navegación cruzada con una cuenta específica
   useEffect(() => {
@@ -50,8 +59,26 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
     }
   }, [cruceNavegacion]);
 
-  // Agrupar movimientos de asientos por cuenta contable
+  // Agrupar movimientos de asientos por cuenta contable (desde PostgreSQL o memoria)
   const mayorPorCuenta = useMemo(() => {
+    if (usarServidor && mayorQuery.data?.cuentas) {
+      return (mayorQuery.data.cuentas as any[]).map((c) => [
+        String(c.codigoCuenta),
+        {
+          denominacion: c.nombreCuenta || `Cuenta ${c.codigoCuenta}`,
+          movimientos: (c.movimientos || []).map((m: any) => ({
+            asientoId: m.asientoId,
+            numeroAsiento: m.asientoNumero,
+            fecha: String(m.fecha || '').slice(0, 10),
+            glosa: m.glosa || '',
+            debe: Number(m.debe || 0),
+            haber: Number(m.haber || 0),
+            referencia: m.referencia
+          }))
+        }
+      ] as [string, { denominacion: string; movimientos: MovimientoMayor[] }]);
+    }
+
     const map = new Map<string, { denominacion: string; movimientos: MovimientoMayor[] }>();
 
     asientos.forEach((a) => {
@@ -76,7 +103,7 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
     });
 
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [asientos]);
+  }, [usarServidor, mayorQuery.data, asientos]);
 
   const cuentasFiltradas = useMemo(() => {
     return mayorPorCuenta.filter(([codigo, data]) => {
@@ -139,7 +166,34 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setAcumuladoAlMes(false)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${!acumuladoAlMes ? 'bg-blue-600 text-white' : 'text-slate-600'}`}
+            >
+              Solo el mes
+            </button>
+            <button
+              type="button"
+              onClick={() => setAcumuladoAlMes(true)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${acumuladoAlMes ? 'bg-blue-600 text-white' : 'text-slate-600'}`}
+            >
+              Acumulado Ene–Mes
+            </button>
+          </div>
+          {usarServidor && (
+            <button
+              type="button"
+              onClick={() => void mayorQuery.refetch()}
+              disabled={mayorQuery.isFetching}
+              className="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${mayorQuery.isFetching ? 'animate-spin' : ''}`} />
+              <span>Actualizar</span>
+            </button>
+          )}
           <button
             onClick={() => setModalEstandarOpen(true)}
             className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer whitespace-nowrap"
@@ -153,7 +207,7 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
             onChange={(e) => setCuentaSeleccionada(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium cursor-pointer"
           >
-            <option value="TODOS">Todas las cuentas con movimientos ({mayorPorCuenta.length})</option>
+            <option value="TODAS">Todas las cuentas con movimientos ({mayorPorCuenta.length})</option>
             {mayorPorCuenta.map(([codigo, data]) => (
               <option key={codigo} value={codigo}>
                 {codigo} — {data.denominacion}
@@ -162,6 +216,24 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
           </select>
         </div>
       </div>
+
+      {usarServidor && mayorQuery.isPending && (
+        <div role="status" className="p-4 rounded-2xl border bg-blue-50 border-blue-200 text-blue-800 text-xs font-medium">
+          Cargando Libro Mayor desde PostgreSQL…
+        </div>
+      )}
+      {usarServidor && mayorQuery.isError && (
+        <div role="alert" className="p-4 rounded-2xl border bg-rose-50 border-rose-300 text-rose-800 text-xs flex items-center justify-between gap-2">
+          <span>Error al cargar el Libro Mayor: {(mayorQuery.error as any)?.message || 'Error de conexión'}</span>
+          <button
+            type="button"
+            onClick={() => void mayorQuery.refetch()}
+            className="px-3 py-1 rounded-lg bg-rose-600 text-white font-bold text-xs cursor-pointer"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
 
       {/* List of Accounts */}
       <div className="space-y-4">
@@ -246,7 +318,11 @@ export const LibroMayorView: React.FC<LibroMayorViewProps> = ({
         <VisorReporteModal
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
-          definicion={construirDefinicionLibroMayorEstandar(empresa, asientos, periodo)}
+          definicion={construirDefinicionLibroMayorEstandar(
+            empresa,
+            usarServidor && mayorQuery.data ? mayorQuery.data : asientos,
+            periodo
+          )}
         />
       )}
     </div>

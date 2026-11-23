@@ -380,12 +380,22 @@ export const librosEEFFService = {
         ORDER BY s.codigo ASC, a.fecha ASC, a.numero ASC
       `, params);
 
-      return res.rows.map(r => ({
-        ...r,
-        totalDebe: r.items.reduce((s: number, it: any) => Money.toNumber(Money.add(s, it.debe)), 0),
-        totalHaber: r.items.reduce((s: number, it: any) => Money.toNumber(Money.add(s, it.haber)), 0),
-        cuadrado: true
-      }));
+      return res.rows.map(r => {
+        const items = (Array.isArray(r.items) ? r.items : []).map((it: any) => ({
+          ...it,
+          debe: Number(it.debe || 0),
+          haber: Number(it.haber || 0)
+        }));
+        return {
+          ...r,
+          fecha: r.fecha instanceof Date ? r.fecha.toISOString().slice(0, 10) : String(r.fecha || '').slice(0, 10),
+          tipoCambio: Number(r.tipoCambio || 1),
+          items,
+          totalDebe: items.reduce((s: number, it: any) => Money.toNumber(Money.add(s, it.debe)), 0),
+          totalHaber: items.reduce((s: number, it: any) => Money.toNumber(Money.add(s, it.haber)), 0),
+          cuadrado: true
+        };
+      });
     }
 
     // Memoria
@@ -465,7 +475,7 @@ export const librosEEFFService = {
   /**
    * Genera el Libro Mayor (Agrupación por cuenta PCGE a 2, 3, 4 y 5 dígitos)
    */
-  async generarLibroMayor(empresaId: string, periodo: string): Promise<{
+  async generarLibroMayor(empresaId: string, periodo: string, acumulado: boolean = false): Promise<{
     empresaId: string;
     periodo: string;
     cuentas: FilaMayor[];
@@ -475,7 +485,7 @@ export const librosEEFFService = {
     totalSaldoAcreedor: number;
     estaCuadrado: boolean;
   }> {
-    const asientos = await this.obtenerAsientosContabilizados(empresaId, periodo);
+    const asientos = await this.obtenerAsientosContabilizados(empresaId, periodo, acumulado);
     const cuentasMap = new Map<string, FilaMayor>();
 
     for (const a of asientos) {
@@ -556,8 +566,8 @@ export const librosEEFFService = {
   /**
    * Genera el Balance de Comprobación de 10 Columnas (Hoja de Trabajo Oficial SUNAT/NIIF)
    */
-  async generarBalanceComprobacion(empresaId: string, periodo: string): Promise<BalanceComprobacionReporte> {
-    const mayor = await this.generarLibroMayor(empresaId, periodo);
+  async generarBalanceComprobacion(empresaId: string, periodo: string, acumulado: boolean = true): Promise<BalanceComprobacionReporte> {
+    const mayor = await this.generarLibroMayor(empresaId, periodo, acumulado);
 
     const filas: FilaBalanceComprobacion[] = [];
 
@@ -707,8 +717,8 @@ export const librosEEFFService = {
    * Genera el Estado de Situación Financiera (Balance General)
    * Activo = Pasivo + Patrimonio Neto
    */
-  async generarEstadoSituacionFinanciera(empresaId: string, periodo: string): Promise<EstadoSituacionFinancieraReporte> {
-    const balanceComp = await this.generarBalanceComprobacion(empresaId, periodo);
+  async generarEstadoSituacionFinanciera(empresaId: string, periodo: string, acumulado: boolean = true): Promise<EstadoSituacionFinancieraReporte> {
+    const balanceComp = await this.generarBalanceComprobacion(empresaId, periodo, acumulado);
     const mapaCuentas = await pcgeService.obtenerMapaCuentasEmpresa(empresaId);
 
     const activoCorriente: Array<{ codigo: string; nombre: string; monto: number }> = [];
@@ -801,8 +811,8 @@ export const librosEEFFService = {
   /**
    * Genera el Estado de Resultados (Por Naturaleza y Por Función)
    */
-  async generarEstadoResultados(empresaId: string, periodo: string): Promise<EstadoResultadosReporte> {
-    const balanceComp = await this.generarBalanceComprobacion(empresaId, periodo);
+  async generarEstadoResultados(empresaId: string, periodo: string, acumulado: boolean = true): Promise<EstadoResultadosReporte> {
+    const balanceComp = await this.generarBalanceComprobacion(empresaId, periodo, acumulado);
 
     let ventasNetas = 0;
     let comprasNetas = 0;
@@ -811,29 +821,38 @@ export const librosEEFFService = {
     let cargasPersonal = 0;
     let otrosIngresosGastos = 0;
     let ingresosFinancieros = 0;
-    let gastosFinancieros = 0;
+    let gastosFinancierosNat = 0;
 
     let costoVentas = 0;
     let gastosAdmin = 0;
     let gastosVentas = 0;
+    let gastosFinancierosFun = 0;
+    let tiene97 = false;
 
     for (const f of balanceComp.filas) {
       const c = f.codigoCuenta;
-      if (c.startsWith('70')) ventasNetas += f.saldoAcreedor;
+      if (c.startsWith('70')) ventasNetas += (f.saldoAcreedor - f.saldoDeudor);
+      else if (c.startsWith('74')) ventasNetas -= f.saldoDeudor;
       else if (c.startsWith('60')) comprasNetas += f.saldoDeudor;
       else if (c.startsWith('61')) variacionInventarios += (f.saldoAcreedor - f.saldoDeudor);
       else if (c.startsWith('63')) serviciosTerceros += f.saldoDeudor;
       else if (c.startsWith('62')) cargasPersonal += f.saldoDeudor;
-      else if (c.startsWith('65') || c.startsWith('68')) otrosIngresosGastos -= f.saldoDeudor;
-      else if (c.startsWith('75')) otrosIngresosGastos += f.saldoAcreedor;
-      else if (c.startsWith('77')) ingresosFinancieros += f.saldoAcreedor;
-      else if (c.startsWith('67')) gastosFinancieros += f.saldoDeudor;
+      else if (c.startsWith('64') || c.startsWith('65') || c.startsWith('68')) otrosIngresosGastos -= f.saldoDeudor;
+      else if (c.startsWith('75')) otrosIngresosGastos += (f.saldoAcreedor - f.saldoDeudor);
+      else if (c.startsWith('77')) ingresosFinancieros += (f.saldoAcreedor - f.saldoDeudor);
+      else if (c.startsWith('67')) gastosFinancierosNat += f.saldoDeudor;
 
       // Por función
-      if (c.startsWith('69')) costoVentas += f.saldoDeudor;
+      if (c.startsWith('69') || c.startsWith('92')) costoVentas += f.saldoDeudor;
       else if (c.startsWith('94')) gastosAdmin += f.saldoDeudor;
       else if (c.startsWith('95')) gastosVentas += f.saldoDeudor;
+      else if (c.startsWith('97')) {
+        gastosFinancierosFun += f.saldoDeudor;
+        tiene97 = true;
+      }
     }
+
+    const gastosFinancierosFunEfectivo = tiene97 ? gastosFinancierosFun : gastosFinancierosNat;
 
     // Naturaleza
     const varInvAjustada = costoVentas > 0 ? (variacionInventarios - costoVentas) : variacionInventarios;
@@ -841,7 +860,7 @@ export const librosEEFFService = {
     const valorAgregado = Money.toNumber(Money.sub(margenComercial, serviciosTerceros));
     const excedenteBruto = Money.toNumber(Money.sub(valorAgregado, cargasPersonal));
     const resExplotacion = Money.toNumber(Money.add(excedenteBruto, otrosIngresosGastos));
-    const resAntesImpNat = Money.toNumber(Money.sub(Money.add(resExplotacion, ingresosFinancieros), gastosFinancieros));
+    const resAntesImpNat = Money.toNumber(Money.sub(Money.add(resExplotacion, ingresosFinancieros), gastosFinancierosNat));
     const utilidadNetaNat = resAntesImpNat; // Antes de impuesto a la renta diferido
 
     // Función
@@ -849,7 +868,7 @@ export const librosEEFFService = {
     const cVentasEfectivo = costoVentas > 0 ? costoVentas : Math.max(0, comprasNetas - variacionInventarios);
     const utilidadBruta = Money.toNumber(Money.sub(ventasNetas, cVentasEfectivo));
     const utilidadOperativa = Money.toNumber(Money.sub(Money.sub(utilidadBruta, gastosAdmin), gastosVentas));
-    const resAntesImpFun = Money.toNumber(Money.sub(Money.add(utilidadOperativa, ingresosFinancieros), gastosFinancieros));
+    const resAntesImpFun = Money.toNumber(Money.sub(Money.add(utilidadOperativa, ingresosFinancieros), gastosFinancierosFunEfectivo));
     const utilidadNetaFun = resAntesImpFun;
 
     const coincidenciaExacta = Math.abs(utilidadNetaNat - utilidadNetaFun) < 0.05;
@@ -869,7 +888,7 @@ export const librosEEFFService = {
         otrosIngresosGastos,
         resultadoExplotacion: resExplotacion,
         ingresosFinancieros,
-        gastosFinancieros,
+        gastosFinancieros: gastosFinancierosNat,
         resultadoAntesImpuestos: resAntesImpNat,
         impuestoRenta: 0,
         utilidadNeta: utilidadNetaNat
@@ -882,7 +901,7 @@ export const librosEEFFService = {
         gastosVentas,
         utilidadOperativa,
         ingresosFinancieros,
-        gastosFinancieros,
+        gastosFinancieros: gastosFinancierosFunEfectivo,
         resultadoAntesImpuestos: resAntesImpFun,
         impuestoRenta: 0,
         utilidadNeta: utilidadNetaFun
@@ -894,9 +913,9 @@ export const librosEEFFService = {
   /**
    * Genera el Estado de Flujos de Efectivo (Método Directo conciliado con Cuenta 10)
    */
-  async generarEstadoFlujoEfectivo(empresaId: string, periodo: string): Promise<FlujoEfectivoReporte> {
-    const asientos = await this.obtenerAsientosContabilizados(empresaId, periodo);
-    const mayor = await this.generarLibroMayor(empresaId, periodo);
+  async generarEstadoFlujoEfectivo(empresaId: string, periodo: string, acumulado: boolean = true): Promise<FlujoEfectivoReporte> {
+    const asientos = await this.obtenerAsientosContabilizados(empresaId, periodo, acumulado);
+    const mayor = await this.generarLibroMayor(empresaId, periodo, acumulado);
 
     let cobranzasClientes = Money.create(0);
     let pagosProveedores = Money.create(0);
@@ -953,9 +972,12 @@ export const librosEEFFService = {
 
     const variacionNetaEfectivo = Money.toNumber(Money.add(Money.add(netoOperacion, netoInversion), netoFinanciamiento));
 
-    // Saldo cuenta 10 en Mayor
-    const cta10 = mayor.cuentas.find(c => c.codigoCuenta.startsWith('10'));
-    const saldoCuenta10Mayor = cta10 ? cta10.saldoDeudor : 0;
+    // Saldo cuenta 10 en Mayor (sumando todas las subcuentas 10*)
+    const saldoCuenta10Mayor = Money.toNumber(
+      mayor.cuentas
+        .filter(c => c.codigoCuenta.startsWith('10'))
+        .reduce((acc, c) => Money.add(acc, Money.sub(c.saldoDeudor, c.saldoAcreedor)), Money.create(0))
+    );
     const saldoInicialEfectivo = Money.toNumber(Money.sub(saldoCuenta10Mayor, variacionNetaEfectivo));
     const saldoFinalEfectivo = Money.toNumber(Money.add(saldoInicialEfectivo, variacionNetaEfectivo));
 

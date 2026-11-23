@@ -144,6 +144,42 @@ export const calcularPlanillaSchema = z.object({
   })).optional()
 });
 
+export const actualizarPlanillaLineasSchema = z.object({
+  lineas: z.array(z.object({
+    id: z.string().optional(),
+    trabajadorId: z.string().optional(),
+    diasLaborados: z.number().min(0).max(30).optional(),
+    sueldoBasico: z.number().min(0).optional(),
+    asignacionFamiliar: z.number().min(0).optional(),
+    horasExtras: z.number().min(0).optional(),
+    bonificacionesGravadas: z.number().min(0).optional(),
+    conceptosNoGravados: z.number().min(0).optional(),
+    otrosIngresos: z.number().min(0).optional(),
+    descuentoFaltasTardanzas: z.number().min(0).optional(),
+    aporteObligatorioPension: z.number().min(0).optional(),
+    comisionAfp: z.number().min(0).optional(),
+    primaSeguroAfp: z.number().min(0).optional(),
+    retencionQuinta: z.number().min(0).optional(),
+    adelantosPrestamos: z.number().min(0).optional(),
+    otrosDescuentos: z.number().min(0).optional(),
+    aporteEssalud: z.number().min(0).optional(),
+    centroCosto: z.string().min(1).optional()
+  })).min(1, 'Debe enviar al menos una línea de planilla para actualizar')
+});
+
+export const contabilizarPlanillaSchema = z.object({
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  subdiario: z.string().min(1).max(10).optional(),
+  glosa: z.string().min(3).max(255).optional(),
+  lineas: z.array(z.object({
+    codigoCuenta: z.string().min(1),
+    debe: z.number().min(0),
+    haber: z.number().min(0),
+    glosa: z.string().optional(),
+    centroCostoId: z.string().optional()
+  })).min(2).optional()
+}).optional();
+
 // ============================================================================
 // CONTROLADOR REST
 // ============================================================================
@@ -449,12 +485,44 @@ export const tesoreriaPlanillaController = {
     }
   },
 
+  async actualizarPlanillaLineas(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const planillaId = req.params.planillaId;
+      const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
+      const userRole = (req as any).user?.role || (req as any).user?.rol || 'ADMINISTRADOR';
+      const permisos = planillaService.obtenerPermisosPlanilla(userRole);
+      if (!permisos.puedeEditarTrabajadoresYProcesar) {
+        return errorResponse(res, `ACCESO_DENEGADO_RBAC: El rol ${userRole} no tiene permisos para modificar planillas.`, 403);
+      }
+      const { lineas } = actualizarPlanillaLineasSchema.parse(req.body);
+      const actualizada = await planillaService.actualizarPlanillaLineas(empresaId, planillaId, lineas, userId);
+      return successResponse(res, actualizada, 'Montos de planilla actualizados exitosamente');
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
+  async obtenerPropuestaAsientoPlanilla(req: Request, res: Response) {
+    try {
+      const empresaId = req.params.id;
+      const planillaId = req.params.planillaId;
+      const propuesta = await planillaService.generarPropuestaAsientoPlanilla(empresaId, planillaId);
+      return successResponse(res, propuesta);
+    } catch (err: any) {
+      return errorResponse(res, err.message);
+    }
+  },
+
   async contabilizarPlanilla(req: Request, res: Response) {
     try {
       const empresaId = req.params.id;
       const planillaId = req.params.planillaId;
       const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000001';
-      const result = await planillaService.contabilizarPlanilla(empresaId, planillaId, userId);
+      const payload = req.body && Object.keys(req.body).length > 0
+        ? contabilizarPlanillaSchema.parse(req.body)
+        : undefined;
+      const result = await planillaService.contabilizarPlanilla(empresaId, planillaId, userId, payload);
       return successResponse(res, result, 'Planilla contabilizada');
     } catch (err: any) {
       return errorResponse(res, err.message);

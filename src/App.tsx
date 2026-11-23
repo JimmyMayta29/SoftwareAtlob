@@ -131,6 +131,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
     usuario,
     rolEnEmpresa,
     cerrarSesion,
+    navegarCruzado,
   } = useEmpresaPeriodo();
 
   const queryClient = useQueryClient();
@@ -699,6 +700,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   asientos={asientos}
                   empresa={empresaActual}
                   periodo={periodo}
+                  persistente={conectado}
                 />
               )}
               {activeModuleId === 'caja-bancos' && (
@@ -816,11 +818,35 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
                   asientos={asientos}
                   empresa={empresaActual}
                   periodo={periodo}
+                  persistente={conectado}
+                  onAbrirMayor={(codigoCuenta) => {
+                    navegarCruzado('libro-mayor', codigoCuenta);
+                    setActiveModuleId('libro-mayor');
+                    setActiveModuleTitle('Contabilidad › Libro Mayor');
+                  }}
                 />
               )}
-              {(activeModuleId === 'estado-situacion' || activeModuleId === 'balance-general') && <BalanceGeneralView />}
-              {activeModuleId === 'estado-resultados' && <EstadoResultadosView />}
-              {(activeModuleId === 'flujo-efectivo' || activeModuleId === 'estado-flujo-efectivo') && <FlujoEfectivoView />}
+              {(activeModuleId === 'estado-situacion' || activeModuleId === 'balance-general') && (
+                <BalanceGeneralView
+                  empresa={empresaActual}
+                  periodo={periodo}
+                  persistente={conectado}
+                />
+              )}
+              {activeModuleId === 'estado-resultados' && (
+                <EstadoResultadosView
+                  empresa={empresaActual}
+                  periodo={periodo}
+                  persistente={conectado}
+                />
+              )}
+              {(activeModuleId === 'flujo-efectivo' || activeModuleId === 'estado-flujo-efectivo') && (
+                <FlujoEfectivoView
+                  empresa={empresaActual}
+                  periodo={periodo}
+                  persistente={conectado}
+                />
+              )}
               {activeModuleId === 'analisis-cuentas' && (
                 <AnalisisCuentasView
                   empresaId={empresaActual?.id || ''}

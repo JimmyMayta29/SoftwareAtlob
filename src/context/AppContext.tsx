@@ -1,5 +1,6 @@
 import { useEmpresaPeriodo } from './EmpresaPeriodoContext';
 import { useToast } from './ToastContext';
+import { obtenerAccessToken } from '../api/session';
 
 export function useAppContext() {
   const { empresaActiva, periodo } = useEmpresaPeriodo();
@@ -18,10 +19,11 @@ export function useAppContext() {
   return {
     state: {
       activeEmpresa: empresaActiva?.id || 'emp-01',
+      activeEmpresaObj: empresaActiva,
       activeEmpresaRuc: empresaActiva?.ruc || '20601234567',
       activeEmpresaNombre: empresaActiva?.razonSocial || 'COMERCIALIZADORA ANDINA S.A.C.',
       activePeriodo: periodo || '2026-03',
-      token: typeof window !== 'undefined' ? localStorage.getItem('atlob_access_token') : null,
+      token: typeof window !== 'undefined' ? obtenerAccessToken() : null,
     },
     notify,
   };

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { tesoreriaPlanillaController } from '../controllers/tesoreriaPlanillaController';
+import { requireEmpresaMembership } from '../middlewares/auth';
 
 const router = Router();
 
@@ -40,6 +41,8 @@ router.put('/empresas/:id/trabajadores/:trabajadorId', tesoreriaPlanillaControll
 // Planillas (PDT 0601 / PLAME / Beneficios Sociales / T-Registro)
 router.get('/empresas/:id/planillas', tesoreriaPlanillaController.listarPlanillas);
 router.post('/empresas/:id/planillas/calcular', tesoreriaPlanillaController.calcularPlanilla);
+router.put('/empresas/:id/planillas/:planillaId/lineas', requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']), tesoreriaPlanillaController.actualizarPlanillaLineas);
+router.get('/empresas/:id/planillas/:planillaId/propuesta-asiento', tesoreriaPlanillaController.obtenerPropuestaAsientoPlanilla);
 router.post('/empresas/:id/planillas/:planillaId/contabilizar', tesoreriaPlanillaController.contabilizarPlanilla);
 router.post('/empresas/:id/planillas/:planillaId/anular', tesoreriaPlanillaController.anularPlanilla);
 router.get('/empresas/:id/planillas/:planillaId/boletas/:trabajadorId', tesoreriaPlanillaController.consultarBoletaPago);

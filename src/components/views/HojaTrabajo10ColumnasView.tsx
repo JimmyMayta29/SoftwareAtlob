@@ -1,35 +1,31 @@
 import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { 
   Table, 
   FileSpreadsheet, 
-  Printer, 
-  Download, 
   AlertTriangle, 
   CheckCircle2, 
   Info,
-  SlidersHorizontal, 
-  Calendar, 
-  Eye, 
   Settings2, 
-  HelpCircle,
-  Building2,
-  BookOpen,
+  RefreshCw,
   X
 } from 'lucide-react';
 import { AsientoContable, EmpresaCliente } from '../../types';
 import { 
   calcularHojaTrabajo10Columnas, 
-  HojaTrabajo10ColumnasReporte,
-  OpcionesHojaTrabajo10Col
+  HojaTrabajo10ColumnasReporte
 } from '../../services/reportesEngine';
 import { useToast } from '../../context/ToastContext';
 import { construirDefinicionHojaTrabajo10ColEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
+import { reportesApi } from '../../api/reportesApi';
+import { obtenerAccessToken } from '../../api/session';
 
 interface HojaTrabajo10ColumnasViewProps {
   asientos: AsientoContable[];
   empresa: EmpresaCliente;
   periodo: string;
+  persistente?: boolean;
   onAbrirMayor?: (codigoCuenta: string) => void;
 }
 
@@ -37,10 +33,13 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
   asientos,
   empresa,
   periodo,
+  persistente,
   onAbrirMayor
 }) => {
   const { info } = useToast();
   const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
+
+  const usarServidor = persistente ?? Boolean(obtenerAccessToken() && empresa?.id);
 
   // Opciones de cálculo de la Hoja de Trabajo
   const [acumuladoAlMes, setAcumuladoAlMes] = useState<boolean>(true);
@@ -61,8 +60,29 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
     '971': 'GASTOS_FINANCIEROS'
   });
 
-  // Cálculo de la Hoja de Trabajo
-  const reporte: HojaTrabajo10ColumnasReporte = useMemo(() => {
+  const hojaQuery = useQuery({
+    queryKey: [
+      'reportes',
+      empresa?.id,
+      'hoja-trabajo-10-col',
+      periodo,
+      acumuladoAlMes,
+      correctorasEnNegativo,
+      incluirCierre,
+      mapeosFuncion
+    ],
+    queryFn: () =>
+      reportesApi.getHojaTrabajo10Columnas(empresa.id, periodo, {
+        acumuladoAlMes,
+        correctorasActivoEnNegativo: correctorasEnNegativo,
+        incluirCierreYAjustes: incluirCierre,
+        mapeoFuncionPersonalizado: mapeosFuncion
+      }),
+    enabled: usarServidor && Boolean(empresa?.id),
+    staleTime: 0
+  });
+
+  const reporteLocal: HojaTrabajo10ColumnasReporte = useMemo(() => {
     return calcularHojaTrabajo10Columnas(asientos, empresa, periodo, {
       acumuladoAlMes,
       correctorasActivoEnNegativo: correctorasEnNegativo,
@@ -71,7 +91,11 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
     });
   }, [asientos, empresa, periodo, acumuladoAlMes, correctorasEnNegativo, incluirCierre, mapeosFuncion]);
 
-  const { totales, resultadoEjercicio, filaResultado, sumasIguales, controlesCuadre } = reporte;
+  const reporte: HojaTrabajo10ColumnasReporte = usarServidor && hojaQuery.data
+    ? hojaQuery.data
+    : reporteLocal;
+
+  const { totales, filaResultado, sumasIguales, controlesCuadre } = reporte;
 
   const handleRowDoubleClick = (codigoCuenta: string) => {
     if (onAbrirMayor) {
@@ -110,6 +134,17 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
 
           {/* Botones de Exportación e Impresión */}
           <div className="flex items-center gap-2 flex-wrap">
+            {usarServidor && (
+              <button
+                onClick={() => void hojaQuery.refetch()}
+                disabled={hojaQuery.isFetching}
+                className="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                title="Actualizar saldos desde PostgreSQL"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${hojaQuery.isFetching ? 'animate-spin' : ''}`} />
+                Actualizar
+              </button>
+            )}
             <button
               onClick={() => setModalMapeoOpen(true)}
               className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
@@ -208,6 +243,25 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
           </div>
         </div>
       </div>
+
+      {/* Estado de carga o error desde PostgreSQL */}
+      {usarServidor && hojaQuery.isPending && (
+        <div role="status" className="p-4 rounded-2xl border bg-blue-50 border-blue-200 text-blue-800 text-xs font-medium">
+          Calculando Hoja de Trabajo de 10 Columnas desde los asientos contabilizados en PostgreSQL…
+        </div>
+      )}
+      {usarServidor && hojaQuery.isError && (
+        <div role="alert" className="p-4 rounded-2xl border bg-rose-50 border-rose-300 text-rose-800 text-xs flex items-center justify-between gap-2">
+          <span>No se pudo cargar la Hoja de Trabajo desde el servidor: {(hojaQuery.error as any)?.message || 'Error de conexión'}</span>
+          <button
+            type="button"
+            onClick={() => void hojaQuery.refetch()}
+            className="px-3 py-1 rounded-lg bg-rose-600 text-white font-bold text-xs cursor-pointer"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
 
       {/* 3. Panel de Controles de Validación & Alerta Roja de Descuadre */}
       {reporte.filas.length === 0 || (totales.montosDebe === 0 && totales.montosHaber === 0) ? (
@@ -641,7 +695,9 @@ export const HojaTrabajo10ColumnasView: React.FC<HojaTrabajo10ColumnasViewProps>
         <VisorReporteModal
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
-          definicion={construirDefinicionHojaTrabajo10ColEstandar(empresa, asientos, periodo)}
+          definicion={construirDefinicionHojaTrabajo10ColEstandar(empresa, reporte as any, periodo, {
+            mostrarFechaHora: incluirFechaImpresion
+          })}
         />
       )}
     </div>

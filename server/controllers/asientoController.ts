@@ -314,7 +314,8 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const periodo = (req.query.periodo as string) || '2026-09';
-      const mayor = await librosEEFFService.generarLibroMayor(empresaId, periodo);
+      const acumulado = req.query.acumulado === 'true';
+      const mayor = await librosEEFFService.generarLibroMayor(empresaId, periodo, acumulado);
       return successResponse(res, mayor);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -325,7 +326,8 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const periodo = (req.query.periodo as string) || '2026-09';
-      const balance = await librosEEFFService.generarBalanceComprobacion(empresaId, periodo);
+      const acumulado = req.query.acumulado !== 'false';
+      const balance = await librosEEFFService.generarBalanceComprobacion(empresaId, periodo, acumulado);
       return successResponse(res, balance);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -336,7 +338,8 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const periodo = (req.query.periodo as string) || '2026-09';
-      const es = await librosEEFFService.generarEstadoSituacionFinanciera(empresaId, periodo);
+      const acumulado = req.query.acumulado !== 'false';
+      const es = await librosEEFFService.generarEstadoSituacionFinanciera(empresaId, periodo, acumulado);
       return successResponse(res, es);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -347,7 +350,8 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const periodo = (req.query.periodo as string) || '2026-09';
-      const er = await librosEEFFService.generarEstadoResultados(empresaId, periodo);
+      const acumulado = req.query.acumulado !== 'false';
+      const er = await librosEEFFService.generarEstadoResultados(empresaId, periodo, acumulado);
       return successResponse(res, er);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -358,7 +362,8 @@ export const asientoController = {
     try {
       const empresaId = req.params.id || req.empresaId!;
       const periodo = (req.query.periodo as string) || '2026-09';
-      const fe = await librosEEFFService.generarEstadoFlujoEfectivo(empresaId, periodo);
+      const acumulado = req.query.acumulado !== 'false';
+      const fe = await librosEEFFService.generarEstadoFlujoEfectivo(empresaId, periodo, acumulado);
       return successResponse(res, fe);
     } catch (err: any) {
       return errorResponse(res, err.message);
@@ -405,11 +410,20 @@ export const asientoController = {
       const acumulado = req.query.acumulado !== 'false';
       const correctorasEnNegativo = req.query.correctorasEnNegativo === 'true';
       const incluirCierre = req.query.incluirCierre !== 'false';
+      let mapeoFuncionPersonalizado: any;
+      if (typeof req.query.mapeoFuncion === 'string' && req.query.mapeoFuncion.trim()) {
+        try {
+          mapeoFuncionPersonalizado = JSON.parse(req.query.mapeoFuncion);
+        } catch {
+          mapeoFuncionPersonalizado = undefined;
+        }
+      }
 
       const hoja = await librosEEFFService.generarHojaTrabajo10Columnas(empresaId, periodo, {
         acumuladoAlMes: acumulado,
         correctorasActivoEnNegativo: correctorasEnNegativo,
-        incluirCierreYAjustes: incluirCierre
+        incluirCierreYAjustes: incluirCierre,
+        mapeoFuncionPersonalizado
       });
       return successResponse(res, hoja);
     } catch (err: any) {

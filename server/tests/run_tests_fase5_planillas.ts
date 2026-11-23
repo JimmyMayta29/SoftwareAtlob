@@ -13,6 +13,9 @@ import { REGISTRO_DATOS_EMPRESA } from '../storage/registroDatosEmpresa';
 import {
   generarBoletaPagoPdfBuffer,
   generarLoteBoletasPagoPdfBuffer,
+  construirDefinicionEstadoSituacionFinancieraEstandar,
+  construirDefinicionEstadoResultadosEstandar,
+  construirDefinicionFlujoEfectivoEstandar,
   BoletaPagoPdfItem
 } from '../../src/services/reports/formato_estandar/formatoEstandarEngine';
 
@@ -1223,6 +1226,91 @@ async function runTestsFase5Planillas() {
     'El lote de boletas generado debe ser un documento PDF válido'
   );
   console.log(`   ✔ Generación de Boletas PDF verificada (Individual: ${pdfIndividualBuffer.length} bytes, Lote: ${pdfLoteBuffer.length} bytes).`);
+
+  // -------------------------------------------------------------------------
+  // 13. EDICIÓN DE PLANILLA MENSUAL, PROPUESTA Y CONTABILIZACIÓN EDITABLE + REAPERTURA
+  // -------------------------------------------------------------------------
+  console.log('\n🧪 13. Probando edición de montos de planilla, propuesta editable, asiento personalizado y reapertura...');
+  const planEditBase = await planillaService.calcularPlanilla(
+    EMPRESA_PLANILLA_TEST,
+    'per-2026-06',
+    '2026-06',
+    USER_ID
+  );
+  assert.ok(planEditBase.lineas.length > 0, 'Debe calcular líneas de planilla para 2026-06');
+  const lineaObj = planEditBase.lineas[0];
+  const nuevoBasico = Number((lineaObj.sueldoBasico + 250).toFixed(2));
+  const nuevaBonif = 150.00;
+  const nuevoAdel = 100.00;
+
+  const planActualizada = await planillaService.actualizarPlanillaLineas(
+    EMPRESA_PLANILLA_TEST,
+    planEditBase.id,
+    [
+      {
+        id: lineaObj.id,
+        sueldoBasico: nuevoBasico,
+        bonificacionesGravadas: nuevaBonif,
+        adelantosPrestamos: nuevoAdel,
+        centroCosto: 'VENTAS'
+      }
+    ],
+    USER_ID
+  );
+  const lineaEditada = planActualizada.lineas.find(l => l.id === lineaObj.id)!;
+  assert.strictEqual(lineaEditada.sueldoBasico, nuevoBasico, 'Debe actualizar sueldo básico editado');
+  assert.strictEqual(lineaEditada.bonificacionesGravadas, nuevaBonif, 'Debe actualizar bonificación gravada');
+  assert.strictEqual(lineaEditada.adelantosPrestamos, nuevoAdel, 'Debe actualizar adelantos');
+  assert.strictEqual(lineaEditada.centroCosto, 'VENTAS', 'Debe actualizar centro de costos');
+
+  const propuestaAsiento = await planillaService.generarPropuestaAsientoPlanilla(EMPRESA_PLANILLA_TEST, planActualizada.id);
+  assert.strictEqual(propuestaAsiento.cuadrado, true, 'La propuesta automática de asiento debe cuadrar');
+  assert.ok(propuestaAsiento.lineas.some(l => l.codigoCuenta === '951'), 'Debe dirigir el gasto al centro de costos 951 (VENTAS)');
+  assert.ok(propuestaAsiento.lineas.some(l => l.codigoCuenta === '1411' && l.haber === nuevoAdel), 'Debe incluir cuenta 1411 por adelantos');
+
+  let rechazoDescuadre = false;
+  try {
+    await planillaService.contabilizarPlanilla(EMPRESA_PLANILLA_TEST, planActualizada.id, USER_ID, {
+      glosa: 'Asiento descuadrado prueba',
+      lineas: [
+        { codigoCuenta: '6211', debe: 1000, haber: 0 },
+        { codigoCuenta: '4111', debe: 0, haber: 900 }
+      ]
+    });
+  } catch (err: any) {
+    rechazoDescuadre = String(err.message).includes('ASIENTO_DESCUADRADO');
+  }
+  assert.strictEqual(rechazoDescuadre, true, 'Debe rechazar asiento personalizado descuadrado');
+
+  const contCustom = await planillaService.contabilizarPlanilla(EMPRESA_PLANILLA_TEST, planActualizada.id, USER_ID, {
+    fecha: '2026-06-30',
+    subdiario: '07',
+    glosa: 'Planilla ajustada manualmente 2026-06',
+    lineas: propuestaAsiento.lineas.map(l => ({
+      codigoCuenta: l.codigoCuenta,
+      debe: l.debe,
+      haber: l.haber,
+      glosa: l.glosa,
+      centroCostoId: l.centroCostoId
+    }))
+  });
+  assert.strictEqual(contCustom.success, true, 'Debe contabilizar asiento personalizado cuadrado');
+
+  await planillaService.anularPlanilla(EMPRESA_PLANILLA_TEST, planActualizada.id, 'Prueba reapertura para editar', USER_ID);
+  const trasAnular = await planillaService.obtenerPlanillaPorMes(EMPRESA_PLANILLA_TEST, '2026-06');
+  assert.strictEqual(trasAnular?.estado, 'BORRADOR', 'Tras anular debe quedar en BORRADOR para volver a editar');
+
+  // -------------------------------------------------------------------------
+  // 14. ESTADOS FINANCIEROS SIN DATOS DEMO HARDCODEADOS
+  // -------------------------------------------------------------------------
+  const empTest = { id: EMPRESA_PLANILLA_TEST, ruc: '20100000001', razonSocial: 'TEST SAC', direccionFiscal: 'LIMA' } as any;
+  const defBgVacio = construirDefinicionEstadoSituacionFinancieraEstandar(empTest, {}, '2026-09');
+  const defErVacio = construirDefinicionEstadoResultadosEstandar(empTest, {}, '2026-09');
+  const defFeVacio = construirDefinicionFlujoEfectivoEstandar(empTest, {}, '2026-09');
+  assert.strictEqual(defBgVacio.totalesGenerales.importe, 0, 'Balance General vacío debe devolver 0.00, sin montos demo');
+  assert.strictEqual(defErVacio.totalesGenerales.porFuncion, 0, 'Estado Resultados vacío debe devolver 0.00, sin montos demo');
+  assert.strictEqual(defFeVacio.totalesGenerales.importe, 0, 'Flujo de Efectivo vacío debe devolver 0.00, sin montos demo');
+  console.log('   ✔ Edición de planilla, asiento editable, reapertura y EEFF sin datos hardcodeados verificados.');
 
   console.log('\n====================================================================');
   console.log('✅ TODOS LOS TESTS DE FASE 5 (MÓDULO PLANILLAS) PASARON EXITOSAMENTE.');

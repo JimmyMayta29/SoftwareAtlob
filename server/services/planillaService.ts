@@ -15,7 +15,303 @@ import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { empresaRepository } from '../repositories/empresaRepository';
 import { HONORARIOS_MEMORIA } from './honorariosService';
 import { cryptoService } from './cryptoService';
+import { buscarCuentaPCGE } from '../../src/data/pcgeAccounts';
 import AdmZip from 'adm-zip';
+
+function formatFechaIso(val: any): string | undefined {
+  if (!val) return undefined;
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  return String(val).slice(0, 10);
+}
+
+function esUuidValido(val?: string | null): boolean {
+  return Boolean(val && UUID_REGEX.test(val));
+}
+
+function syncPlanillaEnMemoria(planilla: PlanillaModel): PlanillaModel {
+  const idx = PLANILLAS_MEMORIA.findIndex(
+    p => p.id === planilla.id || (p.empresaId === planilla.empresaId && p.mes === planilla.mes)
+  );
+  if (idx >= 0) {
+    PLANILLAS_MEMORIA[idx] = planilla;
+    return PLANILLAS_MEMORIA[idx];
+  }
+  PLANILLAS_MEMORIA.push(planilla);
+  return planilla;
+}
+
+async function sincronizarTrabajadoresDesdePg(empresaId: string): Promise<void> {
+  if (!db.isPostgresConnected() || !esUuidValido(empresaId)) return;
+  const res = await db.query(
+    `SELECT * FROM trabajadores WHERE empresa_id = $1 ORDER BY apellidos, nombres ASC`,
+    [empresaId]
+  );
+  for (const row of res.rows) {
+    const idStr = String(row.id);
+    const idx = TRABAJADORES_MEMORIA.findIndex(t => t.id === idStr);
+    const item: TrabajadorModel = {
+      id: idStr,
+      empresaId: String(row.empresa_id),
+      tipoDocumento: String(row.tipo_documento),
+      numeroDocumento: String(row.numero_documento),
+      nombres: String(row.nombres),
+      apellidos: String(row.apellidos),
+      fechaNacimiento: formatFechaIso(row.fecha_nacimiento),
+      direccion: row.direccion || undefined,
+      telefono: row.telefono || undefined,
+      email: row.email || undefined,
+      fechaIngreso: formatFechaIso(row.fecha_ingreso) || '2026-01-01',
+      fechaCese: formatFechaIso(row.fecha_cese),
+      motivoCese: row.motivo_cese || undefined,
+      cargo: String(row.cargo),
+      tipoContrato: row.tipo_contrato || 'INDETERMINADO',
+      fechaInicioContrato: formatFechaIso(row.fecha_inicio_contrato),
+      fechaFinContrato: formatFechaIso(row.fecha_fin_contrato),
+      regimenLaboral: row.regimen_laboral || 'GENERAL',
+      sueldoBase: Number(row.sueldo_base),
+      cargasFamiliares: Number(row.cargas_familiares || 0),
+      tieneAsignacionFamiliar: Boolean(row.tiene_asignacion_familiar),
+      sistemaPensiones: row.sistema_pensiones,
+      afpAdministradora: row.afp_administradora || undefined,
+      afpTipoComision: row.afp_tipo_comision || 'FLUJO',
+      cuspp: row.cuspp || undefined,
+      centroCosto: String(row.centro_costo || 'ADMINISTRACION'),
+      cuentaBancoSueldo: row.cuenta_banco_sueldo || undefined,
+      cciSueldo: row.cci_sueldo || undefined,
+      cuentaBancoSueldoCifrada: row.cuenta_banco_sueldo_cifrada || undefined,
+      cciSueldoCifrado: row.cci_sueldo_cifrado || undefined,
+      bancoSueldo: row.banco_sueldo || undefined,
+      afiliadoEps: Boolean(row.afiliado_eps),
+      remuneracionesPreviasAnio: Number(row.remuneraciones_previas_anio || 0),
+      retencionesPrevias5taAnio: Number(row.retenciones_previas_5ta_anio || 0),
+      deduccionAdicional3Uit: Number(row.deduccion_adicional_3uit || 0),
+      activo: Boolean(row.activo),
+      version: Number(row.version || 1)
+    };
+    if (idx >= 0) TRABAJADORES_MEMORIA[idx] = item;
+    else TRABAJADORES_MEMORIA.push(item);
+  }
+}
+
+async function cargarPlanillasDesdePg(empresaId: string, mes?: string): Promise<PlanillaModel[] | null> {
+  if (!db.isPostgresConnected() || !esUuidValido(empresaId)) return null;
+  const params: any[] = [empresaId];
+  let sql = `
+    SELECT id, empresa_id, periodo_id, mes, fecha_calculo, fecha_pago,
+           total_ingresos, total_descuentos, total_aportes_empleador, total_neto,
+           estado, asiento_id, asiento_pago_id, version
+    FROM planillas
+    WHERE empresa_id = $1
+  `;
+  if (mes) {
+    params.push(mes);
+    sql += ` AND mes = $2`;
+  }
+  sql += ` ORDER BY mes DESC`;
+
+  const cabRes = await db.query(sql, params);
+  if (cabRes.rows.length === 0) return [];
+
+  await sincronizarTrabajadoresDesdePg(empresaId);
+
+  const planillas: PlanillaModel[] = [];
+  for (const row of cabRes.rows) {
+    const planId = String(row.id);
+    const linRes = await db.query(
+      `SELECT pl.*, t.nombres, t.apellidos, t.numero_documento, t.cargo,
+              t.regimen_laboral, t.sistema_pensiones, t.afp_administradora, t.cuspp
+       FROM planilla_lineas pl
+       JOIN trabajadores t ON t.id = pl.trabajador_id
+       WHERE pl.planilla_id = $1
+       ORDER BY t.apellidos ASC, t.nombres ASC`,
+      [planId]
+    );
+
+    const lineas: PlanillaLineaModel[] = linRes.rows.map((lr: any) => {
+      const bonif = Number(lr.bonificaciones_gravadas || 0);
+      const otrosIng = Number(lr.otros_ingresos || bonif || 0);
+      const adel = Number(lr.adelantos_prestamos || 0);
+      const otrosDesc = Number(lr.otros_descuentos || adel || 0);
+      const diasLab = Number(lr.dias_laborados ?? 30);
+      const he25 = Number(lr.monto_horas_extras_25 || 0);
+      const he35 = Number(lr.monto_horas_extras_35 || 0);
+      const horasExtras = Number(lr.horas_extras ?? (he25 + he35));
+      const retQuinta = Number(lr.retencion_quinta || 0);
+      const proy = lr.proyeccion_quinta_json && Object.keys(lr.proyeccion_quinta_json).length > 0
+        ? lr.proyeccion_quinta_json
+        : undefined;
+
+      return {
+        id: String(lr.id),
+        planillaId: planId,
+        trabajadorId: String(lr.trabajador_id),
+        trabajadorNombre: `${lr.apellidos}, ${lr.nombres}`,
+        trabajadorDocumento: String(lr.numero_documento),
+        trabajadorCargo: lr.cargo || undefined,
+        regimenLaboral: lr.regimen_laboral || undefined,
+        sistemaPensiones: lr.sistema_pensiones || undefined,
+        afpAdministradora: lr.afp_administradora || undefined,
+        cuspp: lr.cuspp || undefined,
+        diasLaborados: diasLab,
+        diasTrabajados: diasLab,
+        horasOrdinarias: diasLab * 8,
+        diasFaltas: Number(lr.dias_faltas || 0),
+        minutosTardanza: Number(lr.minutos_tardanza || 0),
+        horasExtras25: Number(lr.horas_extras_25 || 0),
+        horasExtras35: Number(lr.horas_extras_35 || 0),
+        montoHorasExtras25: he25,
+        montoHorasExtras35: he35,
+        sueldoBasico: Number(lr.sueldo_basico || 0),
+        asignacionFamiliar: Number(lr.asignacion_familiar || 0),
+        horasExtras,
+        bonificacionesGravadas: bonif,
+        conceptosNoGravados: Number(lr.conceptos_no_gravados || 0),
+        otrosIngresos: otrosIng,
+        descuentoFaltasTardanzas: Number(lr.descuento_faltas_tardanzas || 0),
+        totalRemuneracion: Number(lr.total_remuneracion || 0),
+        aporteObligatorioPension: Number(lr.aporte_obligatorio_pension || 0),
+        comisionAfp: Number(lr.comision_afp || 0),
+        primaSeguroAfp: Number(lr.prima_seguro_afp || 0),
+        retencionQuinta: retQuinta,
+        retencionQuintaCategoria: retQuinta,
+        adelantosPrestamos: adel,
+        otrosDescuentos: otrosDesc,
+        totalDescuentos: Number(lr.total_descuentos || 0),
+        aporteEssalud: Number(lr.aporte_essalud || 0),
+        netoPagar: Number(lr.neto_pagar || 0),
+        centroCosto: String(lr.centro_costo || 'ADMINISTRACION'),
+        proyeccionQuinta: proy
+      };
+    });
+
+    const model: PlanillaModel = {
+      id: planId,
+      empresaId: String(row.empresa_id),
+      periodoId: String(row.periodo_id),
+      mes: String(row.mes),
+      fechaCalculo: formatFechaIso(row.fecha_calculo) || `${row.mes}-28`,
+      fechaPago: formatFechaIso(row.fecha_pago),
+      totalIngresos: Number(row.total_ingresos || 0),
+      totalDescuentos: Number(row.total_descuentos || 0),
+      totalAportesEmpleador: Number(row.total_aportes_empleador || 0),
+      totalNeto: Number(row.total_neto || 0),
+      estado: row.estado,
+      asientoId: row.asiento_id ? String(row.asiento_id) : undefined,
+      asientoPagoId: row.asiento_pago_id ? String(row.asiento_pago_id) : undefined,
+      version: Number(row.version || 1),
+      lineas
+    };
+    planillas.push(syncPlanillaEnMemoria(model));
+  }
+
+  return planillas;
+}
+
+async function resolverPeriodoUuidParaPg(empresaId: string, mes: string): Promise<string | null> {
+  if (!db.isPostgresConnected() || !esUuidValido(empresaId)) return null;
+  let perCheck = await db.query(
+    `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2) LIMIT 1`,
+    [empresaId, mes]
+  );
+  if (perCheck.rows.length > 0) return String(perCheck.rows[0].id);
+
+  const anio = Number(mes.slice(0, 4)) || 2026;
+  await periodoService.listar(empresaId, anio);
+  perCheck = await db.query(
+    `SELECT id FROM periodos WHERE empresa_id = $1 AND codigo_periodo = $2 LIMIT 1`,
+    [empresaId, mes]
+  );
+  return perCheck.rows[0]?.id ? String(perCheck.rows[0].id) : null;
+}
+
+async function persistirPlanillaEnPg(planilla: PlanillaModel, userId: string): Promise<void> {
+  if (!db.isPostgresConnected() || !esUuidValido(planilla.empresaId)) return;
+
+  const perUuid = await resolverPeriodoUuidParaPg(planilla.empresaId, planilla.mes);
+  if (!perUuid) return;
+
+  planilla.periodoId = perUuid;
+  if (!esUuidValido(planilla.id)) {
+    planilla.id = crypto.randomUUID();
+  }
+
+  const asientoUuid = esUuidValido(planilla.asientoId) ? planilla.asientoId! : null;
+  const userUuid = esUuidValido(userId) ? userId : null;
+
+  const resPlan = await db.query(`
+    INSERT INTO planillas (
+      id, empresa_id, periodo_id, mes, fecha_calculo, fecha_pago,
+      total_ingresos, total_descuentos, total_aportes_empleador, total_neto,
+      estado, asiento_id, version, created_by
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    ON CONFLICT (empresa_id, mes) DO UPDATE SET
+      periodo_id = EXCLUDED.periodo_id,
+      fecha_calculo = EXCLUDED.fecha_calculo,
+      fecha_pago = EXCLUDED.fecha_pago,
+      total_ingresos = EXCLUDED.total_ingresos,
+      total_descuentos = EXCLUDED.total_descuentos,
+      total_aportes_empleador = EXCLUDED.total_aportes_empleador,
+      total_neto = EXCLUDED.total_neto,
+      estado = EXCLUDED.estado,
+      asiento_id = EXCLUDED.asiento_id,
+      version = planillas.version + 1,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING id, version
+  `, [
+    planilla.id, planilla.empresaId, perUuid, planilla.mes,
+    planilla.fechaCalculo, planilla.fechaPago || null,
+    planilla.totalIngresos, planilla.totalDescuentos,
+    planilla.totalAportesEmpleador, planilla.totalNeto,
+    planilla.estado, asientoUuid, planilla.version || 1, userUuid
+  ]);
+
+  if (resPlan.rows.length > 0) {
+    planilla.id = String(resPlan.rows[0].id);
+    planilla.version = Number(resPlan.rows[0].version || planilla.version || 1);
+  }
+
+  await db.query(`DELETE FROM planilla_lineas WHERE planilla_id = $1`, [planilla.id]);
+
+  for (const linea of planilla.lineas) {
+    linea.planillaId = planilla.id;
+    if (!esUuidValido(linea.trabajadorId)) continue;
+    if (!esUuidValido(linea.id)) {
+      linea.id = crypto.randomUUID();
+    }
+    const proyJson = linea.proyeccionQuinta ? JSON.stringify(linea.proyeccionQuinta) : '{}';
+    await db.query(`
+      INSERT INTO planilla_lineas (
+        id, planilla_id, trabajador_id, dias_laborados,
+        sueldo_basico, asignacion_familiar, horas_extras, otros_ingresos,
+        total_remuneracion, aporte_obligatorio_pension, comision_afp,
+        prima_seguro_afp, retencion_quinta, otros_descuentos,
+        total_descuentos, aporte_essalud, otros_aportes_empleador,
+        neto_pagar, centro_costo,
+        horas_extras_25, horas_extras_35, monto_horas_extras_25, monto_horas_extras_35,
+        dias_faltas, minutos_tardanza, descuento_faltas_tardanzas,
+        adelantos_prestamos, bonificaciones_gravadas, conceptos_no_gravados,
+        proyeccion_quinta_json
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
+        $29, $30::jsonb
+      )
+    `, [
+      linea.id, planilla.id, linea.trabajadorId, linea.diasLaborados,
+      linea.sueldoBasico, linea.asignacionFamiliar, linea.horasExtras, linea.otrosIngresos,
+      linea.totalRemuneracion, linea.aporteObligatorioPension, linea.comisionAfp,
+      linea.primaSeguroAfp, linea.retencionQuinta, linea.otrosDescuentos,
+      linea.totalDescuentos, linea.aporteEssalud, 0,
+      linea.netoPagar, linea.centroCosto || 'ADMINISTRACION',
+      linea.horasExtras25 || 0, linea.horasExtras35 || 0,
+      linea.montoHorasExtras25 || 0, linea.montoHorasExtras35 || 0,
+      linea.diasFaltas || 0, linea.minutosTardanza || 0,
+      linea.descuentoFaltasTardanzas || 0, linea.adelantosPrestamos || 0,
+      linea.bonificacionesGravadas || 0, linea.conceptosNoGravados || 0,
+      proyJson
+    ]);
+  }
+}
 
 export interface TrabajadorModel {
   id: string;
@@ -1261,10 +1557,18 @@ export const planillaService = {
   // 3. CÁLCULO DE PLANILLA MENSUAL (SUELDOS, HORAS EXTRAS, BAJA MITAD DE MES, 5TA)
   // --------------------------------------------------------------------------
   async listarPlanillas(empresaId: string): Promise<PlanillaModel[]> {
+    const desdePg = await cargarPlanillasDesdePg(empresaId);
+    if (desdePg !== null) {
+      return desdePg;
+    }
     return PLANILLAS_MEMORIA.filter(p => p.empresaId === empresaId);
   },
 
   async obtenerPlanillaPorMes(empresaId: string, mes: string): Promise<PlanillaModel | null> {
+    const desdePg = await cargarPlanillasDesdePg(empresaId, mes);
+    if (desdePg !== null) {
+      return desdePg[0] || null;
+    }
     return PLANILLAS_MEMORIA.find(p => p.empresaId === empresaId && p.mes === mes) || null;
   },
 
@@ -1275,6 +1579,10 @@ export const planillaService = {
     userId: string,
     novedades?: NovedadTrabajadorMes[]
   ): Promise<PlanillaModel> {
+    // Sincronizar trabajadores y planilla previa desde PostgreSQL si está conectado
+    await sincronizarTrabajadoresDesdePg(empresaId);
+    await cargarPlanillasDesdePg(empresaId, mes);
+
     // 1. Validar Período Contable Abierto
     const estadoPeriodo = await periodoService.obtenerEstadoPeriodo(empresaId, mes);
     if (estadoPeriodo === 'CERRADO' || estadoPeriodo === 'BLOQUEADO') {
@@ -1327,7 +1635,9 @@ export const planillaService = {
     let totAportesPatronales = Money.create(0);
     let totNeto = Money.create(0);
 
-    const planillaId = planillaExistente ? planillaExistente.id : `pla-${Date.now()}`;
+    const planillaId = planillaExistente
+      ? planillaExistente.id
+      : (db.isPostgresConnected() && esUuidValido(empresaId) ? crypto.randomUUID() : `pla-${crypto.randomUUID()}`);
 
     for (const trab of trabajadoresPeriodo) {
       // Validación normativa RMV del PERÍODO: Si la RMV subió en el período de la planilla, el sueldo base a jornada completa no puede ser inferior a la RMV vigente del período.
@@ -1471,7 +1781,7 @@ export const planillaService = {
       totNeto = Money.add(totNeto, netoPagar);
 
       lineas.push({
-        id: `pln-${Date.now()}-${trab.id}`,
+        id: db.isPostgresConnected() && esUuidValido(empresaId) ? crypto.randomUUID() : `pln-${crypto.randomUUID()}`,
         planillaId,
         trabajadorId: trab.id,
         trabajadorNombre: `${trab.apellidos}, ${trab.nombres}`,
@@ -1531,43 +1841,8 @@ export const planillaService = {
       lineas
     };
 
-    if (planillaExistente) {
-      const idx = PLANILLAS_MEMORIA.indexOf(planillaExistente);
-      PLANILLAS_MEMORIA[idx] = nuevaPlanilla;
-    } else {
-      PLANILLAS_MEMORIA.push(nuevaPlanilla);
-    }
-
-    if (db.isPostgresConnected()) {
-      try {
-        const perCheck = await db.query(
-          `SELECT id FROM periodos WHERE empresa_id = $1 AND (codigo_periodo = $2 OR anio || '-' || lpad(mes::text, 2, '0') = $2 OR id::text = $2) LIMIT 1`,
-          [empresaId, mes]
-        );
-        const perUuid = perCheck.rows[0]?.id || toUuid();
-        const planUuid = toUuid(nuevaPlanilla.id);
-
-        await db.query(`
-          INSERT INTO planillas (
-            id, empresa_id, periodo_id, mes, fecha_calculo, fecha_pago,
-            total_ingresos, total_descuentos, total_aportes_empleador, total_neto, estado, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          ON CONFLICT (empresa_id, mes) DO UPDATE SET
-            total_ingresos = EXCLUDED.total_ingresos,
-            total_descuentos = EXCLUDED.total_descuentos,
-            total_aportes_empleador = EXCLUDED.total_aportes_empleador,
-            total_neto = EXCLUDED.total_neto,
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          planUuid, empresaId, perUuid, mes, nuevaPlanilla.fechaCalculo, nuevaPlanilla.fechaPago,
-          nuevaPlanilla.totalIngresos, nuevaPlanilla.totalDescuentos,
-          nuevaPlanilla.totalAportesEmpleador, nuevaPlanilla.totalNeto,
-          nuevaPlanilla.estado, toUuid(userId)
-        ]);
-      } catch {
-        // Fallback a memoria
-      }
-    }
+    syncPlanillaEnMemoria(nuevaPlanilla);
+    await persistirPlanillaEnPg(nuevaPlanilla, userId);
 
     await auditoriaRepository.registrar({
       empresaId,
@@ -1581,31 +1856,214 @@ export const planillaService = {
     return nuevaPlanilla;
   },
 
-  // --------------------------------------------------------------------------
-  // 4. CONTABILIZAR PLANILLA POR CENTRO DE COSTOS (CUENTAS 62, 40, 41, 94/95 vs 79)
-  // --------------------------------------------------------------------------
-  async contabilizarPlanilla(empresaId: string, planillaId: string, userId: string) {
+  async actualizarPlanillaLineas(
+    empresaId: string,
+    planillaId: string,
+    lineasEditadas: Array<Partial<PlanillaLineaModel> & { id?: string; trabajadorId?: string }>,
+    userId: string
+  ): Promise<PlanillaModel> {
+    if (!Array.isArray(lineasEditadas) || lineasEditadas.length === 0) {
+      throw new Error('LINEAS_REQUERIDAS: Debe enviar al menos una línea para actualizar la planilla.');
+    }
+
+    await cargarPlanillasDesdePg(empresaId);
     const planilla = PLANILLAS_MEMORIA.find(p => p.id === planillaId && p.empresaId === empresaId);
     if (!planilla) throw new Error('PLANILLA_NO_ENCONTRADA');
+
     if (planilla.estado === 'CONTABILIZADA' || planilla.estado === 'PAGADA') {
-      throw new Error('PLANILLA_YA_CONTABILIZADA: La planilla ya se encuentra contabilizada.');
+      throw new Error('PLANILLA_CONTABILIZADA: Anule o reabra la planilla antes de modificar los montos.');
     }
 
     const estadoPeriodo = await periodoService.obtenerEstadoPeriodo(empresaId, planilla.mes);
     if (estadoPeriodo === 'CERRADO' || estadoPeriodo === 'BLOQUEADO') {
-      throw new Error(`PERIODO_CERRADO: El período ${planilla.mes} se encuentra ${estadoPeriodo}. No se puede contabilizar.`);
+      throw new Error(`PERIODO_CERRADO: El período ${planilla.mes} se encuentra ${estadoPeriodo}. No se puede modificar la planilla.`);
     }
 
-    // Construir líneas de asiento desglosadas por Centro de Costos (Cuentas 62, 40, 41, 14/45 y Destino 94/95/92 vs 79)
+    const validarNumeroNoNeg = (val: any, campo: string): number => {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < 0) {
+        throw new Error(`MONTO_INVALIDO: El campo ${campo} debe ser un número válido no negativo.`);
+      }
+      return Money.toNumber(Money.round(Money.create(n)));
+    };
+
+    for (const edit of lineasEditadas) {
+      const linea = planilla.lineas.find(
+        l => (edit.id && l.id === edit.id) || (edit.trabajadorId && l.trabajadorId === edit.trabajadorId)
+      );
+      if (!linea) continue;
+
+      if (edit.diasLaborados !== undefined) {
+        const d = Math.max(0, Math.min(30, Math.round(validarNumeroNoNeg(edit.diasLaborados, 'diasLaborados'))));
+        linea.diasLaborados = d;
+        linea.diasTrabajados = d;
+        linea.horasOrdinarias = d * 8;
+      }
+      if (edit.sueldoBasico !== undefined) linea.sueldoBasico = validarNumeroNoNeg(edit.sueldoBasico, 'sueldoBasico');
+      if (edit.asignacionFamiliar !== undefined) linea.asignacionFamiliar = validarNumeroNoNeg(edit.asignacionFamiliar, 'asignacionFamiliar');
+      if (edit.horasExtras !== undefined) {
+        const he = validarNumeroNoNeg(edit.horasExtras, 'horasExtras');
+        linea.horasExtras = he;
+        // Sincronizar montoHorasExtras25/35 para mantener consistencia visual cuando se edita manualmente el total de horas extras
+        linea.montoHorasExtras25 = he;
+        linea.montoHorasExtras35 = 0;
+      }
+
+      if (edit.bonificacionesGravadas !== undefined) {
+        linea.bonificacionesGravadas = validarNumeroNoNeg(edit.bonificacionesGravadas, 'bonificacionesGravadas');
+        linea.otrosIngresos = edit.otrosIngresos !== undefined
+          ? validarNumeroNoNeg(edit.otrosIngresos, 'otrosIngresos')
+          : linea.bonificacionesGravadas;
+      } else if (edit.otrosIngresos !== undefined) {
+        linea.otrosIngresos = validarNumeroNoNeg(edit.otrosIngresos, 'otrosIngresos');
+        linea.bonificacionesGravadas = linea.otrosIngresos;
+      }
+
+      if (edit.conceptosNoGravados !== undefined) {
+        linea.conceptosNoGravados = validarNumeroNoNeg(edit.conceptosNoGravados, 'conceptosNoGravados');
+      }
+      if (edit.descuentoFaltasTardanzas !== undefined) {
+        linea.descuentoFaltasTardanzas = validarNumeroNoNeg(edit.descuentoFaltasTardanzas, 'descuentoFaltasTardanzas');
+      }
+      if (edit.aporteObligatorioPension !== undefined) {
+        linea.aporteObligatorioPension = validarNumeroNoNeg(edit.aporteObligatorioPension, 'aporteObligatorioPension');
+      }
+      if (edit.comisionAfp !== undefined) {
+        linea.comisionAfp = validarNumeroNoNeg(edit.comisionAfp, 'comisionAfp');
+      }
+      if (edit.primaSeguroAfp !== undefined) {
+        linea.primaSeguroAfp = validarNumeroNoNeg(edit.primaSeguroAfp, 'primaSeguroAfp');
+      }
+      if (edit.retencionQuinta !== undefined) {
+        const rq = validarNumeroNoNeg(edit.retencionQuinta, 'retencionQuinta');
+        linea.retencionQuinta = rq;
+        linea.retencionQuintaCategoria = rq;
+      }
+      if (edit.adelantosPrestamos !== undefined) {
+        linea.adelantosPrestamos = validarNumeroNoNeg(edit.adelantosPrestamos, 'adelantosPrestamos');
+        linea.otrosDescuentos = edit.otrosDescuentos !== undefined
+          ? Math.max(linea.adelantosPrestamos, validarNumeroNoNeg(edit.otrosDescuentos, 'otrosDescuentos'))
+          : linea.adelantosPrestamos;
+      } else if (edit.otrosDescuentos !== undefined) {
+        linea.otrosDescuentos = validarNumeroNoNeg(edit.otrosDescuentos, 'otrosDescuentos');
+      }
+      if (edit.aporteEssalud !== undefined) {
+        linea.aporteEssalud = validarNumeroNoNeg(edit.aporteEssalud, 'aporteEssalud');
+      }
+      if (edit.centroCosto !== undefined && edit.centroCosto.trim()) {
+        linea.centroCosto = edit.centroCosto.trim().toUpperCase();
+      }
+
+      // Recalcular totales de la línea con Money
+      const ingresosGrav = Money.add(
+        Money.create(linea.sueldoBasico),
+        Money.add(
+          Money.create(linea.asignacionFamiliar),
+          Money.add(Money.create(linea.horasExtras), Money.create(linea.bonificacionesGravadas || linea.otrosIngresos || 0))
+        )
+      );
+      const descFaltas = Money.create(linea.descuentoFaltasTardanzas || 0);
+      const remGravNeta = Money.toNumber(ingresosGrav) > Money.toNumber(descFaltas)
+        ? Money.sub(ingresosGrav, descFaltas)
+        : Money.create(0);
+      const totalRemun = Money.round(Money.add(remGravNeta, Money.create(linea.conceptosNoGravados || 0)));
+
+      const totalDesc = Money.round(
+        Money.add(
+          Money.create(linea.aporteObligatorioPension),
+          Money.add(
+            Money.create(linea.comisionAfp),
+            Money.add(
+              Money.create(linea.primaSeguroAfp),
+              Money.add(Money.create(linea.retencionQuinta), Money.create(linea.otrosDescuentos))
+            )
+          )
+        )
+      );
+
+      if (Money.toNumber(totalDesc) > Money.toNumber(totalRemun)) {
+        throw new Error(
+          `NETO_NEGATIVO: Para ${linea.trabajadorNombre}, los descuentos (S/ ${Money.toNumber(totalDesc).toFixed(2)}) superan la remuneración total (S/ ${Money.toNumber(totalRemun).toFixed(2)}).`
+        );
+      }
+
+      const neto = Money.round(Money.sub(totalRemun, totalDesc));
+      linea.totalRemuneracion = Money.toNumber(totalRemun);
+      linea.totalDescuentos = Money.toNumber(totalDesc);
+      linea.netoPagar = Money.toNumber(neto);
+    }
+
+    // Recalcular totales globales de cabecera
+    let totIngresos = Money.create(0);
+    let totDescuentos = Money.create(0);
+    let totAportes = Money.create(0);
+    let totNeto = Money.create(0);
+    for (const l of planilla.lineas) {
+      totIngresos = Money.add(totIngresos, Money.create(l.totalRemuneracion));
+      totDescuentos = Money.add(totDescuentos, Money.create(l.totalDescuentos));
+      totAportes = Money.add(totAportes, Money.create(l.aporteEssalud));
+      totNeto = Money.add(totNeto, Money.create(l.netoPagar));
+    }
+
+    planilla.totalIngresos = Money.toNumber(Money.round(totIngresos));
+    planilla.totalDescuentos = Money.toNumber(Money.round(totDescuentos));
+    planilla.totalAportesEmpleador = Money.toNumber(Money.round(totAportes));
+    planilla.totalNeto = Money.toNumber(Money.round(totNeto));
+    planilla.estado = 'CALCULADA';
+    planilla.version = (planilla.version || 1) + 1;
+
+    syncPlanillaEnMemoria(planilla);
+    await persistirPlanillaEnPg(planilla, userId);
+
+    await auditoriaRepository.registrar({
+      empresaId,
+      usuarioId: userId,
+      accion: 'ACTUALIZAR_PLANILLA_LINEAS',
+      tabla: 'planillas',
+      registroId: planilla.id,
+      valoresNuevos: {
+        mes: planilla.mes,
+        totalIngresos: planilla.totalIngresos,
+        totalDescuentos: planilla.totalDescuentos,
+        totalAportesEmpleador: planilla.totalAportesEmpleador,
+        totalNeto: planilla.totalNeto
+      }
+    });
+
+    return planilla;
+  },
+
+  // --------------------------------------------------------------------------
+  // 4. PROPUESTA EDITABLE Y CONTABILIZACIÓN POR CENTRO DE COSTOS (62, 40, 41, 94/95 vs 79)
+  // --------------------------------------------------------------------------
+  async generarPropuestaAsientoPlanilla(empresaId: string, planillaId: string) {
+    await cargarPlanillasDesdePg(empresaId);
+    await sincronizarTrabajadoresDesdePg(empresaId);
+    const planilla = PLANILLAS_MEMORIA.find(p => p.id === planillaId && p.empresaId === empresaId);
+    if (!planilla) throw new Error('PLANILLA_NO_ENCONTRADA');
+
     const lineasAsiento: Array<{
       codigoCuenta: string;
+      denominacionCuenta: string;
       debe: number;
       haber: number;
       glosa: string;
       centroCostoId?: string;
     }> = [];
 
-    // Agrupar gastos de personal (Elemento 6) por Centro de Costos
+    const agregarLinea = (item: {
+      codigoCuenta: string;
+      debe: number;
+      haber: number;
+      glosa: string;
+      centroCostoId?: string;
+    }) => {
+      lineasAsiento.push({
+        ...item,
+        denominacionCuenta: buscarCuentaPCGE(item.codigoCuenta)?.nombre || `Cuenta ${item.codigoCuenta}`
+      });
+    };
+
     const porCentroCosto = new Map<string, PlanillaLineaModel[]>();
     for (const l of planilla.lineas) {
       const cc = (l.centroCosto || 'ADMINISTRACION').toUpperCase();
@@ -1625,7 +2083,7 @@ export const planillaService = {
       );
 
       if (!remBrutaCc.isZero()) {
-        lineasAsiento.push({
+        agregarLinea({
           codigoCuenta: '6211',
           debe: Money.toNumber(remBrutaCc),
           haber: 0,
@@ -1634,7 +2092,7 @@ export const planillaService = {
         });
       }
       if (!essaludCc.isZero()) {
-        lineasAsiento.push({
+        agregarLinea({
           codigoCuenta: '6271',
           debe: Money.toNumber(essaludCc),
           haber: 0,
@@ -1653,7 +2111,6 @@ export const planillaService = {
       destinosPorCentro.push({ cc, cuenta9, monto: Money.toNumber(subtotalCc) });
     }
 
-    // Pasivos Tributarios, Previsionales y Laborales (Cuentas 40, 41, 14)
     const totalEsSalud = Money.round(
       planilla.lineas.reduce((acc, l) => Money.add(acc, Money.create(l.aporteEssalud)), Money.create(0))
     );
@@ -1683,7 +2140,7 @@ export const planillaService = {
     );
 
     if (!totalEsSalud.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '4031',
         debe: 0,
         haber: Money.toNumber(totalEsSalud),
@@ -1691,7 +2148,7 @@ export const planillaService = {
       });
     }
     if (!totalAporteONP.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '4032',
         debe: 0,
         haber: Money.toNumber(totalAporteONP),
@@ -1699,7 +2156,7 @@ export const planillaService = {
       });
     }
     if (!totalAFP.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '407',
         debe: 0,
         haber: Money.toNumber(totalAFP),
@@ -1707,7 +2164,7 @@ export const planillaService = {
       });
     }
     if (!totalRetQuinta.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '40173',
         debe: 0,
         haber: Money.toNumber(totalRetQuinta),
@@ -1715,7 +2172,7 @@ export const planillaService = {
       });
     }
     if (!totalOtrosDesc.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '1411',
         debe: 0,
         haber: Money.toNumber(totalOtrosDesc),
@@ -1723,7 +2180,7 @@ export const planillaService = {
       });
     }
     if (!totalNeto.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '4111',
         debe: 0,
         haber: Money.toNumber(totalNeto),
@@ -1731,10 +2188,9 @@ export const planillaService = {
       });
     }
 
-    // Asiento de Destino por Centro de Costos (Elemento 9 vs 791)
     for (const dest of destinosPorCentro) {
       if (dest.monto > 0) {
-        lineasAsiento.push({
+        agregarLinea({
           codigoCuenta: dest.cuenta9,
           debe: dest.monto,
           haber: 0,
@@ -1744,7 +2200,7 @@ export const planillaService = {
       }
     }
     if (!costoTotalDestino.isZero()) {
-      lineasAsiento.push({
+      agregarLinea({
         codigoCuenta: '791',
         debe: 0,
         haber: Money.toNumber(costoTotalDestino),
@@ -1752,13 +2208,121 @@ export const planillaService = {
       });
     }
 
+    const totalDebe = Money.toNumber(
+      Money.round(lineasAsiento.reduce((s, l) => Money.add(s, Money.create(l.debe)), Money.create(0)))
+    );
+    const totalHaber = Money.toNumber(
+      Money.round(lineasAsiento.reduce((s, l) => Money.add(s, Money.create(l.haber)), Money.create(0)))
+    );
+
+    return {
+      planillaId: planilla.id,
+      mes: planilla.mes,
+      fecha: `${planilla.mes}-28`,
+      subdiario: '07',
+      glosa: `Planilla de sueldos y aportes patronales por centro de costos - ${planilla.mes}`,
+      lineas: lineasAsiento,
+      totalDebe,
+      totalHaber,
+      cuadrado: Math.abs(totalDebe - totalHaber) < 0.01
+    };
+  },
+
+  async contabilizarPlanilla(
+    empresaId: string,
+    planillaId: string,
+    userId: string,
+    opciones?: {
+      fecha?: string;
+      subdiario?: string;
+      glosa?: string;
+      lineas?: Array<{
+        codigoCuenta: string;
+        debe: number;
+        haber: number;
+        glosa?: string;
+        centroCostoId?: string;
+      }>;
+    }
+  ) {
+    await cargarPlanillasDesdePg(empresaId);
+    const planilla = PLANILLAS_MEMORIA.find(p => p.id === planillaId && p.empresaId === empresaId);
+    if (!planilla) throw new Error('PLANILLA_NO_ENCONTRADA');
+    if (planilla.estado === 'CONTABILIZADA' || planilla.estado === 'PAGADA') {
+      throw new Error('PLANILLA_YA_CONTABILIZADA: La planilla ya se encuentra contabilizada.');
+    }
+
+    const estadoPeriodo = await periodoService.obtenerEstadoPeriodo(empresaId, planilla.mes);
+    if (estadoPeriodo === 'CERRADO' || estadoPeriodo === 'BLOQUEADO') {
+      throw new Error(`PERIODO_CERRADO: El período ${planilla.mes} se encuentra ${estadoPeriodo}. No se puede contabilizar.`);
+    }
+
+    let lineasAsiento: Array<{
+      codigoCuenta: string;
+      debe: number;
+      haber: number;
+      glosa: string;
+      centroCostoId?: string;
+    }>;
+
+    const propuesta = await this.generarPropuestaAsientoPlanilla(empresaId, planillaId);
+
+    if (opciones?.lineas && opciones.lineas.length > 0) {
+      if (opciones.lineas.length < 2) {
+        throw new Error('ASIENTO_INVALIDO: El asiento de planilla debe tener al menos 2 líneas.');
+      }
+      let sumDebe = Money.create(0);
+      let sumHaber = Money.create(0);
+      lineasAsiento = opciones.lineas.map((l, idx) => {
+        const codigo = (l.codigoCuenta || '').trim();
+        if (!codigo) {
+          throw new Error(`CUENTA_REQUERIDA: La línea ${idx + 1} no tiene código de cuenta PCGE.`);
+        }
+        const d = Number(l.debe || 0);
+        const h = Number(l.haber || 0);
+        if (!Number.isFinite(d) || !Number.isFinite(h) || d < 0 || h < 0) {
+          throw new Error(`MONTO_INVALIDO: Valores inválidos en la línea ${idx + 1}.`);
+        }
+        if ((d === 0 && h === 0) || (d > 0 && h > 0)) {
+          throw new Error(`LINEA_INVALIDA: La línea ${idx + 1} (${codigo}) debe tener monto positivo exclusivamente en Debe o en Haber.`);
+        }
+        sumDebe = Money.add(sumDebe, Money.create(d));
+        sumHaber = Money.add(sumHaber, Money.create(h));
+        return {
+          codigoCuenta: codigo,
+          debe: Money.toNumber(Money.round(Money.create(d))),
+          haber: Money.toNumber(Money.round(Money.create(h))),
+          glosa: (l.glosa || opciones.glosa || propuesta.glosa).trim(),
+          centroCostoId: l.centroCostoId
+        };
+      });
+
+      const totD = Money.toNumber(Money.round(sumDebe));
+      const totH = Money.toNumber(Money.round(sumHaber));
+      if (Math.abs(totD - totH) >= 0.01) {
+        throw new Error(`ASIENTO_DESCUADRADO: La partida doble no cuadra (Debe S/ ${totD.toFixed(2)} vs Haber S/ ${totH.toFixed(2)}).`);
+      }
+    } else {
+      lineasAsiento = propuesta.lineas.map(l => ({
+        codigoCuenta: l.codigoCuenta,
+        debe: l.debe,
+        haber: l.haber,
+        glosa: l.glosa,
+        centroCostoId: l.centroCostoId
+      }));
+    }
+
+    const fechaAsiento = opciones?.fecha || propuesta.fecha;
+    const subdiarioAsiento = opciones?.subdiario || propuesta.subdiario;
+    const glosaAsiento = (opciones?.glosa || propuesta.glosa).trim();
+
     const asiento = await asientoService.crearAsiento(empresaId, {
       periodoId: planilla.periodoId || `per-${planilla.mes}`,
-      subdiario: '07', // Subdiario 07 Planilla de Remuneraciones
-      fecha: `${planilla.mes}-28`,
+      subdiario: subdiarioAsiento,
+      fecha: fechaAsiento,
       moneda: 'PEN',
       tipoCambio: 1.0,
-      glosa: `Planilla de sueldos y aportes patronales por centro de costos - ${planilla.mes}`,
+      glosa: glosaAsiento,
       origenModulo: 'PLANILLA',
       lineas: lineasAsiento
     }, userId);
@@ -1766,13 +2330,23 @@ export const planillaService = {
     planilla.estado = 'CONTABILIZADA';
     planilla.asientoId = asiento.id;
 
+    if (db.isPostgresConnected() && esUuidValido(empresaId) && esUuidValido(planilla.id)) {
+      const asientoUuid = esUuidValido(asiento.id) ? asiento.id : null;
+      await db.query(
+        `UPDATE planillas
+         SET estado = 'CONTABILIZADA', asiento_id = $1, version = version + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 AND empresa_id = $3`,
+        [asientoUuid, planilla.id, empresaId]
+      );
+    }
+
     await auditoriaRepository.registrar({
       empresaId,
       usuarioId: userId,
       accion: 'CONTABILIZAR_PLANILLA',
       tabla: 'planillas',
       registroId: planilla.id,
-      valoresNuevos: { estado: 'CONTABILIZADA', asientoId: asiento.id }
+      valoresNuevos: { estado: 'CONTABILIZADA', asientoId: asiento.id, personalizado: Boolean(opciones?.lineas) }
     });
 
     return {
@@ -1785,6 +2359,7 @@ export const planillaService = {
   },
 
   async anularPlanilla(empresaId: string, planillaId: string, motivo: string, userId: string) {
+    await cargarPlanillasDesdePg(empresaId);
     const planilla = PLANILLAS_MEMORIA.find(p => p.id === planillaId && p.empresaId === empresaId);
     if (!planilla) throw new Error('PLANILLA_NO_ENCONTRADA');
 
@@ -1799,6 +2374,15 @@ export const planillaService = {
 
     planilla.estado = 'BORRADOR';
     planilla.asientoId = undefined;
+
+    if (db.isPostgresConnected() && esUuidValido(empresaId) && esUuidValido(planilla.id)) {
+      await db.query(
+        `UPDATE planillas
+         SET estado = 'BORRADOR', asiento_id = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND empresa_id = $2`,
+        [planilla.id, empresaId]
+      );
+    }
 
     await auditoriaRepository.registrar({
       empresaId,

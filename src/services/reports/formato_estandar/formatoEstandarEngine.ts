@@ -672,7 +672,7 @@ export function construirDefinicionLibroDiarioEstandar(
  */
 export function construirDefinicionLibroMayorEstandar(
   empresa: EmpresaCliente,
-  asientos: any[],
+  asientosOFuente: any,
   periodo: string,
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
@@ -699,30 +699,49 @@ export function construirDefinicionLibroMayorEstandar(
 
   const movimientosPorCuenta = new Map<string, { denominacion: string; lineas: any[] }>();
 
-  asientos.forEach((a) => {
-    const cuo = a.cuo || a.numeroAsiento || a.numero || 'AST-0001';
-    const vou = a.numeroAsiento || a.numeroVoucher || a.numero || cuo;
-    const fecha = formatearFechaEstandar(a.fechaContable || a.fecha);
-    const glosaGen = a.glosa || a.glosaGeneral || 'Operación contable';
-
-    const lineas = a.items || a.lineas || a.detalles || [];
-    lineas.forEach((l: any) => {
-      const cta = String(l.codigoCuenta || l.cuentaCodigo || l.codigo || l.cuentaId || '1011');
-      const nom = l.denominacionCuenta || l.cuentaDenominacion || l.denominacion || 'Cuenta PCGE';
-
-      if (!movimientosPorCuenta.has(cta)) {
-        movimientosPorCuenta.set(cta, { denominacion: nom, lineas: [] });
-      }
-      movimientosPorCuenta.get(cta)!.lineas.push({
-        fecha,
-        cuo,
-        voucher: vou,
-        glosa: l.glosa || glosaGen,
-        debe: Number(l.debe || 0),
-        haber: Number(l.haber || 0)
+  if (asientosOFuente && !Array.isArray(asientosOFuente) && Array.isArray(asientosOFuente.cuentas)) {
+    (asientosOFuente.cuentas as any[]).forEach((c) => {
+      const cta = String(c.codigoCuenta || '1011');
+      const nom = c.nombreCuenta || 'Cuenta PCGE';
+      movimientosPorCuenta.set(cta, {
+        denominacion: nom,
+        lineas: (c.movimientos || []).map((m: any) => ({
+          fecha: formatearFechaEstandar(m.fecha),
+          cuo: m.asientoNumero || m.asientoId || 'AST-0001',
+          voucher: m.asientoNumero || 'AST-0001',
+          glosa: m.glosa || 'Operación contable',
+          debe: Number(m.debe || 0),
+          haber: Number(m.haber || 0)
+        }))
       });
     });
-  });
+  } else {
+    const asientos = Array.isArray(asientosOFuente) ? asientosOFuente : [];
+    asientos.forEach((a) => {
+      const cuo = a.cuo || a.numeroAsiento || a.numero || 'AST-0001';
+      const vou = a.numeroAsiento || a.numeroVoucher || a.numero || cuo;
+      const fecha = formatearFechaEstandar(a.fechaContable || a.fecha);
+      const glosaGen = a.glosa || a.glosaGeneral || 'Operación contable';
+
+      const lineas = a.items || a.lineas || a.detalles || [];
+      lineas.forEach((l: any) => {
+        const cta = String(l.codigoCuenta || l.cuentaCodigo || l.codigo || l.cuentaId || '1011');
+        const nom = l.denominacionCuenta || l.cuentaDenominacion || l.denominacion || 'Cuenta PCGE';
+
+        if (!movimientosPorCuenta.has(cta)) {
+          movimientosPorCuenta.set(cta, { denominacion: nom, lineas: [] });
+        }
+        movimientosPorCuenta.get(cta)!.lineas.push({
+          fecha,
+          cuo,
+          voucher: vou,
+          glosa: l.glosa || glosaGen,
+          debe: Number(l.debe || 0),
+          haber: Number(l.haber || 0)
+        });
+      });
+    });
+  }
 
   const cuentasOrdenadas = Array.from(movimientosPorCuenta.keys()).sort();
   const totalesGenerales: Record<string, number> = { debe: 0, haber: 0 };
@@ -785,12 +804,141 @@ export function construirDefinicionLibroMayorEstandar(
  */
 export function construirDefinicionHojaTrabajo10ColEstandar(
   empresa: EmpresaCliente,
-  asientos: any[],
+  asientosOReporte: any,
   periodo: string,
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
+
+  // Si recibe directamente el HojaTrabajo10ColumnasReporte calculado desde PostgreSQL:
+  if (asientosOReporte && !Array.isArray(asientosOReporte) && Array.isArray(asientosOReporte.filas)) {
+    const rep = asientosOReporte;
+    // 12 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
+    const columnas: ColumnaReporteEstandar[] = [
+      { id: 'codigo', label: 'Cuenta', align: 'center', cellWidthPdf: 15 },
+      { id: 'denominacion', label: 'Denominación de la Cuenta', align: 'left', cellWidthPdf: 58 },
+      { id: 'montosDebe', label: 'Débito', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'montosHaber', label: 'Crédito', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'saldoDeudor', label: 'Deudor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'saldoAcreedor', label: 'Acreedor', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'inventarioActivo', label: 'Activo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'inventarioPasivo', label: 'Pasivo', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'naturalezaPerdida', label: 'Pérdida', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'naturalezaGanancia', label: 'Ganancia', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'funcionPerdida', label: 'Pérdida', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 },
+      { id: 'funcionGanancia', label: 'Ganancia', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 21 }
+    ];
+
+    const superHeaders: SuperHeaderColumna[] = [
+      { label: 'Cuenta PCGE', colSpan: 2 },
+      { label: 'Montos', colSpan: 2 },
+      { label: 'Saldo', colSpan: 2 },
+      { label: 'Inventario', colSpan: 2 },
+      { label: 'Naturaleza', colSpan: 2 },
+      { label: 'Función', colSpan: 2 }
+    ];
+
+    const elementosMap = new Map<string, any[]>();
+    const nombresElementos: Record<string, string> = {
+      '1': 'ELEMENTO 1 - ACTIVO DISPONIBLE Y EXIGIBLE',
+      '2': 'ELEMENTO 2 - ACTIVO REALIZABLE',
+      '3': 'ELEMENTO 3 - ACTIVO INMOVILIZADO',
+      '4': 'ELEMENTO 4 - PASIVO',
+      '5': 'ELEMENTO 5 - PATRIMONIO NETO',
+      '6': 'ELEMENTO 6 - GASTOS POR NATURALEZA',
+      '7': 'ELEMENTO 7 - INGRESOS',
+      '8': 'ELEMENTO 8 - SALDOS INTERMEDIARIOS DE GESTIÓN',
+      '9': 'ELEMENTO 9 - CUENTAS ANALÍTICAS DE EXPLOTACIÓN'
+    };
+
+    for (const f of rep.filas) {
+      const elem = String(f.elemento || String(f.codigoCuenta).charAt(0) || '1');
+      if (!elementosMap.has(elem)) elementosMap.set(elem, []);
+      elementosMap.get(elem)!.push({
+        codigo: f.codigoCuenta,
+        denominacion: f.nombreCuenta,
+        montosDebe: Number(f.montosDebe || 0),
+        montosHaber: Number(f.montosHaber || 0),
+        saldoDeudor: Number(f.saldoDeudor || 0),
+        saldoAcreedor: Number(f.saldoAcreedor || 0),
+        inventarioActivo: Number(f.inventarioActivo || 0),
+        inventarioPasivo: Number(f.inventarioPasivo || 0),
+        naturalezaPerdida: Number(f.naturalezaPerdida || 0),
+        naturalezaGanancia: Number(f.naturalezaGanancia || 0),
+        funcionPerdida: Number(f.funcionPerdida || 0),
+        funcionGanancia: Number(f.funcionGanancia || 0)
+      });
+    }
+
+    const keysNum = [
+      'montosDebe', 'montosHaber', 'saldoDeudor', 'saldoAcreedor',
+      'inventarioActivo', 'inventarioPasivo', 'naturalezaPerdida', 'naturalezaGanancia',
+      'funcionPerdida', 'funcionGanancia'
+    ];
+
+    const grupos: FilaGrupoReporteEstandar[] = Array.from(elementosMap.keys()).sort().map((elem) => {
+      const filas = elementosMap.get(elem)!;
+      const totalesGrupo: Record<string, number> = {};
+      keysNum.forEach(k => { totalesGrupo[k] = 0; });
+      filas.forEach(f => keysNum.forEach(k => { totalesGrupo[k] += Number(f[k] || 0); }));
+      return {
+        grupoId: elem,
+        tituloGrupo: nombresElementos[elem] || `ELEMENTO ${elem}`,
+        filas,
+        totalesGrupo
+      };
+    });
+
+    if (rep.filaResultado && rep.filas.length > 0) {
+      const fr = rep.filaResultado;
+      const filaEq: Record<string, any> = {
+        codigo: 'RES',
+        denominacion: fr.etiqueta || 'RESULTADO DEL EJERCICIO',
+        montosDebe: 0,
+        montosHaber: 0,
+        saldoDeudor: 0,
+        saldoAcreedor: 0,
+        inventarioActivo: Number(fr.inventarioActivo || 0),
+        inventarioPasivo: Number(fr.inventarioPasivo || 0),
+        naturalezaPerdida: Number(fr.naturalezaPerdida || 0),
+        naturalezaGanancia: Number(fr.naturalezaGanancia || 0),
+        funcionPerdida: Number(fr.funcionPerdida || 0),
+        funcionGanancia: Number(fr.funcionGanancia || 0)
+      };
+      const totalesGrupoEq: Record<string, number> = {};
+      keysNum.forEach(k => { totalesGrupoEq[k] = Number(filaEq[k] || 0); });
+      grupos.push({
+        grupoId: 'RESULTADO',
+        tituloGrupo: 'RESULTADO DEL EJERCICIO (EQUILIBRIO)',
+        filas: [filaEq],
+        totalesGrupo: totalesGrupoEq
+      });
+    }
+
+    const sumas = rep.sumasIguales || rep.totales || {};
+    const totalesGenerales: Record<string, number> = {};
+    keysNum.forEach(k => { totalesGenerales[k] = Number(sumas[k] || 0); });
+
+    return {
+      titulo: rep.titulo || `HOJA DE TRABAJO 10 COLUMNAS AL MES DE ${mesNombre} DEL ${anio}`,
+      orientacion: 'landscape',
+      empresa: {
+        razonSocial: rep.razonSocial || empresa.razonSocial || 'EMPRESA CONTABLE',
+        ruc: rep.ruc || empresa.ruc || '20000000001',
+        direccion: rep.direccion || empresa.direccionFiscal || 'LIMA - PERÚ',
+        periodo: `${anio} - ${mesNombre}`
+      },
+      moneda: 'SOLES',
+      superHeaders,
+      columnas,
+      grupos,
+      totalesGenerales,
+      mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora
+    };
+  }
+
+  const asientos = Array.isArray(asientosOReporte) ? asientosOReporte : [];
 
   // 12 columnas calibradas exactamente a A4 Horizontal (283 mm útiles, margen 7 mm)
   const columnas: ColumnaReporteEstandar[] = [
@@ -975,70 +1123,60 @@ export function construirDefinicionEstadoSituacionFinancieraEstandar(
   periodo: string,
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
+  const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
-  // 5 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
+  // 4 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'codigo', label: 'Código', align: 'center', cellWidthPdf: 16 },
-    { id: 'rubro', label: 'Rubro / Concepto Financiero', align: 'left', cellWidthPdf: 94 },
-    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 14 },
-    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 33 },
-    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 33 }
+    { id: 'codigo', label: 'Cuenta', align: 'center', cellWidthPdf: 20 },
+    { id: 'rubro', label: 'Rubro / Partida Contable (PCGE)', align: 'left', cellWidthPdf: 112 },
+    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 16 },
+    { id: 'importe', label: `Saldo al Cierre ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 42 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
-    { label: 'Clasificación Financiera Oficial', colSpan: 3 },
-    { label: 'Importes al Cierre del Período', colSpan: 2 }
+    { label: 'Clasificación Financiera Oficial (Formato 3.1 SUNAT)', colSpan: 3 },
+    { label: 'Importes (Soles)', colSpan: 1 }
   ];
+
+  const mapearBloque = (items: any[] | undefined, notaDefault: string) =>
+    (Array.isArray(items) ? items : []).map((it) => ({
+      codigo: String(it.codigo || ''),
+      rubro: String(it.nombre || it.rubro || 'Cuenta'),
+      nota: it.nota ? String(it.nota) : notaDefault,
+      importe: Number(it.monto ?? it.importe ?? 0)
+    }));
+
+  const filasPatrimonio = mapearBloque(dataEEFF?.patrimonioNeto, '5');
+  const resultadoEj = Number(dataEEFF?.resultadoDelEjercicio || 0);
+  if (resultadoEj !== 0 || (Array.isArray(dataEEFF?.activoCorriente) && dataEEFF.activoCorriente.length > 0)) {
+    filasPatrimonio.push({
+      codigo: '59 / 89',
+      rubro: 'Resultado del Ejercicio',
+      nota: '5',
+      importe: resultadoEj
+    });
+  }
 
   const gruposDef = [
-    {
-      id: 'ACT_CTE',
-      titulo: '1. ACTIVO CORRIENTE',
-      filas: [
-        { codigo: '10', rubro: 'Efectivo y equivalentes de efectivo', nota: '3', ejercicioActual: Number(dataEEFF?.efectivo || 125000), ejercicioAnterior: 110000 },
-        { codigo: '12', rubro: 'Cuentas por cobrar comerciales - Terceros', nota: '4', ejercicioActual: Number(dataEEFF?.cuentasPorCobrar || 45200), ejercicioAnterior: 38000 },
-        { codigo: '20', rubro: 'Inventarios / Mercaderías manufacturadas', nota: '5', ejercicioActual: Number(dataEEFF?.inventarios || 78400), ejercicioAnterior: 65000 },
-        { codigo: '18', rubro: 'Servicios y otros contratados por anticipado', nota: '6', ejercicioActual: 6200, ejercicioAnterior: 4500 }
-      ]
-    },
-    {
-      id: 'ACT_NO_CTE',
-      titulo: '2. ACTIVO NO CORRIENTE',
-      filas: [
-        { codigo: '33', rubro: 'Propiedad, planta y equipo (Costo neto)', nota: '7', ejercicioActual: Number(dataEEFF?.activoFijo || 185000), ejercicioAnterior: 195000 },
-        { codigo: '34', rubro: 'Intangibles distintos de la plusvalía', nota: '8', ejercicioActual: 12000, ejercicioAnterior: 15000 }
-      ]
-    },
-    {
-      id: 'PAS_CTE',
-      titulo: '3. PASIVO CORRIENTE',
-      filas: [
-        { codigo: '40', rubro: 'Tributos, contraprestaciones y aportes por pagar', nota: '9', ejercicioActual: Number(dataEEFF?.tributosPorPagar || 14800), ejercicioAnterior: 12500 },
-        { codigo: '41', rubro: 'Remuneraciones y participaciones por pagar', nota: '10', ejercicioActual: Number(dataEEFF?.remuneracionesPorPagar || 18900), ejercicioAnterior: 16800 },
-        { codigo: '42', rubro: 'Cuentas por pagar comerciales - Terceros', nota: '11', ejercicioActual: Number(dataEEFF?.cuentasPorPagar || 62100), ejercicioAnterior: 54000 }
-      ]
-    },
-    {
-      id: 'PAT_NETO',
-      titulo: '4. PATRIMONIO NETO',
-      filas: [
-        { codigo: '50', rubro: 'Capital social emitido', nota: '12', ejercicioActual: Number(dataEEFF?.capitalSocial || 250000), ejercicioAnterior: 250000 },
-        { codigo: '58', rubro: 'Reservas legales', nota: '13', ejercicioActual: 25000, ejercicioAnterior: 20000 },
-        { codigo: '59', rubro: 'Resultados acumulados y del ejercicio', nota: '14', ejercicioActual: Number(dataEEFF?.resultadosAcumulados || 81000), ejercicioAnterior: 69200 }
-      ]
-    }
+    { id: 'ACT_CTE', titulo: '1. ACTIVO CORRIENTE', filas: mapearBloque(dataEEFF?.activoCorriente, '1') },
+    { id: 'ACT_NO_CTE', titulo: '2. ACTIVO NO CORRIENTE', filas: mapearBloque(dataEEFF?.activoNoCorriente, '2') },
+    { id: 'PAS_CTE', titulo: '3. PASIVO CORRIENTE', filas: mapearBloque(dataEEFF?.pasivoCorriente, '3') },
+    { id: 'PAS_NO_CTE', titulo: '4. PASIVO NO CORRIENTE', filas: mapearBloque(dataEEFF?.pasivoNoCorriente, '4') },
+    { id: 'PAT_NETO', titulo: '5. PATRIMONIO NETO', filas: filasPatrimonio }
   ];
 
-  const totalesGenerales: Record<string, number> = { ejercicioActual: 0, ejercicioAnterior: 0 };
+  const totalesGenerales: Record<string, number> = {
+    importe: Number(dataEEFF?.totalActivo ?? 0)
+  };
   const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => {
-    const totalesGrupo: Record<string, number> = { ejercicioActual: 0, ejercicioAnterior: 0 };
+    const totalesGrupo: Record<string, number> = { importe: 0 };
     g.filas.forEach((f) => {
-      totalesGrupo.ejercicioActual += f.ejercicioActual;
-      totalesGrupo.ejercicioAnterior += f.ejercicioAnterior;
-      totalesGenerales.ejercicioActual += f.ejercicioActual;
-      totalesGenerales.ejercicioAnterior += f.ejercicioAnterior;
+      totalesGrupo.importe += f.importe;
     });
+    if (dataEEFF?.totalActivo === undefined && (g.id === 'ACT_CTE' || g.id === 'ACT_NO_CTE')) {
+      totalesGenerales.importe += totalesGrupo.importe;
+    }
 
     return {
       grupoId: g.id,
@@ -1055,7 +1193,7 @@ export function construirDefinicionEstadoSituacionFinancieraEstandar(
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
       ruc: empresa.ruc || '20000000001',
       direccion: empresa.direccionFiscal || 'LIMA - PERÚ',
-      periodo: `AL 31 DE DICIEMBRE DE ${anio}`
+      periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
     superHeaders,
@@ -1075,71 +1213,69 @@ export function construirDefinicionEstadoResultadosEstandar(
   periodo: string,
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
+  const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
   // 4 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'rubro', label: 'Concepto / Rubro del Estado de Resultados', align: 'left', cellWidthPdf: 108 },
-    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 14 },
-    { id: 'ejercicioActual', label: `Ejercicio ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
-    { id: 'ejercicioAnterior', label: `Ejercicio ${Number(anio) - 1} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
+    { id: 'codigo', label: 'PCGE', align: 'center', cellWidthPdf: 24 },
+    { id: 'rubro', label: 'Concepto / Rubro del Estado de Resultados', align: 'left', cellWidthPdf: 98 },
+    { id: 'porFuncion', label: 'Por Función (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
+    { id: 'porNaturaleza', label: 'Por Naturaleza (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
   ];
 
   const superHeaders: SuperHeaderColumna[] = [
-    { label: 'Estructura Financiera por Función y Naturaleza', colSpan: 2 },
-    { label: 'Resultados del Ejercicio (Soles)', colSpan: 2 }
+    { label: 'Estructura Financiera (Formato 3.20 SUNAT)', colSpan: 2 },
+    { label: `Resultados Acumulados al Mes (${anio})`, colSpan: 2 }
   ];
+
+  const nat = dataEEFF?.porNaturaleza || {};
+  const func = dataEEFF?.porFuncion || {};
 
   const gruposDef = [
     {
       id: 'ING_OP',
       titulo: '1. INGRESOS Y MARGEN BRUTO',
       filas: [
-        { rubro: 'Ventas netas de bienes y servicios (Terceros)', nota: '15', ejercicioActual: Number(dataEEFF?.ventasNetas || 320000), ejercicioAnterior: 290000 },
-        { rubro: '(-) Costo de ventas de mercaderías', nota: '16', ejercicioActual: -Number(dataEEFF?.costoVentas || 185000), ejercicioAnterior: -168000 }
+        { codigo: '70', rubro: 'Ventas netas de bienes y servicios', porFuncion: Number(func.ventasNetas || 0), porNaturaleza: Number(nat.ventasNetas || 0) },
+        { codigo: '69 / 60-61', rubro: '(-) Costo de ventas / Compras y Variación de Existencias', porFuncion: -Math.abs(Number(func.costoVentas || 0)), porNaturaleza: Number(nat.variacionInventarios || 0) - Number(nat.comprasNetas || 0) },
+        { codigo: '80', rubro: 'UTILIDAD BRUTA / MARGEN COMERCIAL', porFuncion: Number(func.utilidadBruta || 0), porNaturaleza: Number(nat.margenComercial || 0) }
       ]
     },
     {
       id: 'GAS_OP',
-      titulo: '2. GASTOS DE OPERACIÓN',
+      titulo: '2. GASTOS DE OPERACIÓN Y RESULTADO OPERATIVO',
       filas: [
-        { rubro: '(-) Gastos de administración', nota: '17', ejercicioActual: -Number(dataEEFF?.gastosAdmin || 42000), ejercicioAnterior: -38000 },
-        { rubro: '(-) Gastos de ventas y comercialización', nota: '18', ejercicioActual: -Number(dataEEFF?.gastosVentas || 28000), ejercicioAnterior: -25000 }
+        { codigo: '94 / 62-63', rubro: '(-) Gastos de administración / Personal y Servicios', porFuncion: -Math.abs(Number(func.gastosAdministracion || 0)), porNaturaleza: -Math.abs(Number(nat.cargasPersonal || 0) + Number(nat.serviciosTerceros || 0)) },
+        { codigo: '95 / 64-68', rubro: '(-) Gastos de ventas / Otros ingresos y gastos operativos', porFuncion: -Math.abs(Number(func.gastosVentas || 0)), porNaturaleza: Number(nat.otrosIngresosGastos || 0) },
+        { codigo: '84', rubro: 'UTILIDAD OPERATIVA (RESULTADO DE EXPLOTACIÓN)', porFuncion: Number(func.utilidadOperativa || 0), porNaturaleza: Number(nat.resultadoExplotacion || 0) }
       ]
     },
     {
       id: 'RES_FIN',
-      titulo: '3. INGRESOS Y GASTOS FINANCIEROS',
+      titulo: '3. RESULTADO FINANCIERO Y UTILIDAD NETA',
       filas: [
-        { rubro: 'Ingresos financieros y diferencia de cambio a favor', nota: '19', ejercicioActual: 3200, ejercicioAnterior: 2800 },
-        { rubro: '(-) Gastos financieros y comisiones bancarias', nota: '20', ejercicioActual: -1800, ejercicioAnterior: -1500 }
-      ]
-    },
-    {
-      id: 'IMP_RENTA',
-      titulo: '4. IMPUESTO A LA RENTA Y RESULTADO NETO',
-      filas: [
-        { rubro: '(-) Impuesto a la renta del ejercicio (Régimen General / MYPE)', nota: '21', ejercicioActual: -Number(dataEEFF?.impuestoRenta || 19500), ejercicioAnterior: -17200 },
-        { rubro: 'UTILIDAD NETA DEL EJERCICIO', nota: '', ejercicioActual: Number(dataEEFF?.utilidadNeta || 46900), ejercicioAnterior: 43100 }
+        { codigo: '77 - 67', rubro: '(+/-) Ingresos y gastos financieros netos', porFuncion: Number(func.ingresosFinancieros || 0) - Number(func.gastosFinancieros || 0), porNaturaleza: Number(nat.ingresosFinancieros || 0) - Number(nat.gastosFinancieros || 0) },
+        { codigo: '88', rubro: '(-) Impuesto a la renta corriente', porFuncion: -Math.abs(Number(func.impuestoRenta || 0)), porNaturaleza: -Math.abs(Number(nat.impuestoRenta || 0)) },
+        { codigo: '89', rubro: 'UTILIDAD / PÉRDIDA NETA DEL EJERCICIO', porFuncion: Number(func.utilidadNeta || 0), porNaturaleza: Number(nat.utilidadNeta || 0) }
       ]
     }
   ];
 
-  const totalesGenerales: Record<string, number> = { ejercicioActual: 0, ejercicioAnterior: 0 };
+  const totalesGenerales: Record<string, number> = {
+    porFuncion: Number(func.utilidadNeta || 0),
+    porNaturaleza: Number(nat.utilidadNeta || 0)
+  };
   const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => {
-    const totalesGrupo: Record<string, number> = { ejercicioActual: 0, ejercicioAnterior: 0 };
-    g.filas.forEach((f) => {
-      totalesGrupo.ejercicioActual += f.ejercicioActual;
-      totalesGrupo.ejercicioAnterior += f.ejercicioAnterior;
-      totalesGenerales.ejercicioActual += f.ejercicioActual;
-      totalesGenerales.ejercicioAnterior += f.ejercicioAnterior;
-    });
-
+    const ultima = g.filas[g.filas.length - 1];
     return {
       grupoId: g.id,
       tituloGrupo: g.titulo,
       filas: g.filas,
-      totalesGrupo
+      totalesGrupo: {
+        porFuncion: ultima ? ultima.porFuncion : 0,
+        porNaturaleza: ultima ? ultima.porNaturaleza : 0
+      }
     };
   });
 
@@ -1150,7 +1286,7 @@ export function construirDefinicionEstadoResultadosEstandar(
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
       ruc: empresa.ruc || '20000000001',
       direccion: empresa.direccionFiscal || 'LIMA - PERÚ',
-      periodo: `EJERCICIO ${anio}`
+      periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
     superHeaders,
@@ -1170,12 +1306,13 @@ export function construirDefinicionFlujoEfectivoEstandar(
   periodo: string,
   opciones?: { mostrarFechaHora?: boolean }
 ): EstandarReportDefinition {
+  const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
 
   // 3 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
     { id: 'rubro', label: 'Concepto del Flujo de Efectivo', align: 'left', cellWidthPdf: 132 },
-    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 18 },
+    { id: 'nota', label: 'PCGE', align: 'center', cellWidthPdf: 18 },
     { id: 'importe', label: 'Flujo Neto (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 40 }
   ];
 
@@ -1184,59 +1321,60 @@ export function construirDefinicionFlujoEfectivoEstandar(
     { label: 'Importe (Soles)', colSpan: 1 }
   ];
 
+  const op = dataEEFF?.actividadesOperacion || {};
+  const inv = dataEEFF?.actividadesInversion || {};
+  const fin = dataEEFF?.actividadesFinanciamiento || {};
+
   const gruposDef = [
     {
       id: 'FLUJO_OP',
       titulo: '1. ACTIVIDADES DE OPERACIÓN',
       filas: [
-        { rubro: 'Cobranza de la venta de bienes y prestación de servicios', nota: 'A', importe: Number(dataEEFF?.cobranzaClientes || 310000) },
-        { rubro: '(-) Pagos a proveedores por el suministro de bienes y servicios', nota: 'B', importe: -Number(dataEEFF?.pagoProveedores || 195000) },
-        { rubro: '(-) Pagos de remuneraciones y beneficios sociales al personal', nota: 'C', importe: -Number(dataEEFF?.pagoPlanilla || 52000) },
-        { rubro: '(-) Pagos de tributos y gravámenes a SUNAT y EsSalud', nota: 'D', importe: -Number(dataEEFF?.pagoTributos || 18500) }
-      ]
+        { rubro: 'Cobranza de la venta de bienes y prestación de servicios', nota: '12', importe: Number(op.cobranzasClientes || 0) },
+        { rubro: '(-) Pagos a proveedores por el suministro de bienes y servicios', nota: '42', importe: -Math.abs(Number(op.pagosProveedores || 0)) },
+        { rubro: '(-) Pagos de remuneraciones y beneficios sociales al personal', nota: '41', importe: -Math.abs(Number(op.pagosRemuneraciones || 0)) },
+        { rubro: '(-) Pagos de tributos y gravámenes a SUNAT y EsSalud', nota: '40', importe: -Math.abs(Number(op.pagosTributos || 0)) }
+      ],
+      total: Number(op.netoOperacion || 0)
     },
     {
       id: 'FLUJO_INV',
       titulo: '2. ACTIVIDADES DE INVERSIÓN',
       filas: [
-        { rubro: '(-) Pagos por compra de propiedad, planta y equipo', nota: 'E', importe: -15000 },
-        { rubro: 'Cobranza por venta de activos fijos en desuso', nota: 'F', importe: 2500 }
-      ]
+        { rubro: '(-) Pagos por compra de propiedad, planta y equipo', nota: '33', importe: -Math.abs(Number(inv.compraActivoFijo || 0)) }
+      ],
+      total: Number(inv.netoInversion || 0)
     },
     {
       id: 'FLUJO_FIN',
       titulo: '3. ACTIVIDADES DE FINANCIAMIENTO',
       filas: [
-        { rubro: 'Obtención de préstamos de entidades financieras', nota: 'G', importe: 20000 },
-        { rubro: '(-) Amortización de pasivos financieros y leasing', nota: 'H', importe: -12000 }
-      ]
+        { rubro: 'Aportes de capital en efectivo', nota: '50', importe: Number(fin.aportesCapital || 0) },
+        { rubro: 'Préstamos recibidos / (-) amortización de pasivos financieros', nota: '45', importe: Number(fin.prestamosPagosFinancieros || 0) }
+      ],
+      total: Number(fin.netoFinanciamiento || 0)
     },
     {
       id: 'SALDO_EFECTIVO',
       titulo: '4. CONCILIACIÓN DEL SALDO DE EFECTIVO',
       filas: [
-        { rubro: 'AUMENTO (DISMINUCIÓN) NETO DE EFECTIVO DEL EJERCICIO', nota: '', importe: 40000 },
-        { rubro: 'Saldo de efectivo y equivalentes al inicio del ejercicio', nota: '', importe: 85000 },
-        { rubro: 'SALDO DE EFECTIVO Y EQUIVALENTES AL CIERRE DEL EJERCICIO', nota: '', importe: 125000 }
-      ]
+        { rubro: 'AUMENTO (DISMINUCIÓN) NETO DE EFECTIVO DEL EJERCICIO', nota: '-', importe: Number(dataEEFF?.variacionNetaEfectivo || 0) },
+        { rubro: 'Saldo de efectivo y equivalentes al inicio del período', nota: '10', importe: Number(dataEEFF?.saldoInicialEfectivo || 0) },
+        { rubro: 'SALDO DE EFECTIVO Y EQUIVALENTES AL CIERRE (CUENTA 10)', nota: '10', importe: Number(dataEEFF?.saldoFinalEfectivo || 0) }
+      ],
+      total: Number(dataEEFF?.saldoFinalEfectivo || 0)
     }
   ];
 
-  const totalesGenerales: Record<string, number> = { importe: 0 };
-  const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => {
-    const totalesGrupo: Record<string, number> = { importe: 0 };
-    g.filas.forEach((f) => {
-      totalesGrupo.importe += f.importe;
-      totalesGenerales.importe += f.importe;
-    });
-
-    return {
-      grupoId: g.id,
-      tituloGrupo: g.titulo,
-      filas: g.filas,
-      totalesGrupo
-    };
-  });
+  const totalesGenerales: Record<string, number> = {
+    importe: Number(dataEEFF?.saldoFinalEfectivo || 0)
+  };
+  const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => ({
+    grupoId: g.id,
+    tituloGrupo: g.titulo,
+    filas: g.filas,
+    totalesGrupo: { importe: g.total }
+  }));
 
   return {
     titulo: 'ESTADO DE FLUJOS DE EFECTIVO (MÉTODO DIRECTO)',
@@ -1245,7 +1383,7 @@ export function construirDefinicionFlujoEfectivoEstandar(
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
       ruc: empresa.ruc || '20000000001',
       direccion: empresa.direccionFiscal || 'LIMA - PERÚ',
-      periodo: `EJERCICIO ${anio}`
+      periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
     superHeaders,

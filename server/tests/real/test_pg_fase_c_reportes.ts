@@ -27,6 +27,7 @@ async function ejecutar() {
   const { aperturaCierreService } = await import('../../services/aperturaCierreService');
   const { pleExportService } = await import('../../services/pleExportService');
   const { subdiarioService } = await import('../../services/subdiarioService');
+  const { planillaService, PLANILLAS_MEMORIA } = await import('../../services/planillaService');
 
   let client = await pool.connect();
 
@@ -455,6 +456,61 @@ async function ejecutar() {
 
       assert.equal(mayorPostReinicio.totalSumasDebe, mayorTotalSumasDebe, 'Suma del mayor post reinicio debe ser idéntica');
       assert.equal(balancePostReinicio.totales.sumasDebe, mayorPostReinicio.totalSumasDebe, 'Balance de comprobación debe calcular idéntico tras reinicio');
+
+      // --- 7. PLANILLA EDITABLE Y CONTABILIZACIÓN EN POSTGRESQL REAL ---
+      console.log('--- 7. PERSISTENCIA EN POSTGRESQL REAL DE PLANILLA Y ASIENTO EDITABLES ---');
+      const trab = await planillaService.crearTrabajador(empresaId, {
+        tipoDocumento: '1',
+        numeroDocumento: '40112233',
+        nombres: 'LUCIA',
+        apellidos: 'TORRES VEGA',
+        fechaIngreso: '2026-01-01',
+        cargo: 'ANALISTA',
+        regimenLaboral: 'GENERAL',
+        sueldoBase: 2500.00,
+        tieneAsignacionFamiliar: false,
+        sistemaPensiones: 'ONP',
+        centroCosto: 'ADMINISTRACION',
+        activo: true
+      }, usuarioEfectivoId);
+
+      const planCalc = await planillaService.calcularPlanilla(empresaId, periodoId, periodo, usuarioEfectivoId);
+      assert.equal(planCalc.lineas.length, 1, 'Debe calcular planilla con 1 trabajador en PG');
+
+      const planEdit = await planillaService.actualizarPlanillaLineas(
+        empresaId,
+        planCalc.id,
+        [{ id: planCalc.lineas[0].id, sueldoBasico: 2800.00, bonificacionesGravadas: 200.00 }],
+        usuarioEfectivoId
+      );
+      assert.equal(planEdit.lineas[0].totalRemuneracion, 3000.00, 'Total remuneración editada debe ser 3000.00');
+
+      // Simular limpieza de memoria y recarga desde PostgreSQL
+      for (let i = PLANILLAS_MEMORIA.length - 1; i >= 0; i--) {
+        if (PLANILLAS_MEMORIA[i].empresaId === empresaId) PLANILLAS_MEMORIA.splice(i, 1);
+      }
+      const planRecargada = await planillaService.obtenerPlanillaPorMes(empresaId, periodo);
+      assert.ok(planRecargada, 'Planilla editada debe recuperarse desde PostgreSQL');
+      assert.equal(planRecargada.lineas[0].sueldoBasico, 2800.00, 'Sueldo básico editado debe persistir en planilla_lineas PG');
+      assert.equal(planRecargada.lineas[0].bonificacionesGravadas, 200.00, 'Bonificación editada debe persistir en planilla_lineas PG');
+
+      const prop = await planillaService.generarPropuestaAsientoPlanilla(empresaId, planRecargada.id);
+      assert.equal(prop.cuadrado, true, 'Propuesta contable debe estar cuadrada');
+      await planillaService.contabilizarPlanilla(empresaId, planRecargada.id, usuarioEfectivoId, {
+        fecha: '2026-03-28',
+        subdiario: '07',
+        glosa: 'Planilla editable PG Fase C',
+        lineas: prop.lineas.map(l => ({
+          codigoCuenta: l.codigoCuenta,
+          debe: l.debe,
+          haber: l.haber,
+          glosa: l.glosa,
+          centroCostoId: l.centroCostoId
+        }))
+      });
+      const planCont = await planillaService.obtenerPlanillaPorMes(empresaId, periodo);
+      assert.equal(planCont?.estado, 'CONTABILIZADA', 'Planilla debe quedar CONTABILIZADA en PostgreSQL');
+      console.log('✅ Planilla editable y asiento editable persistidos en PostgreSQL real.');
     });
 
     console.log('✅ Persistencia en disco tras desconexión y reconexión verificada exitosamente.\n');
@@ -463,6 +519,10 @@ async function ejecutar() {
     const cleanClient = await freshPool.connect();
     try {
       await cleanClient.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false)", [empresaId]);
+      await cleanClient.query('DELETE FROM planilla_lineas WHERE empresa_id = $1', [empresaId]);
+      await cleanClient.query('DELETE FROM planillas WHERE empresa_id = $1', [empresaId]);
+      await cleanClient.query('DELETE FROM tregistro_movimientos WHERE empresa_id = $1', [empresaId]);
+      await cleanClient.query('DELETE FROM trabajadores WHERE empresa_id = $1', [empresaId]);
       await cleanClient.query('DELETE FROM aplicaciones_cobranza WHERE empresa_id = $1', [empresaId]);
       await cleanClient.query('DELETE FROM aplicaciones_pago WHERE empresa_id = $1', [empresaId]);
       await cleanClient.query('DELETE FROM cuentas_por_cobrar WHERE empresa_id = $1', [empresaId]);

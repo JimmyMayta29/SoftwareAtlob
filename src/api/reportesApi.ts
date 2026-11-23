@@ -1,15 +1,15 @@
 import { apiClient } from './client';
-import { 
-  HojaTrabajo10ColumnasReporte, 
-  OpcionesHojaTrabajo10Col, 
+import {
+  HojaTrabajo10ColumnasReporte,
+  OpcionesHojaTrabajo10Col,
   LibroDiarioESTANDARReporte,
   OpcionesLibroDiarioESTANDAR
 } from '../services/reportesEngine';
 
 export const reportesApi = {
   async getHojaTrabajo10Columnas(
-    empresaId: string, 
-    periodo: string, 
+    empresaId: string,
+    periodo: string,
     opciones?: OpcionesHojaTrabajo10Col
   ): Promise<HojaTrabajo10ColumnasReporte> {
     const params = new URLSearchParams();
@@ -17,14 +17,64 @@ export const reportesApi = {
     if (opciones?.acumuladoAlMes !== undefined) params.set('acumulado', String(opciones.acumuladoAlMes));
     if (opciones?.correctorasActivoEnNegativo !== undefined) params.set('correctorasEnNegativo', String(opciones.correctorasActivoEnNegativo));
     if (opciones?.incluirCierreYAjustes !== undefined) params.set('incluirCierre', String(opciones.incluirCierreYAjustes));
+    if (opciones?.mapeoFuncionPersonalizado) {
+      params.set('mapeoFuncion', JSON.stringify(opciones.mapeoFuncionPersonalizado));
+    }
 
     const res: any = await apiClient.get(`/empresas/${empresaId}/reportes/hoja-trabajo-10-columnas?${params.toString()}`);
     return res && res.data ? res.data : res;
   },
 
+  async getLibroMayor(empresaId: string, periodo: string, acumulado = false): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    params.set('acumulado', String(acumulado));
+    const res: any = await apiClient.get(`/empresas/${empresaId}/libro-mayor?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
+  async getBalanceComprobacion(empresaId: string, periodo: string, acumulado = true): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    params.set('acumulado', String(acumulado));
+    const res: any = await apiClient.get(`/empresas/${empresaId}/balance-comprobacion?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
+  async getEstadoSituacionFinanciera(empresaId: string, periodo: string, acumulado = true): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    params.set('acumulado', String(acumulado));
+    const res: any = await apiClient.get(`/empresas/${empresaId}/estado-situacion-financiera?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
+  async getEstadoResultados(empresaId: string, periodo: string, acumulado = true): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    params.set('acumulado', String(acumulado));
+    const res: any = await apiClient.get(`/empresas/${empresaId}/estado-resultados?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
+  async getFlujoEfectivo(empresaId: string, periodo: string, acumulado = true): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    params.set('acumulado', String(acumulado));
+    const res: any = await apiClient.get(`/empresas/${empresaId}/flujo-efectivo?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
+  async getRatiosFinancieros(empresaId: string, periodo: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (periodo) params.set('periodo', periodo);
+    const res: any = await apiClient.get(`/empresas/${empresaId}/ratios-financieros?${params.toString()}`);
+    return res && res.data ? res.data : res;
+  },
+
   async getLibroDiarioESTANDAR(
-    empresaId: string, 
-    periodo: string, 
+    empresaId: string,
+    periodo: string,
     opciones?: OpcionesLibroDiarioESTANDAR
   ): Promise<LibroDiarioESTANDARReporte> {
     const params = new URLSearchParams();

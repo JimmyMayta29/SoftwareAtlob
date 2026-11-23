@@ -236,13 +236,29 @@ export function useCalcularPlanilla(empresaId: string) {
   });
 }
 
+export function useActualizarPlanillaLineas(empresaId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ planillaId, lineas }: { planillaId: string; lineas: any[] }) =>
+      tesoreriaPlanillaApi.actualizarPlanillaLineas(empresaId, planillaId, lineas),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['planillas', empresaId] });
+    }
+  });
+}
+
 export function useContabilizarPlanilla(empresaId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (planillaId: string) => tesoreriaPlanillaApi.contabilizarPlanilla(empresaId, planillaId),
+    mutationFn: (input: string | { planillaId: string; payload?: any }) => {
+      const planillaId = typeof input === 'string' ? input : input.planillaId;
+      const payload = typeof input === 'string' ? undefined : input.payload;
+      return tesoreriaPlanillaApi.contabilizarPlanilla(empresaId, planillaId, payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['planillas', empresaId] });
       queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['reportes', empresaId] });
     }
   });
 }
@@ -254,6 +270,8 @@ export function useAnularPlanilla(empresaId: string) {
       tesoreriaPlanillaApi.anularPlanilla(empresaId, planillaId, motivo),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['planillas', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+      queryClient.invalidateQueries({ queryKey: ['reportes', empresaId] });
     }
   });
 }

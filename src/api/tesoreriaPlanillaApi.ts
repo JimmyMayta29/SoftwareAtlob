@@ -337,8 +337,36 @@ export const tesoreriaPlanillaApi = {
     return extractData<PlanillaApi>(res);
   },
 
-  async contabilizarPlanilla(empresaId: string, planillaId: string) {
-    const res = await apiClient.post<any>(`/empresas/${empresaId}/planillas/${planillaId}/contabilizar`);
+  async actualizarPlanillaLineas(empresaId: string, planillaId: string, lineas: any[]): Promise<PlanillaApi> {
+    const res = await apiClient.put<any>(`/empresas/${empresaId}/planillas/${planillaId}/lineas`, { lineas });
+    return extractData<PlanillaApi>(res);
+  },
+
+  async obtenerPropuestaAsientoPlanilla(empresaId: string, planillaId: string): Promise<any> {
+    const res = await apiClient.get<any>(`/empresas/${empresaId}/planillas/${planillaId}/propuesta-asiento`);
+    return extractData<any>(res);
+  },
+
+  async contabilizarPlanilla(
+    empresaId: string,
+    planillaId: string,
+    payload?: {
+      fecha?: string;
+      subdiario?: string;
+      glosa?: string;
+      lineas?: Array<{
+        codigoCuenta: string;
+        debe: number;
+        haber: number;
+        glosa?: string;
+        centroCostoId?: string;
+      }>;
+    }
+  ) {
+    const res = await apiClient.post<any>(
+      `/empresas/${empresaId}/planillas/${planillaId}/contabilizar`,
+      payload || {}
+    );
     return extractData(res);
   },
 
