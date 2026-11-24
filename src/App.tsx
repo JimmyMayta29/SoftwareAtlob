@@ -29,6 +29,7 @@ import { useReportStyle } from './context/ReportStyleContext';
 import { tipoCambioApi, TipoCambioDTO } from './api/tipoCambioApi';
 import { limpiarCachePersistenciaSistema } from './api/sistemaApi';
 import { BannerPersistenciaTemporal } from './components/common/BannerPersistenciaTemporal';
+import { AtlobBackground } from './components/common/AtlobBackground';
 import { ModalTipoCambioManual } from './components/modals/ModalTipoCambioManual';
 import { calcularAlertaVencimientoUI } from './utils/cronogramaSunat';
 
@@ -525,7 +526,8 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F5F7FA] text-[#111827]">
+    <div className="flex flex-col h-screen w-screen overflow-hidden text-[#111827] relative">
+      <AtlobBackground />
       {/* 1. BARRA SUPERIOR COMPLETA (Título, Menubar y Barra de Herramientas en una fila) */}
       <TopBar
         onAction={handleTopBarAction}
@@ -548,7 +550,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
       />
 
       {/* 2. ÁREA DE TRABAJO PRINCIPAL */}
-      <main className="flex-1 flex flex-col bg-[#F5F7FA] overflow-hidden relative">
+      <main className="flex-1 flex flex-col overflow-hidden relative z-[1]">
         {estadoConexionDesktop && !estadoConexionDesktop.online && (
           <div
             role="alert"
@@ -991,7 +993,7 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
       </main>
 
       {/* 3. BARRA DE ESTADO INFERIOR RESPONSIVE */}
-      <footer className="w-full flex-shrink-0 flex items-center justify-between px-2.5 h-6 text-[11px] bg-[#E8ECF1] border-t border-[#D1D5DB] select-none text-[#111827] overflow-hidden whitespace-nowrap">
+      <footer className="relative z-[1] w-full flex-shrink-0 flex items-center justify-between px-2.5 h-6 text-[11px] bg-[#E8ECF1] border-t border-[#D1D5DB] select-none text-[#111827] overflow-hidden whitespace-nowrap">
         <div className="flex items-center gap-2.5 overflow-hidden">
           <span className="font-mono shrink-0">
             <strong>RUC:</strong> {empresaActual.ruc}

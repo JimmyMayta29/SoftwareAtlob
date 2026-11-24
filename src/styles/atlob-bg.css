@@ -1,0 +1,39 @@
+/* ATLOB ERP 2026 - fondo responsive. Solo estilos de la capa .atlob-bg (todo con prefijo atlob-). */
+.atlob-bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;color:#14375e;
+  background:radial-gradient(ellipse at 72% 50%,#fff 0,#e3ebf5 100%);
+  font-family:Manrope,"Segoe UI",Arial,sans-serif}
+.atlob-bg *{box-sizing:border-box}
+.atlob-bg__mesh{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:left center}
+.atlob-bg__iso{position:absolute;right:-2vw;top:50%;transform:translateY(-50%);width:min(36vw,560px);height:auto;opacity:.07}
+.atlob-bg__stage{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;align-items:center;justify-items:center;padding:clamp(16px,3vw,48px)}
+/* Ecosistema: triangulo que escala con su propio ancho (unidades cqw) */
+.atlob-eco{container-type:inline-size;position:relative;width:min(44vw,740px,calc((100vh - 96px)*740/540));aspect-ratio:740/540}
+.atlob-eco__lines{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.atlob-eco__lines .tri{fill:rgba(255,255,255,.35);stroke:#d4a02a;stroke-opacity:.55;stroke-width:2;stroke-dasharray:2 9;stroke-linecap:round;stroke-linejoin:round}
+.atlob-eco__lines .links line{stroke-width:2.5;stroke-opacity:.75}
+.atlob-eco__lines .links circle{fill:#fff;stroke:#d4a02a;stroke-width:2}
+.atlob-chip{position:absolute;width:24.324cqw;height:8.378cqw;display:flex;align-items:center;gap:1.6cqw;padding:0 1.6cqw;
+  border-radius:2.2cqw;background:rgba(255,255,255,.94);border:1px solid #fff;box-shadow:0 .8cqw 2.2cqw rgba(20,55,94,.2)}
+.atlob-chip__ic{flex:none;width:4.32cqw;height:4.32cqw;border-radius:1.2cqw;background:linear-gradient(135deg,#0f2e52,#2b6aa3 55%,#7fa9d1)}
+.atlob-chip__ic svg{display:block;width:100%;height:100%}
+.atlob-chip__tx{min-width:0}
+.atlob-chip small{display:block;font-size:max(8px,1.62cqw);font-weight:700;opacity:.7;line-height:1.1}
+.atlob-chip b{display:block;font-size:max(10px,2.57cqw);font-weight:800;line-height:1.15;white-space:nowrap}
+/* Marca */
+.atlob-brand{display:flex;flex-direction:column;align-items:center;text-align:center;width:min(40vw,640px)}
+.atlob-brand img{width:100%;height:auto}
+.atlob-brand hr{width:81%;height:2.5px;border:0;background:#d4a02a;margin:clamp(14px,3vh,34px) 0 clamp(10px,2vh,22px)}
+.atlob-brand h2{margin:0;font-size:clamp(26px,3.25vw,52px);font-weight:700}
+.atlob-brand p{margin:.5em 0 0;font-size:clamp(13px,1.3vw,21px)}
+.atlob-bg__support{position:absolute;right:clamp(16px,2.5vw,40px);bottom:clamp(10px,2vh,32px);font-size:clamp(11px,1vw,16px)}
+/* Ventanas angostas o verticales: se apila (marca arriba, ecosistema abajo) */
+@media (max-width:900px){
+  .atlob-bg__stage{grid-template-columns:1fr;align-content:center;gap:clamp(12px,3vh,32px)}
+  .atlob-brand{order:-1;width:min(78vw,460px)}
+  .atlob-eco{width:min(88vw,520px,calc((100vh - 300px)*740/540))}
+  .atlob-bg__iso{display:none}
+  .atlob-bg__support{right:0;left:0;text-align:center}
+}
+/* Variante: solo malla + ecosistema (si la pantalla ya muestra su propio logo) */
+.atlob-bg--sin-marca .atlob-brand,.atlob-bg--sin-marca .atlob-bg__iso{display:none}
+.atlob-bg--sin-marca .atlob-bg__stage{grid-template-columns:1fr}

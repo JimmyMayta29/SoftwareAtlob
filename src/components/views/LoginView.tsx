@@ -3,6 +3,7 @@ import { LogIn, Eye, EyeOff, AlertCircle, AlertTriangle, ShieldCheck, RefreshCw,
 import { authApi, Sesion } from '../../api/authApi';
 import type { EstadoConexionDesktop } from '../../types/desktop';
 import atlobLogo from '../../assets/brand/atlob_logo_horizontal.webp';
+import { AtlobBackground } from '../common/AtlobBackground';
 
 export interface LoginViewProps {
   onAutenticado: (sesion: Sesion) => Promise<void>;
@@ -176,8 +177,9 @@ export function LoginView({ onAutenticado, nombreEstudio, version = '2.0.0' }: L
   };
 
   return (
-    <main className="min-h-screen bg-[#F0F4F8] flex items-center justify-center p-4 selection:bg-[#307AA7] selection:text-white">
-      <div className="w-full max-w-md">
+    <main className="relative min-h-screen flex items-center justify-center p-4 selection:bg-[#307AA7] selection:text-white">
+      <AtlobBackground sinMarca />
+      <div className="w-full max-w-md relative z-[1]">
         {/* Tarjeta única y sobria de autenticación */}
         <section
           aria-labelledby="login-encabezado"

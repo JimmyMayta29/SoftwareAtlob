@@ -327,7 +327,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header
       ref={containerRef}
-      className="w-full flex-shrink-0 select-none z-40 bg-white font-['Segoe_UI',system-ui,sans-serif]"
+      className="relative w-full flex-shrink-0 select-none z-40 bg-white font-['Segoe_UI',system-ui,sans-serif]"
     >
       {/* =========================================================================
           FRANJA 1: CABECERA SUPERIOR (56px)
