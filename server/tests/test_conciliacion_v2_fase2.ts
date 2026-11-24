@@ -26,10 +26,15 @@ import {
   construirExtractoSaldoIncoherenteCsv,
   construirExtractoScotiabankCsv,
   construirPdfConJavaScript,
+  construirPdfMasDe200Streams,
+  construirPdfMultiStreamExcedeTotal,
   construirPdfSinTextoExtraible,
+  construirXlsxConFormulaSinValorEnSaldo,
   construirXlsxConMacros,
+  construirXlsxConReferenciaCelda,
   construirXlsxConXxe,
   construirXlsxZipBomb,
+  construirXlsxZipBombCabecerasFalseadas,
 } from './fixtures/conciliacion/datasetsFase2';
 
 const soloUnitarias =
@@ -393,6 +398,75 @@ async function ejecutarBloqueUnitario() {
     const plantilla = generarPlantillaCsvSegura();
     assert.ok(plantilla.startsWith('\uFEFFFecha,Descripcion,Referencia,Abono,Cargo,Saldo'));
     assert.ok(!/^[=+\-@]/m.test(plantilla.replace(/^\uFEFF/, '')));
+
+    // 1. .xlsx con referencia de columna gigante (AAAAAAAAA1) y fuera de límite (XFD1) -> ARCHIVO_XLSX_CORRUPTO sin OOM
+    for (const refInvalida of ['AAAAAAAAA1', 'XFD1'] as const) {
+      const xlsxRefBuf = construirXlsxConReferenciaCelda(refInvalida);
+      validarArchivoImportacion({
+        nombreArchivo: `ref_${refInvalida}.xlsx`,
+        contenidoBase64: aBase64(xlsxRefBuf),
+      });
+      assert.throws(
+        () => parsearExtractoBancario(xlsxRefBuf, { formatoArchivo: 'XLSX' }),
+        (err: unknown) => err instanceof ConciliacionV2Error && err.codigo === 'ARCHIVO_XLSX_CORRUPTO'
+      );
+    }
+
+    // 2. .xlsx zip-bomb con cabeceras central directory falseadas (uncompressedSize y compressedSize pequeños) -> ZIP_BOMB_DETECTADO
+    assert.throws(
+      () =>
+        validarArchivoImportacion({
+          nombreArchivo: 'bomb_spoofed.xlsx',
+          contenidoBase64: aBase64(construirXlsxZipBombCabecerasFalseadas()),
+        }),
+      (err: unknown) => err instanceof ConciliacionV2Error && err.codigo === 'ZIP_BOMB_DETECTADO'
+    );
+
+    // 3. .pdf multi-stream > 32 MB acumulado (MAX_PDF_TOTAL_SALIDA) y > 200 streams -> PDF_STREAM_EXCEDE_LIMITE
+    const pdfTotalExcedido = construirPdfMultiStreamExcedeTotal();
+    validarArchivoImportacion({
+      nombreArchivo: 'multistream_36mb.pdf',
+      contentType: 'application/pdf',
+      contenidoBase64: aBase64(pdfTotalExcedido),
+    });
+    assert.throws(
+      () =>
+        parsearExtractoBancario(pdfTotalExcedido, {
+          formatoArchivo: 'PDF',
+          adaptadorPdf: new PdfTextoNativoAdapter(),
+        }),
+      (err: unknown) => err instanceof ConciliacionV2Error && err.codigo === 'PDF_STREAM_EXCEDE_LIMITE'
+    );
+
+    const pdfMuchosStreams = construirPdfMasDe200Streams();
+    validarArchivoImportacion({
+      nombreArchivo: 'mas_200_streams.pdf',
+      contentType: 'application/pdf',
+      contenidoBase64: aBase64(pdfMuchosStreams),
+    });
+    assert.throws(
+      () =>
+        parsearExtractoBancario(pdfMuchosStreams, {
+          formatoArchivo: 'PDF',
+          adaptadorPdf: new PdfTextoNativoAdapter(),
+        }),
+      (err: unknown) => err instanceof ConciliacionV2Error && err.codigo === 'PDF_STREAM_EXCEDE_LIMITE'
+    );
+
+    // 4. .xlsx con fórmula <f>SUM(A1:A2)</f> y etiqueta vacía <v/> en columna saldo -> FORMULA_NO_PERMITIDA_SIN_VALOR
+    const xlsxFormulaBuf = construirXlsxConFormulaSinValorEnSaldo();
+    validarArchivoImportacion({
+      nombreArchivo: 'formula_saldo.xlsx',
+      contenidoBase64: aBase64(xlsxFormulaBuf),
+    });
+    const filasFormula = parsearExtractoBancario(xlsxFormulaBuf, { formatoArchivo: 'XLSX' });
+    assert.equal(filasFormula.length, 1);
+    assert.ok(
+      filasFormula[0].errores.some(
+        (e) => e.codigo === 'FORMULA_NO_PERMITIDA_SIN_VALOR' && e.campo === 'saldo'
+      ),
+      'Celda con fórmula y <v/> vacío en saldo debe rechazarse con FORMULA_NO_PERMITIDA_SIN_VALOR'
+    );
   });
 
   await ejecutarCaso('A3. Clasificador de glosa (12 tipos), extracción RUC/contraparte/doc y reglas personalizadas', () => {

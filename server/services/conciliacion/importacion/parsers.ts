@@ -7,7 +7,13 @@ import {
 import { Money } from '../../../utils/decimal';
 import { ConciliacionV2Error } from '../../conciliacionV2Service';
 import { AdaptadorPdfTexto, obtenerAdaptadorPdfTexto } from './pdfTextoAdapter';
-import { MAX_FILAS_EXTRACTO } from './validacionArchivo';
+import {
+  MAX_DESCOMPRIMIDO_ZIP,
+  MAX_FILAS_EXTRACTO,
+  descomprimirEntradaZipSegura,
+} from './validacionArchivo';
+
+const MAX_COLUMNAS_XLSX = 255;
 
 export interface CeldaTablaCruda {
   valor: string;
@@ -249,12 +255,27 @@ function normalizarNombreColumna(nombre: string): string {
 }
 
 function letraColumnaAIndice(col: string): number {
+  if (!/^[A-Z]{1,3}$/i.test(col)) {
+    throw new ConciliacionV2Error(
+      400,
+      'ARCHIVO_XLSX_CORRUPTO',
+      'Referencia de celda inválida en el archivo XLSX.'
+    );
+  }
   let idx = 0;
   const upper = col.toUpperCase();
   for (let i = 0; i < upper.length; i += 1) {
     idx = idx * 26 + (upper.charCodeAt(i) - 64);
   }
-  return idx - 1;
+  const colIdx = idx - 1;
+  if (colIdx < 0 || colIdx > MAX_COLUMNAS_XLSX) {
+    throw new ConciliacionV2Error(
+      400,
+      'ARCHIVO_XLSX_CORRUPTO',
+      `Columna de celda fuera del límite permitido (${MAX_COLUMNAS_XLSX + 1}) en el archivo XLSX.`
+    );
+  }
+  return colIdx;
 }
 
 function decodificarBufferTexto(buffer: Buffer, codificacion?: string | null): string {
@@ -435,13 +456,26 @@ function extraerTextoNodoXml(nodo: unknown): string {
   return '';
 }
 
-function resolverRutaHojaXlsx(zip: AdmZip, parser: XMLParser): string {
+function leerEntradaXmlXlsxSegura(
+  entry: AdmZip.IZipEntry,
+  presupuesto: { restante: number }
+): string {
+  const { data } = descomprimirEntradaZipSegura(entry, presupuesto.restante);
+  presupuesto.restante -= data.length;
+  return data.toString('utf8');
+}
+
+function resolverRutaHojaXlsx(
+  zip: AdmZip,
+  parser: XMLParser,
+  presupuesto: { restante: number }
+): string {
   const wbEntry = zip.getEntry('xl/workbook.xml');
   if (!wbEntry) {
     throw new ConciliacionV2Error(400, 'XLSX_SIN_WORKBOOK', 'Falta xl/workbook.xml en el archivo .xlsx.');
   }
 
-  const wbXml = parser.parse(wbEntry.getData().toString('utf8'));
+  const wbXml = parser.parse(leerEntradaXmlXlsxSegura(wbEntry, presupuesto));
   const sheetsRaw = wbXml?.workbook?.sheets?.sheet;
   const sheets = Array.isArray(sheetsRaw) ? sheetsRaw : sheetsRaw ? [sheetsRaw] : [];
   if (sheets.length === 0) {
@@ -453,7 +487,7 @@ function resolverRutaHojaXlsx(zip: AdmZip, parser: XMLParser): string {
 
   const relsEntry = zip.getEntry('xl/_rels/workbook.xml.rels');
   if (relsEntry && rId) {
-    const relsXml = parser.parse(relsEntry.getData().toString('utf8'));
+    const relsXml = parser.parse(leerEntradaXmlXlsxSegura(relsEntry, presupuesto));
     const relsRaw = relsXml?.Relationships?.Relationship;
     const rels = Array.isArray(relsRaw) ? relsRaw : relsRaw ? [relsRaw] : [];
     const rel = rels.find((r: any) => r?.['@_Id'] === rId);
@@ -485,6 +519,7 @@ function resolverRutaHojaXlsx(zip: AdmZip, parser: XMLParser): string {
  */
 export function parsearXlsxSeguro(buffer: Buffer, filaEncabezado = 1): FilaTablaCruda[] {
   const zip = new AdmZip(buffer);
+  const presupuesto = { restante: MAX_DESCOMPRIMIDO_ZIP };
   const parser = new XMLParser({
     ignoreAttributes: false,
     parseTagValue: false,
@@ -497,7 +532,7 @@ export function parsearXlsxSeguro(buffer: Buffer, filaEncabezado = 1): FilaTabla
   const sharedStrings: string[] = [];
   const ssEntry = zip.getEntry('xl/sharedStrings.xml');
   if (ssEntry) {
-    const ssXml = parser.parse(ssEntry.getData().toString('utf8'));
+    const ssXml = parser.parse(leerEntradaXmlXlsxSegura(ssEntry, presupuesto));
     const items = ssXml?.sst?.si;
     if (Array.isArray(items)) {
       for (const si of items) {
@@ -506,13 +541,13 @@ export function parsearXlsxSeguro(buffer: Buffer, filaEncabezado = 1): FilaTabla
     }
   }
 
-  const rutaHoja = resolverRutaHojaXlsx(zip, parser);
+  const rutaHoja = resolverRutaHojaXlsx(zip, parser, presupuesto);
   const sheetEntry = zip.getEntry(rutaHoja);
   if (!sheetEntry) {
     throw new ConciliacionV2Error(400, 'XLSX_SIN_HOJAS', 'No se pudo leer la hoja principal del archivo .xlsx.');
   }
 
-  const sheetXml = parser.parse(sheetEntry.getData().toString('utf8'));
+  const sheetXml = parser.parse(leerEntradaXmlXlsxSegura(sheetEntry, presupuesto));
   const rowsRaw = sheetXml?.worksheet?.sheetData?.row;
   const rows = Array.isArray(rowsRaw) ? rowsRaw : rowsRaw ? [rowsRaw] : [];
   const maxFilasPermitidas = MAX_FILAS_EXTRACTO + Math.max(1, filaEncabezado);
@@ -524,13 +559,25 @@ export function parsearXlsxSeguro(buffer: Buffer, filaEncabezado = 1): FilaTabla
     const numFila = rowObj?.['@_r'] ? Number(rowObj['@_r']) : rIdx + 1;
     const cellsRaw = Array.isArray(rowObj?.c) ? rowObj.c : rowObj?.c ? [rowObj.c] : [];
     const celdas: CeldaTablaCruda[] = [];
-    let siguienteIndiceFallback = 0;
 
     for (const cell of cellsRaw) {
-      const ref = typeof cell?.['@_r'] === 'string' ? cell['@_r'] : '';
-      const colMatch = /^([A-Z]+)\d+$/i.exec(ref);
-      const colIdx = colMatch ? letraColumnaAIndice(colMatch[1]) : siguienteIndiceFallback;
-      siguienteIndiceFallback = colIdx + 1;
+      const ref = typeof cell?.['@_r'] === 'string' ? cell['@_r'].trim() : '';
+      const colMatch = /^([A-Z]{1,3})\d+$/i.exec(ref);
+      if (!colMatch) {
+        throw new ConciliacionV2Error(
+          400,
+          'ARCHIVO_XLSX_CORRUPTO',
+          'Referencia de celda inválida en el archivo XLSX.'
+        );
+      }
+      const colIdx = letraColumnaAIndice(colMatch[1]);
+      if (colIdx < 0 || colIdx > MAX_COLUMNAS_XLSX) {
+        throw new ConciliacionV2Error(
+          400,
+          'ARCHIVO_XLSX_CORRUPTO',
+          `Columna de celda fuera del límite permitido (${MAX_COLUMNAS_XLSX + 1}) en el archivo XLSX.`
+        );
+      }
 
       while (celdas.length <= colIdx) {
         celdas.push({ valor: '' });
@@ -540,8 +587,15 @@ export function parsearXlsxSeguro(buffer: Buffer, filaEncabezado = 1): FilaTabla
       const tieneFormula = cell?.f !== undefined;
       const valorRaw = cell?.v;
       const inlineRaw = cell?.is;
+      const sinValorCacheado =
+        (valorRaw === undefined || valorRaw === null || String(valorRaw).trim() === '') &&
+        (inlineRaw === undefined ||
+          inlineRaw === null ||
+          (typeof inlineRaw === 'string'
+            ? inlineRaw.trim() === ''
+            : extraerTextoNodoXml(inlineRaw).trim() === ''));
 
-      if (tieneFormula && valorRaw === undefined && inlineRaw === undefined) {
+      if (tieneFormula && sinValorCacheado) {
         celdas[colIdx] = { valor: '', esFormulaSinValor: true };
         continue;
       }
@@ -781,9 +835,13 @@ function resolverIndiceColumna(
     return idxParcial;
   }
 
-  // Fallback a letra de columna Excel (A, B, ..., AA)
+  // Fallback a letra de columna Excel (A, B, ..., AA) acotada
   if (/^[A-Z]{1,3}$/i.test(texto)) {
-    return letraColumnaAIndice(texto);
+    try {
+      return letraColumnaAIndice(texto);
+    } catch {
+      return null;
+    }
   }
 
   return null;
@@ -1006,6 +1064,24 @@ export function parsearExtractoBancario(
           }
         }
       }
+    }
+
+    // Propagar error explícito si alguna otra celda de la fila (p. ej. referencia o columna auxiliar) contiene fórmula sin valor cacheado
+    const indicesYaValidados = new Set<number>();
+    if (idxMonto !== null) indicesYaValidados.add(idxMonto);
+    if (idxAbono !== null) indicesYaValidados.add(idxAbono);
+    if (idxCargo !== null) indicesYaValidados.add(idxCargo);
+    if (idxSaldo !== null) indicesYaValidados.add(idxSaldo);
+    const tieneOtraFormulaSinValor = fila.celdas.some(
+      (c, cIdx) => c.esFormulaSinValor && !indicesYaValidados.has(cIdx)
+    );
+    if (tieneOtraFormulaSinValor) {
+      errores.push({
+        codigo: 'FORMULA_NO_PERMITIDA_SIN_VALOR',
+        campo: 'fila',
+        mensaje: `Fila ${fila.numFila}: contiene una celda con fórmula sin valor literal.`,
+        valor: null,
+      });
     }
 
     return {

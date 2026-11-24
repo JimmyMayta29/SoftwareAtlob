@@ -1,3 +1,4 @@
+import zlib from 'node:zlib';
 import AdmZip from 'adm-zip';
 import { jsPDF } from 'jspdf';
 
@@ -397,6 +398,132 @@ export function construirCsvFalsoConFirmaZip(): Buffer {
 
 export function construirCsvConBytesNul(): Buffer {
   return Buffer.from('Fecha,Descripción operación,Nro. operación,Monto,Saldo\n01/03/2026,TEST\x00BIN,OP-1,10.00,10.00\n', 'utf8');
+}
+
+export function construirXlsxConReferenciaCelda(referenciaCelda: string): Buffer {
+  const base = construirExtractoBcpXlsx();
+  const zip = new AdmZip(base);
+  zip.updateFile(
+    'xl/worksheets/sheet1.xml',
+    Buffer.from(
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+        `<sheetData><row r="1"><c r="${referenciaCelda}" t="n"><v>1</v></c></row></sheetData>` +
+        `</worksheet>`,
+      'utf8'
+    )
+  );
+  return zip.toBuffer();
+}
+
+export function construirXlsxZipBombCabecerasFalseadas(): Buffer {
+  const zip = new AdmZip(construirExtractoBcpXlsx());
+  const payload = Buffer.alloc(28 * 1024 * 1024, 0x41);
+  const nombreEntrada = 'xl/bomb_spoofed.bin';
+  zip.addFile(nombreEntrada, payload);
+  const buf = zip.toBuffer();
+
+  // Localizar la entrada en el Central Directory (PK\x01\x02) y falsear compressedSize y uncompressedSize
+  const nombreBuf = Buffer.from(nombreEntrada, 'utf8');
+  let cdPos = -1;
+  for (let i = 0; i <= buf.length - 46 - nombreBuf.length; i += 1) {
+    if (
+      buf[i] === 0x50 &&
+      buf[i + 1] === 0x4b &&
+      buf[i + 2] === 0x01 &&
+      buf[i + 3] === 0x02
+    ) {
+      const nameLen = buf.readUInt16LE(i + 28);
+      if (
+        nameLen === nombreBuf.length &&
+        buf.subarray(i + 46, i + 46 + nameLen).equals(nombreBuf)
+      ) {
+        cdPos = i;
+        break;
+      }
+    }
+  }
+  if (cdPos === -1) {
+    throw new Error('No se encontró la entrada xl/bomb_spoofed.bin en el Central Directory.');
+  }
+
+  const realCompressedSize = buf.readUInt32LE(cdPos + 20);
+  const spoofedCompressedSize = Math.max(26_000, realCompressedSize - 100);
+  const spoofedUncompressedSize = 10_000;
+  const localHeaderOffset = buf.readUInt32LE(cdPos + 42);
+
+  buf.writeUInt32LE(spoofedCompressedSize, cdPos + 20);
+  buf.writeUInt32LE(spoofedUncompressedSize, cdPos + 24);
+  if (
+    buf[localHeaderOffset] === 0x50 &&
+    buf[localHeaderOffset + 1] === 0x4b &&
+    buf[localHeaderOffset + 2] === 0x03 &&
+    buf[localHeaderOffset + 3] === 0x04
+  ) {
+    buf.writeUInt32LE(spoofedCompressedSize, localHeaderOffset + 18);
+    buf.writeUInt32LE(spoofedUncompressedSize, localHeaderOffset + 22);
+  }
+
+  return buf;
+}
+
+export function construirPdfMultiStreamExcedeTotal(): Buffer {
+  // 12 streams de 3 MB descomprimidos c/u (= 36 MB > 32 MB MAX_PDF_TOTAL_SALIDA), comprimido < 50 KB
+  const chunkComprimido = zlib.deflateSync(Buffer.alloc(3 * 1024 * 1024, 0x20));
+  const partes: Buffer[] = [Buffer.from('%PDF-1.4\n', 'latin1')];
+  for (let i = 1; i <= 12; i += 1) {
+    partes.push(
+      Buffer.from(`${i} 0 obj\n<< /Length ${chunkComprimido.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+      chunkComprimido,
+      Buffer.from('\nendstream\nendobj\n', 'latin1')
+    );
+  }
+  partes.push(Buffer.from('%%EOF\n', 'latin1'));
+  return Buffer.concat(partes);
+}
+
+export function construirPdfMasDe200Streams(): Buffer {
+  const chunkComprimido = zlib.deflateSync(Buffer.from('BT /F1 10 Tf (TEST) Tj ET', 'latin1'));
+  const partes: Buffer[] = [Buffer.from('%PDF-1.4\n', 'latin1')];
+  for (let i = 1; i <= 205; i += 1) {
+    partes.push(
+      Buffer.from(`${i} 0 obj\n<< /Length ${chunkComprimido.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+      chunkComprimido,
+      Buffer.from('\nendstream\nendobj\n', 'latin1')
+    );
+  }
+  partes.push(Buffer.from('%%EOF\n', 'latin1'));
+  return Buffer.concat(partes);
+}
+
+export function construirXlsxConFormulaSinValorEnSaldo(): Buffer {
+  const zip = new AdmZip(construirExtractoBcpXlsx());
+  zip.updateFile(
+    'xl/worksheets/sheet1.xml',
+    Buffer.from(
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+        `<sheetData>` +
+        `<row r="1">` +
+        `<c r="A1" t="inlineStr"><is><t>Fecha</t></is></c>` +
+        `<c r="B1" t="inlineStr"><is><t>Descripción operación</t></is></c>` +
+        `<c r="C1" t="inlineStr"><is><t>Nro. operación</t></is></c>` +
+        `<c r="D1" t="inlineStr"><is><t>Monto</t></is></c>` +
+        `<c r="E1" t="inlineStr"><is><t>Saldo</t></is></c>` +
+        `</row>` +
+        `<row r="2">` +
+        `<c r="A2" t="inlineStr"><is><t>02/03/2026</t></is></c>` +
+        `<c r="B2" t="inlineStr"><is><t>ABONO CLIENTE TEST</t></is></c>` +
+        `<c r="C2" t="inlineStr"><is><t>OP-100</t></is></c>` +
+        `<c r="D2" t="n"><v>500.00</v></c>` +
+        `<c r="E2"><f>SUM(A1:A2)</f><v/></c>` +
+        `</row>` +
+        `</sheetData>` +
+        `</worksheet>`,
+      'utf8'
+    )
+  );
+  return zip.toBuffer();
 }
 
 export const CELDAS_FORMULA_INJECTION = [

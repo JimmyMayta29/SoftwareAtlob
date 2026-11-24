@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import zlib from 'node:zlib';
 import AdmZip from 'adm-zip';
 import { FormatoExtractoV2 } from '../../../types/conciliacionV2';
 import { ConciliacionV2Error } from '../../conciliacionV2Service';
@@ -161,6 +162,87 @@ function esRutaZipInsegura(entryName: string): boolean {
   return segmentos.some((seg) => seg === '..');
 }
 
+export interface ResultadoDescompresionZip {
+  data: Buffer;
+  compressedLength: number;
+}
+
+/**
+ * Descomprime una entrada ZIP aplicando presupuesto estricto de memoria antes de asignar buffers,
+ * evitando zip-bombs con cabeceras central directory falseadas.
+ */
+export function descomprimirEntradaZipSegura(
+  entry: AdmZip.IZipEntry,
+  presupuestoRestante: number
+): ResultadoDescompresionZip {
+  if (presupuestoRestante <= 0) {
+    throw new ConciliacionV2Error(
+      400,
+      'ZIP_BOMB_DETECTADO',
+      'El tamaño real descomprimido del .xlsx supera el límite de 25 MB.'
+    );
+  }
+
+  const method = entry.header?.method;
+  if (method !== 0 && method !== 8) {
+    throw new ConciliacionV2Error(
+      400,
+      'ARCHIVO_XLSX_CORRUPTO',
+      `Método de compresión ZIP no soportado (${String(method)}) en "${entry.entryName}".`
+    );
+  }
+
+  let compressedBuf: Buffer;
+  try {
+    compressedBuf = entry.getCompressedData();
+  } catch {
+    throw new ConciliacionV2Error(
+      400,
+      'ARCHIVO_XLSX_CORRUPTO',
+      `No se pudieron leer los datos comprimidos de "${entry.entryName}" en el archivo .xlsx.`
+    );
+  }
+
+  if (method === 0) {
+    if (compressedBuf.length > presupuestoRestante) {
+      throw new ConciliacionV2Error(
+        400,
+        'ZIP_BOMB_DETECTADO',
+        'El tamaño real descomprimido del .xlsx supera el límite de 25 MB.'
+      );
+    }
+    return { data: compressedBuf, compressedLength: compressedBuf.length };
+  }
+
+  if (compressedBuf.length === 0) {
+    return { data: Buffer.alloc(0), compressedLength: 0 };
+  }
+
+  try {
+    const data = zlib.inflateRawSync(compressedBuf, { maxOutputLength: presupuestoRestante });
+    return { data, compressedLength: compressedBuf.length };
+  } catch (err: any) {
+    const codigo = err?.code ?? '';
+    const msg = String(err?.message ?? '');
+    if (
+      codigo === 'ERR_BUFFER_TOO_LARGE' ||
+      msg.includes('maxOutputLength') ||
+      msg.includes('Cannot create a Buffer')
+    ) {
+      throw new ConciliacionV2Error(
+        400,
+        'ZIP_BOMB_DETECTADO',
+        'El tamaño real descomprimido del .xlsx supera el límite de 25 MB.'
+      );
+    }
+    throw new ConciliacionV2Error(
+      400,
+      'ARCHIVO_XLSX_CORRUPTO',
+      `No se pudo descomprimir la entrada interna "${entry.entryName}" del archivo .xlsx.`
+    );
+  }
+}
+
 function validarXlsxSeguro(buffer: Buffer): void {
   const firma = detectarFirmaBinaria(buffer);
   if (firma !== 'ZIP') {
@@ -250,16 +332,8 @@ function validarXlsxSeguro(buffer: Buffer): void {
       );
     }
 
-    let data: Buffer;
-    try {
-      data = entry.getData();
-    } catch {
-      throw new ConciliacionV2Error(
-        400,
-        'ARCHIVO_XLSX_CORRUPTO',
-        `No se pudo descomprimir la entrada interna "${nombre}" del archivo .xlsx.`
-      );
-    }
+    const presupuestoRestante = MAX_DESCOMPRIMIDO_ZIP - totalDescomprimidoReal;
+    const { data, compressedLength } = descomprimirEntradaZipSegura(entry, presupuestoRestante);
 
     totalDescomprimidoReal += data.length;
     if (data.length > MAX_DESCOMPRIMIDO_ZIP || totalDescomprimidoReal > MAX_DESCOMPRIMIDO_ZIP) {
@@ -270,7 +344,7 @@ function validarXlsxSeguro(buffer: Buffer): void {
       );
     }
 
-    if (compressedSize > 0 && data.length / compressedSize > MAX_RATIO_ZIP) {
+    if (data.length >= 1024 && data.length / Math.max(compressedLength, 1) > MAX_RATIO_ZIP) {
       throw new ConciliacionV2Error(
         400,
         'ZIP_BOMB_DETECTADO',

@@ -106,6 +106,7 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   conciliacion_perfiles_banco: [
     'codigo', 'nombre', 'banco', 'formato', 'delimitador', 'codificacion',
     'filaEncabezado', 'formatoFecha', 'separadorDecimal', 'mapeoColumnasJson',
+    'descripcion', 'referencia', 'monto', 'abono', 'cargo', 'saldo', 'signoCargoNegativo',
     'esSistema', 'activo', 'createdBy', 'updatedBy'
   ],
   conciliacion_reglas_clasificacion: [
@@ -117,7 +118,8 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'nombreArchivo', 'formatoArchivo', 'contentTypeDeclarado', 'tamanoBytes',
     'hashArchivo', 'fechaDesde', 'fechaHasta', 'saldoInicial', 'totalAbonos',
     'totalCargos', 'saldoFinal', 'totalFilasArchivo', 'filasNuevas', 'filasDuplicadas',
-    'motivoReversion', 'revertidoPor', 'revertidoEn', 'usuarioId'
+    'filasEliminadas', 'extractoAnulado', 'motivoReversion', 'revertidoPor', 'revertidoEn',
+    'usuarioId'
   ],
   extracto_linea_raw: [
     'importId', 'numFila', 'hashLinea', 'fueDuplicada'

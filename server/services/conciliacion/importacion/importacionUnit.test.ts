@@ -15,6 +15,7 @@ import {
   parsearExtractoBancario,
 } from './parsers';
 import {
+  MAX_PDF_STREAMS,
   PdfTextoNativoAdapter,
   setAdaptadorPdfTextoParaTests,
 } from './pdfTextoAdapter';
@@ -183,6 +184,32 @@ caso('2. Magic bytes y rechazo de discrepancia/NUL/macros/XXE/zip-bomb', () => {
       }),
     (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'ZIP_BOMB_DETECTADO'
   );
+
+  // ALTO 1: Zip bomb con cabecera Central Directory falseada (size=100 cuando el stream descomprime >25MB)
+  const payload26Mb = Buffer.alloc(26 * 1024 * 1024, 0x42);
+  const zip26Mb = construirXlsxBuffer({
+    'xl/workbook.xml': '<workbook/>',
+    'xl/worksheets/sheet1.xml': payload26Mb,
+  });
+  // Falsear uncompressedSize en Central Directory (PK\x01\x02 + 24) a 100 bytes para sheet1.xml
+  const sigCen = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+  let posCen = 0;
+  while ((posCen = zip26Mb.indexOf(sigCen, posCen)) !== -1) {
+    const nameLen = zip26Mb.readUInt16LE(posCen + 28);
+    const nombreEntry = zip26Mb.subarray(posCen + 46, posCen + 46 + nameLen).toString('utf8');
+    if (nombreEntry === 'xl/worksheets/sheet1.xml') {
+      zip26Mb.writeUInt32LE(100, posCen + 24);
+    }
+    posCen += 4;
+  }
+  assert.throws(
+    () =>
+      validarArchivoImportacion({
+        nombreArchivo: 'bomba_falseada.xlsx',
+        contenidoBase64: zip26Mb.toString('base64'),
+      }),
+    (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'ZIP_BOMB_DETECTADO'
+  );
 });
 
 caso('3. Validación PDF activo prohibido y extracción nativa /FlateDecode', () => {
@@ -244,6 +271,36 @@ caso('3. Validación PDF activo prohibido y extracción nativa /FlateDecode', ()
   assert.equal(filasOverride.length, 1);
   assert.equal(filasOverride[0].monto, '-0.05');
   setAdaptadorPdfTextoParaTests(null);
+
+  // MEDIO: Rechazar PDF con más de MAX_PDF_STREAMS (200) streams
+  const muchosStreams: Buffer[] = [Buffer.from('%PDF-1.4\n', 'latin1')];
+  for (let i = 0; i <= MAX_PDF_STREAMS; i += 1) {
+    muchosStreams.push(Buffer.from(`${i + 1} 0 obj << /Length 2 >>\nstream\n()\nendstream\nendobj\n`, 'latin1'));
+  }
+  muchosStreams.push(Buffer.from('%%EOF', 'latin1'));
+  assert.throws(
+    () => adaptador.extraerLineasTexto(Buffer.concat(muchosStreams)),
+    (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'PDF_STREAM_EXCEDE_LIMITE'
+  );
+
+  // MEDIO: Rechazar PDF cuyo acumulado de streams supere MAX_PDF_TOTAL_SALIDA (32 MB)
+  const bloque12Mb = zlib.deflateSync(Buffer.alloc(12 * 1024 * 1024, 0x20));
+  const pdfAcumulado = Buffer.concat([
+    Buffer.from('%PDF-1.4\n', 'latin1'),
+    Buffer.from(`1 0 obj << /Length ${bloque12Mb.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+    bloque12Mb,
+    Buffer.from('\nendstream\nendobj\n', 'latin1'),
+    Buffer.from(`2 0 obj << /Length ${bloque12Mb.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+    bloque12Mb,
+    Buffer.from('\nendstream\nendobj\n', 'latin1'),
+    Buffer.from(`3 0 obj << /Length ${bloque12Mb.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+    bloque12Mb,
+    Buffer.from('\nendstream\nendobj\n%%EOF', 'latin1'),
+  ]);
+  assert.throws(
+    () => adaptador.extraerLineasTexto(pdfAcumulado),
+    (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'PDF_STREAM_EXCEDE_LIMITE'
+  );
 });
 
 caso('4. Sanitización contra Formula Injection y plantilla CSV segura', () => {
@@ -295,6 +352,53 @@ caso('5. Parsers XLSX (sharedStrings, inlineStr, serial date, fórmulas) y CSV R
   });
   const filasFormula = parsearExtractoBancario(xlsxFormulaSinValor, { formatoArchivo: 'XLSX' });
   assert.equal(filasFormula[0].errores[0].codigo, 'FORMULA_NO_PERMITIDA_SIN_VALOR');
+
+  // BAJO: Fórmula con <v/> vacío en columna financiera o en saldo debe marcar FORMULA_NO_PERMITIDA_SIN_VALOR
+  const xlsxFormulaVacio = construirXlsxBuffer({
+    'xl/workbook.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Hoja1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>Fecha</t></is></c><c r="B1" t="inlineStr"><is><t>Descripcion</t></is></c><c r="C1" t="inlineStr"><is><t>Monto</t></is></c><c r="D1" t="inlineStr"><is><t>Saldo</t></is></c></row>' +
+      '<row r="2"><c r="A2" t="str"><v>2026-10-01</v></c><c r="B2" t="str"><v>TEST</v></c><c r="C2" t="n"><v>10.00</v></c><c r="D2"><f>C2+10</f><v/></c></row>' +
+      '</sheetData></worksheet>',
+  });
+  const filasFormulaVacio = parsearExtractoBancario(xlsxFormulaVacio, { formatoArchivo: 'XLSX' });
+  assert.equal(filasFormulaVacio[0].errores[0].codigo, 'FORMULA_NO_PERMITIDA_SIN_VALOR');
+  assert.equal(filasFormulaVacio[0].errores[0].campo, 'saldo');
+
+  // ALTO 2: Referencia de columna XLSX fuera de límite (>255) o inválida debe rechazar ARCHIVO_XLSX_CORRUPTO
+  const xlsxColumnaGigante = construirXlsxBuffer({
+    'xl/workbook.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Hoja1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="XFD1" t="str"><v>DOS</v></c></row>' +
+      '</sheetData></worksheet>',
+  });
+  assert.throws(
+    () => parsearExtractoBancario(xlsxColumnaGigante, { formatoArchivo: 'XLSX' }),
+    (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'ARCHIVO_XLSX_CORRUPTO'
+  );
+
+  const xlsxRefInvalida = construirXlsxBuffer({
+    'xl/workbook.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Hoja1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml':
+      '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="INVALID" t="str"><v>X</v></c></row>' +
+      '</sheetData></worksheet>',
+  });
+  assert.throws(
+    () => parsearExtractoBancario(xlsxRefInvalida, { formatoArchivo: 'XLSX' }),
+    (err: any) => err instanceof ConciliacionV2Error && err.codigo === 'ARCHIVO_XLSX_CORRUPTO'
+  );
 
   // CSV RFC 4180 con punto y coma, comillas escapadas y coma decimal
   const csvEuropeo =

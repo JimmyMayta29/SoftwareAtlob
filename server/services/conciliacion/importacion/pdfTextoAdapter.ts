@@ -2,6 +2,8 @@ import zlib from 'node:zlib';
 import { ConciliacionV2Error } from '../../conciliacionV2Service';
 
 export const MAX_PDF_STREAM_SALIDA = 16 * 1024 * 1024; // 16 MB
+export const MAX_PDF_TOTAL_SALIDA = 32 * 1024 * 1024; // 32 MB
+export const MAX_PDF_STREAMS = 200;
 
 export interface AdaptadorPdfTexto {
   extraerLineasTexto(buffer: Buffer): string[];
@@ -478,6 +480,8 @@ export class PdfTextoNativoAdapter implements AdaptadorPdfTexto {
     const lineasTotales: string[] = [];
     let pos = 0;
     let ordenBase = 0;
+    let streamsProcesados = 0;
+    let totalBytesDecodificados = 0;
 
     while (pos < buffer.length) {
       const idxStream = textoLatin1.indexOf('stream', pos);
@@ -509,6 +513,15 @@ export class PdfTextoNativoAdapter implements AdaptadorPdfTexto {
         break;
       }
 
+      streamsProcesados += 1;
+      if (streamsProcesados > MAX_PDF_STREAMS) {
+        throw new ConciliacionV2Error(
+          400,
+          'PDF_STREAM_EXCEDE_LIMITE',
+          `El archivo PDF supera el límite máximo permitido de ${MAX_PDF_STREAMS} streams.`
+        );
+      }
+
       let finDatos = idxEnd;
       if (finDatos >= inicioDatos + 2 && buffer[finDatos - 2] === 0x0d && buffer[finDatos - 1] === 0x0a) {
         finDatos -= 2;
@@ -520,24 +533,55 @@ export class PdfTextoNativoAdapter implements AdaptadorPdfTexto {
       const usaFlate = /\/Filter\b[^]*?\/FlateDecode\b/i.test(diccionario) || /\/FlateDecode\b/i.test(diccionario);
       const rawSlice = buffer.subarray(inicioDatos, Math.max(inicioDatos, finDatos));
 
+      const restante = MAX_PDF_TOTAL_SALIDA - totalBytesDecodificados;
+      if (restante <= 0) {
+        throw new ConciliacionV2Error(
+          400,
+          'PDF_STREAM_EXCEDE_LIMITE',
+          'Los streams del PDF exceden el límite total acumulado de descompresión (32 MB).'
+        );
+      }
+
       let streamDecodificado: Buffer | null = null;
       if (usaFlate) {
         try {
-          streamDecodificado = zlib.inflateSync(rawSlice, { maxOutputLength: MAX_PDF_STREAM_SALIDA });
+          const bloque = zlib.inflateSync(rawSlice, {
+            maxOutputLength: Math.min(MAX_PDF_STREAM_SALIDA, restante),
+          });
+          totalBytesDecodificados += bloque.length;
+          if (totalBytesDecodificados > MAX_PDF_TOTAL_SALIDA) {
+            throw new ConciliacionV2Error(
+              400,
+              'PDF_STREAM_EXCEDE_LIMITE',
+              'Los streams del PDF exceden el límite total acumulado de descompresión (32 MB).'
+            );
+          }
+          streamDecodificado = bloque;
         } catch (err: any) {
+          if (err instanceof ConciliacionV2Error) {
+            throw err;
+          }
           const codigo = err?.code ?? '';
           const msg = String(err?.message ?? '');
           if (codigo === 'ERR_BUFFER_TOO_LARGE' || msg.includes('maxOutputLength') || msg.includes('Cannot create a Buffer')) {
             throw new ConciliacionV2Error(
               400,
               'PDF_STREAM_EXCEDE_LIMITE',
-              'Un stream comprimido del PDF excede el límite seguro de descompresión (16 MB).'
+              'Un stream comprimido del PDF excede el límite seguro de descompresión.'
             );
           }
           // Stream corrupto o filtro combinado no soportado: capturar sin abortar el resto del PDF
           streamDecodificado = null;
         }
-      } else if (rawSlice.length <= MAX_PDF_STREAM_SALIDA) {
+      } else {
+        if (rawSlice.length > MAX_PDF_STREAM_SALIDA || rawSlice.length > restante) {
+          throw new ConciliacionV2Error(
+            400,
+            'PDF_STREAM_EXCEDE_LIMITE',
+            'Un stream del PDF excede el límite seguro de tamaño acumulado (32 MB).'
+          );
+        }
+        totalBytesDecodificados += rawSlice.length;
         streamDecodificado = rawSlice;
       }
 
