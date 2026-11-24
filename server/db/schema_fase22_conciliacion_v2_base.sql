@@ -1,6 +1,10 @@
 -- ============================================================================
 -- FASE 22 — Conciliación Bancaria V2: Base Aditiva Segura, Snapshot y Configuración
 -- ============================================================================
+-- Versión mínima de PostgreSQL requerida: 15
+--   (por la sintaxis de lista de columnas `ON DELETE SET NULL (cuenta_contable_id)`
+--    en la FK compuesta `cuentas_financieras_cuenta_contable_id_fkey`).
+--
 -- Notas de diseño y compatibilidad:
 -- 1. Migración 100% aditiva e idempotente. No realiza DROP, RENAME ni alteración
 --    de tipos en tablas o columnas existentes.
@@ -14,15 +18,29 @@
 --    (RLS deshabilitado); por ello reabierta_por y updated_by usan FK simple a
 --    public.usuarios_estudio(id). En cambio, cuentas_financieras.cuenta_contable_id
 --    usa FK compuesta (empresa_id, cuenta_contable_id) -> plan_cuentas(empresa_id, id)
---    siguiendo el patrón de fk_empresa_04_tesoreria.sql.
+--    con `ON DELETE SET NULL (cuenta_contable_id)` (requiere PostgreSQL >= 15).
 -- 5. Los códigos PCGE por defecto de conciliacion_config_empresa ('6412', '6391',
---    '67311', '7793') fueron verificados contra public.pcge_base; el servicio V2
---    validará además su existencia en el plan_cuentas de la empresa antes de
---    generar asientos.
+--    '67311') fueron verificados contra public.pcge_base; cuenta_interes_ingreso_codigo
+--    permanece nullable SIN DEFAULT hasta configuración explícita de cada empresa
+--    (en Fase 1 la UI puede sugerir '7793' sin persistirlo automáticamente; además,
+--    public.pcge_base no incluye 772/7721-7725). El servicio V2 validará su
+--    existencia en el plan_cuentas de la empresa antes de generar asientos.
+-- 6. Columnas reservadas para fases posteriores ("Reservada — no usada hasta
+--    fases posteriores"):
+--    - public.cuentas_financieras.alias
+--    - public.extracto_lineas.hash_linea
+--    - public.extracto_lineas.diferencia_importe
+--    - public.extracto_lineas.observacion_conciliacion
+--    - public.extracto_lineas.conciliado_en
 -- ============================================================================
 
--- 1. Restricción UNIQUE compuesta aditiva en plan_cuentas (nombre propio para evitar
---    colisión con plan_cuentas_empresa_id_id_key usado por fk_empresa_01_contabilidad.sql).
+-- 1. Restricción UNIQUE compuesta aditiva en plan_cuentas.
+--    Nota importante: plan_cuentas_empresa_id_id_key NO existe en las bases reales
+--    porque los scripts server/db/fk_empresa_*.sql están fuera de MIGRATION_FILES
+--    (solo se prueban con ROLLBACK en test_pg_seguridad.ts). Por ello esta migración
+--    crea de forma condicional uq_plan_cuentas_empresa_id_id sin asumir fk_empresa_*.
+--    Si algún día fk_empresa_* se incorpora a MIGRATION_FILES, deberá hacerse
+--    idempotente en ese momento.
 DO $uq_plan_cuentas$
 BEGIN
     IF NOT EXISTS (
@@ -51,6 +69,7 @@ BEGIN
          WHERE conrelid = 'public.cuentas_financieras'::regclass
            AND conname = 'cuentas_financieras_cuenta_contable_id_fkey'
     ) THEN
+        -- Requiere PostgreSQL >= 15 por la lista de columnas en ON DELETE SET NULL (cuenta_contable_id).
         ALTER TABLE public.cuentas_financieras
             ADD CONSTRAINT cuentas_financieras_cuenta_contable_id_fkey
             FOREIGN KEY (empresa_id, cuenta_contable_id)
@@ -60,9 +79,10 @@ BEGIN
 END;
 $fk_cta_contable$;
 
+COMMENT ON CONSTRAINT cuentas_financieras_cuenta_contable_id_fkey ON public.cuentas_financieras IS 'FK compuesta (empresa_id, cuenta_contable_id) -> plan_cuentas(empresa_id, id) con ON DELETE SET NULL (cuenta_contable_id). Versión mínima de PostgreSQL requerida: 15.';
 COMMENT ON COLUMN public.cuentas_financieras.cci IS 'Código de Cuenta Interbancaria (20 dígitos en Perú).';
-COMMENT ON COLUMN public.cuentas_financieras.alias IS 'Nombre corto o etiqueta operativa de la cuenta bancaria.';
-COMMENT ON COLUMN public.cuentas_financieras.cuenta_contable_id IS 'Referencia compuesta (empresa_id, cuenta_contable_id) al plan_cuentas de la empresa.';
+COMMENT ON COLUMN public.cuentas_financieras.alias IS 'Reservada — no usada hasta fases posteriores. Nombre corto o etiqueta operativa de la cuenta bancaria.';
+COMMENT ON COLUMN public.cuentas_financieras.cuenta_contable_id IS 'Referencia compuesta (empresa_id, cuenta_contable_id) al plan_cuentas de la empresa con ON DELETE SET NULL (cuenta_contable_id); requiere PostgreSQL >= 15.';
 
 -- 3. Columnas aditivas en extracto_lineas (sin columna periodo; se filtra por extractos y fecha DATE).
 ALTER TABLE public.extracto_lineas
@@ -98,6 +118,10 @@ END;
 $chk_estado_extracto$;
 
 COMMENT ON COLUMN public.extracto_lineas.estado_conciliacion IS 'Estado de conciliación V2 de la línea bancaria. Nota Fase 1: los estados del lado libro (PENDIENTE_BANCO, CHEQUE_NO_COBRADO) se calculan dinámicamente al leer y no se persisten en movimientos_tesoreria hasta Fase 3.';
+COMMENT ON COLUMN public.extracto_lineas.diferencia_importe IS 'Reservada — no usada hasta fases posteriores. Diferencia monetaria registrada frente al movimiento de tesorería.';
+COMMENT ON COLUMN public.extracto_lineas.observacion_conciliacion IS 'Reservada — no usada hasta fases posteriores. Observación operativa de conciliación por línea.';
+COMMENT ON COLUMN public.extracto_lineas.conciliado_en IS 'Reservada — no usada hasta fases posteriores. Marca temporal de conciliación de la línea.';
+COMMENT ON COLUMN public.extracto_lineas.hash_linea IS 'Reservada — no usada hasta fases posteriores. Hash determinístico para detección de líneas duplicadas de extracto.';
 
 -- 4. Columnas aditivas en conciliaciones_bancarias (snapshot al cierre y reapertura auditada).
 ALTER TABLE public.conciliaciones_bancarias
@@ -133,13 +157,14 @@ CREATE TABLE IF NOT EXISTS public.conciliacion_config_empresa (
     cuenta_itf_codigo VARCHAR(20) NOT NULL DEFAULT '6412',
     cuenta_comision_codigo VARCHAR(20) NOT NULL DEFAULT '6391',
     cuenta_interes_gasto_codigo VARCHAR(20) NOT NULL DEFAULT '67311',
-    cuenta_interes_ingreso_codigo VARCHAR(20) NOT NULL DEFAULT '7793',
+    cuenta_interes_ingreso_codigo VARCHAR(20),
     updated_by UUID REFERENCES public.usuarios_estudio(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 COMMENT ON TABLE public.conciliacion_config_empresa IS 'Parámetros por empresa y flag operativo CONCILIACION_V2.';
+COMMENT ON COLUMN public.conciliacion_config_empresa.cuenta_interes_ingreso_codigo IS 'Código PCGE para intereses financieros ganados. Es NULL hasta configuración explícita de la empresa (sin DEFAULT); en Fase 1 la UI puede sugerir ''7793'' sin persistirlo automáticamente.';
 
 -- RLS obligatoria (ENABLE + FORCE) consistente con schema_fase21_sire_anexos.sql y schema_aislamiento_empresa.sql.
 DROP POLICY IF EXISTS aislamiento_atlob ON public.conciliacion_config_empresa;
