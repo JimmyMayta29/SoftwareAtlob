@@ -36,7 +36,7 @@ async function verificarBaseEscritorio() {
   `);
   if (!rol?.seguro) throw Object.assign(new Error('Use un rol de aplicación con privilegios restringidos.'), { code: 'PG_ROLE_UNSAFE' });
   const base = rol.base.toLowerCase();
-  return base === 'sistema_contable' || (base !== 'atlob_test' && process.env.ATLOB_DESKTOP_MIGRATE !== '1');
+  return base !== 'atlob_test' && process.env.ATLOB_DESKTOP_MIGRATE !== '1';
 }
 
 async function startServer() {

@@ -1012,7 +1012,7 @@ async function iniciarServidorLocal(configuracion, migrar) {
       HOST: '127.0.0.1',
       PORT: '0',
       ATLOB_DESKTOP: '1',
-      ATLOB_DESKTOP_MIGRATE: migrar && conexion.base.toLowerCase() !== 'sistema_contable' ? '1' : '0',
+      ATLOB_DESKTOP_MIGRATE: migrar ? '1' : '0',
       DATABASE_URL: construirUrl(conexion),
       npm_package_version: app.getVersion(),
     },

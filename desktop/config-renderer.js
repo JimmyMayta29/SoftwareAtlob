@@ -62,7 +62,7 @@ function mostrarResumenCa(huellaSha256, origenTexto) {
 
 function actualizarMigracion() {
   const base = form.elements.namedItem('base').value.trim().toLowerCase();
-  opcionMigrar.hidden = base === '' || ['sistema_contable', 'atlob_test'].includes(base);
+  opcionMigrar.hidden = base === '' || base === 'atlob_test';
   if (opcionMigrar.hidden) form.elements.namedItem('migrar').checked = false;
 }
 
