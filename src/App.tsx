@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { X, FolderTree, Search, WifiOff, Server, RefreshCw } from 'lucide-react';
+import { X, Search, WifiOff, Server, RefreshCw } from 'lucide-react';
 import type { EstadoConexionDesktop } from './types/desktop';
 import { EmpresaCliente, AsientoContable, Comprobante } from './types';
 import { EMPRESAS_CLIENTES_DEMO, crearDatosInicialesEmpresa } from './data/empresasClientes';
@@ -904,91 +904,8 @@ function DesktopWorkspaceContent({ empresasIniciales, conectado = false }: { emp
             </div>
           </div>
         ) : (
-          /* Área de Trabajo de Escritorio sin barra lateral */
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none overflow-auto">
-            <div className="max-w-2xl bg-[#FFFFFF] border border-[#D1D5DB] p-6">
-              <div className="w-9 h-9 bg-[#E8ECF1] border border-[#D1D5DB] text-[#1E3A5F] mx-auto flex items-center justify-center mb-2.5">
-                <FolderTree className="w-5 h-5" strokeWidth={1.5} />
-              </div>
-              <h1 className="text-[14px] font-bold text-[#111827]">
-                Atlob Consultores ERP — Área de Trabajo Contable y Tributaria
-              </h1>
-              <p className="mt-1 text-[12px] text-[#4B5563]">
-                Seleccione un módulo desde la barra de menú superior o presione{' '}
-                <kbd className="px-1 py-0.5 font-mono text-[11px] bg-[#E8ECF1] border border-[#D1D5DB]">
-                  Ctrl+Shift+P
-                </kbd>{' '}
-                para buscar cualquier opción.
-              </p>
-
-              <div className="mt-4 grid grid-cols-4 gap-2 text-left">
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Contabilidad › Asientos', 'asientos')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Asientos [F2]</div>
-                  <div className="text-[11px] text-[#4B5563]">Partida doble PCGE</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Compras y Ventas › Registro de compras', 'reg-compras')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Reg. Compras</div>
-                  <div className="text-[11px] text-[#4B5563]">Formato 8.1 / RCE</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Compras y Ventas › Registro de ventas', 'reg-ventas')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Reg. Ventas</div>
-                  <div className="text-[11px] text-[#4B5563]">Formato 14.1 / RVIE</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Facturación › Emitir factura o boleta', 'emitir-cp')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Facturación [F3]</div>
-                  <div className="text-[11px] text-[#4B5563]">Emisor UBL 2.1</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Tributos › Declaración mensual IGV-Renta', 'declaracion-igv-renta')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">IGV - Renta (621)</div>
-                  <div className="text-[11px] text-[#4B5563]">Determinación mensual</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Registros Electrónicos › SIRE › Conciliador SIRE vs registro', 'sire-conciliador')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Conciliador SIRE [F4]</div>
-                  <div className="text-[11px] text-[#4B5563]">Cruce CAR y clave</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Estados Financieros › Hoja de trabajo (10 columnas)', 'hoja-trabajo')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Hoja de Trabajo</div>
-                  <div className="text-[11px] text-[#4B5563]">Balance 10 columnas</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTopBarAction('Contabilidad › Plan de cuentas', 'plan-cuentas')}
-                  className="p-2 bg-[#F5F7FA] hover:bg-[#E8ECF1] border border-[#D1D5DB] text-[12px]"
-                >
-                  <div className="font-bold text-[#1E3A5F]">Plan Contable</div>
-                  <div className="text-[11px] text-[#4B5563]">PCGE 2019 Modificado</div>
-                </button>
-              </div>
-            </div>
-          </div>
+          /* Escritorio limpio mostrando únicamente el fondo institucional AtlobBackground */
+          <div className="flex-1 select-none" aria-label="Escritorio principal Atlob ERP" />
         )}
       </main>
 
