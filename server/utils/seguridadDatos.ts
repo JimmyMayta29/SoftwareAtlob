@@ -98,9 +98,29 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'fechaCorteHasta', 'saldoInicial', 'saldoFinal', 'hashArchivo'
   ],
   extracto_lineas: [
-    'extractoId', 'descripcion', 'referencia', 'monto', 'saldo', 'conciliada',
-    'movimientoTesoreriaId', 'estadoConciliacion', 'diferenciaImporte',
-    'observacionConciliacion', 'conciliadoEn', 'hashLinea'
+    'extractoId', 'importId', 'lineaRawId', 'descripcion', 'referencia', 'monto', 'saldo',
+    'conciliada', 'movimientoTesoreriaId', 'estadoConciliacion', 'diferenciaImporte',
+    'observacionConciliacion', 'conciliadoEn', 'hashLinea', 'tipoClasificacion',
+    'rucExtraido', 'contraparteExtraida', 'docExtraido'
+  ],
+  conciliacion_perfiles_banco: [
+    'codigo', 'nombre', 'banco', 'formato', 'delimitador', 'codificacion',
+    'filaEncabezado', 'formatoFecha', 'separadorDecimal', 'mapeoColumnasJson',
+    'esSistema', 'activo', 'createdBy', 'updatedBy'
+  ],
+  conciliacion_reglas_clasificacion: [
+    'nombre', 'banco', 'tipoClasificacion', 'patronTexto', 'tipoCoincidencia',
+    'sentidoMonto', 'prioridad', 'activo', 'createdBy', 'updatedBy'
+  ],
+  extracto_import: [
+    'cuentaFinancieraId', 'extractoBancarioId', 'perfilBancoId', 'bancoPerfilCodigo',
+    'nombreArchivo', 'formatoArchivo', 'contentTypeDeclarado', 'tamanoBytes',
+    'hashArchivo', 'fechaDesde', 'fechaHasta', 'saldoInicial', 'totalAbonos',
+    'totalCargos', 'saldoFinal', 'totalFilasArchivo', 'filasNuevas', 'filasDuplicadas',
+    'motivoReversion', 'revertidoPor', 'revertidoEn', 'usuarioId'
+  ],
+  extracto_linea_raw: [
+    'importId', 'numFila', 'hashLinea', 'fueDuplicada'
   ],
   conciliaciones_bancarias: [
     'cuentaFinancieraId', 'fechaCorte', 'saldoSegunLibros', 'saldoSegunBanco',

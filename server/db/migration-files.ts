@@ -25,4 +25,5 @@ export const MIGRATION_FILES = [
   'schema_fase20_restauracion_backup.sql',
   'schema_fase21_sire_anexos.sql',
   'schema_fase22_conciliacion_v2_base.sql',
+  'schema_fase23_conciliacion_v2_importacion.sql',
 ] as const;

@@ -183,6 +183,46 @@ export async function probarClavesEmpresa(
     [a.empresa, b.cuenta]
   );
 
+  await contexto(client, b.empresa);
+  const { rows: [perfilB] } = await client.query(`INSERT INTO conciliacion_perfiles_banco
+    (empresa_id, codigo, nombre, banco, formato, mapeo_columnas_json)
+    VALUES ($1, 'BCP_CSV_B', 'Perfil B', 'BCP', 'CSV', '{}'::jsonb) RETURNING id`, [b.empresa]);
+  const { rows: [extractoB] } = await client.query(`INSERT INTO extractos_bancarios
+    (empresa_id, cuenta_financiera_id, nombre_archivo, fecha_corte_desde, fecha_corte_hasta, hash_archivo)
+    VALUES ($1, $2, 'b.csv', DATE '2026-11-01', DATE '2026-11-30', 'hash-ext-b') RETURNING id`, [b.empresa, b.banco]);
+  const { rows: [importB] } = await client.query(`INSERT INTO extracto_import
+    (empresa_id, cuenta_financiera_id, nombre_archivo, formato_archivo, tamano_bytes, hash_archivo, fecha_desde, fecha_hasta, saldo_inicial, saldo_final)
+    VALUES ($1, $2, 'b.csv', 'CSV', 100, 'hash-imp-b', DATE '2026-11-01', DATE '2026-11-30', 0, 0) RETURNING id`, [b.empresa, b.banco]);
+  const { rows: [rawB] } = await client.query(`INSERT INTO extracto_linea_raw
+    (empresa_id, import_id, num_fila, raw_json, hash_linea)
+    VALUES ($1, $2, 1, '{}'::jsonb, 'hash-raw-b') RETURNING id`, [b.empresa, importB.id]);
+
+  await contexto(client, a.empresa);
+  const { rows: [extractoA] } = await client.query(`INSERT INTO extractos_bancarios
+    (empresa_id, cuenta_financiera_id, nombre_archivo, fecha_corte_desde, fecha_corte_hasta, hash_archivo)
+    VALUES ($1, $2, 'a.csv', DATE '2026-11-01', DATE '2026-11-30', 'hash-ext-a') RETURNING id`, [a.empresa, a.banco]);
+  await rechazar(client, 'extracto_import_cuenta_financiera_fkey', `INSERT INTO extracto_import
+    (empresa_id, cuenta_financiera_id, nombre_archivo, formato_archivo, tamano_bytes, hash_archivo, fecha_desde, fecha_hasta, saldo_inicial, saldo_final)
+    VALUES ($1, $2, 'cruce.csv', 'CSV', 100, 'hash-cruce-1', DATE '2026-11-01', DATE '2026-11-30', 0, 0)`, [a.empresa, b.banco]);
+  await rechazar(client, 'extracto_import_extracto_bancario_fkey', `INSERT INTO extracto_import
+    (empresa_id, cuenta_financiera_id, extracto_bancario_id, nombre_archivo, formato_archivo, tamano_bytes, hash_archivo, fecha_desde, fecha_hasta, saldo_inicial, saldo_final)
+    VALUES ($1, $2, $3, 'cruce.csv', 'CSV', 100, 'hash-cruce-2', DATE '2026-11-01', DATE '2026-11-30', 0, 0)`, [a.empresa, a.banco, extractoB.id]);
+  await rechazar(client, 'extracto_import_perfil_banco_fkey', `INSERT INTO extracto_import
+    (empresa_id, cuenta_financiera_id, perfil_banco_id, nombre_archivo, formato_archivo, tamano_bytes, hash_archivo, fecha_desde, fecha_hasta, saldo_inicial, saldo_final)
+    VALUES ($1, $2, $3, 'cruce.csv', 'CSV', 100, 'hash-cruce-3', DATE '2026-11-01', DATE '2026-11-30', 0, 0)`, [a.empresa, a.banco, perfilB.id]);
+  const { rows: [importA] } = await client.query(`INSERT INTO extracto_import
+    (empresa_id, cuenta_financiera_id, extracto_bancario_id, nombre_archivo, formato_archivo, tamano_bytes, hash_archivo, fecha_desde, fecha_hasta, saldo_inicial, saldo_final)
+    VALUES ($1, $2, $3, 'a.csv', 'CSV', 100, 'hash-imp-a', DATE '2026-11-01', DATE '2026-11-30', 0, 0) RETURNING id`, [a.empresa, a.banco, extractoA.id]);
+  await rechazar(client, 'extracto_linea_raw_import_fkey', `INSERT INTO extracto_linea_raw
+    (empresa_id, import_id, num_fila, raw_json, hash_linea)
+    VALUES ($1, $2, 1, '{}'::jsonb, 'hash-raw-cruce')`, [a.empresa, importB.id]);
+  await rechazar(client, 'extracto_lineas_import_id_fkey', `INSERT INTO extracto_lineas
+    (empresa_id, extracto_id, import_id, fecha, descripcion, monto)
+    VALUES ($1, $2, $3, DATE '2026-11-01', 'Cruce', 10.00)`, [a.empresa, extractoA.id, importB.id]);
+  await rechazar(client, 'extracto_lineas_linea_raw_id_fkey', `INSERT INTO extracto_lineas
+    (empresa_id, extracto_id, import_id, linea_raw_id, fecha, descripcion, monto)
+    VALUES ($1, $2, $3, $4, DATE '2026-11-01', 'Cruce', 10.00)`, [a.empresa, extractoA.id, importA.id, rawB.id]);
+
   const lineaPlanilla = `INSERT INTO planilla_lineas
     (planilla_id, trabajador_id, sueldo_basico, total_remuneracion, total_descuentos, neto_pagar)
     VALUES ($1, $2, 1000, 1000, 0, 1000) RETURNING empresa_id`;
