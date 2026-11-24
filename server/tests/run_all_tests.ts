@@ -7,7 +7,13 @@ import { join } from 'node:path';
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 
-const suites = [
+interface SuitePrueba {
+  name: string;
+  path: string;
+  args?: string[];
+}
+
+const suites: SuitePrueba[] = [
   { name: 'Sesión del cliente y renovación concurrente', path: 'src/api/session.test.ts' },
   { name: 'Autorización HTTP por empresa y rol', path: 'server/tests/run_tests_acceso.ts' },
   { name: 'Configuración inicial y sesión administrativa', path: 'server/tests/verificar_auth_setup.ts' },
@@ -45,7 +51,8 @@ const suites = [
   { name: 'Invariancia CRLF / LF y Hashes Históricos en Migraciones', path: 'server/tests/test_migrate_crlf_lf.ts' },
   { name: 'Verificación de Integridad y Trazabilidad de la Matriz de Asientos', path: 'scripts/verificar-matriz.ts' },
   { name: 'Transparencia de Persistencia en Memoria y Respaldos Parciales (M1 + M2)', path: 'server/tests/test_transparencia_persistencia.ts' },
-  { name: 'Voucher Libre, Validación Zod, Conteo de Subdiarios y Persistencia', path: 'server/tests/test_voucher_libre_y_subdiarios.ts' }
+  { name: 'Voucher Libre, Validación Zod, Conteo de Subdiarios y Persistencia', path: 'server/tests/test_voucher_libre_y_subdiarios.ts' },
+  { name: 'Conciliación Bancaria V2 (Fase 1: Unitarias y Regresión Pura)', path: 'server/tests/test_conciliacion_v2_fase1.ts', args: ['--solo-unitarias'] }
 ];
 
 console.log('========================================================================');
@@ -66,7 +73,7 @@ for (const [idx, suite] of suites.entries()) {
 
   const res = spawnSync(
     process.execPath,
-    ['--import', 'tsx', '--import', './server/tests/contador_aserciones.ts', suite.path],
+    ['--import', 'tsx', '--import', './server/tests/contador_aserciones.ts', suite.path, ...(suite.args ?? [])],
     {
       stdio: 'inherit',
       env: {
