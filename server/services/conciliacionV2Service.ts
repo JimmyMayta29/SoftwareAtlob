@@ -57,9 +57,10 @@ const actualizarConfigSchema = z.object({
         if (val === undefined) return true;
         const text = String(val).trim();
         if (!/^-?\d+(\.\d+)?$/.test(text)) return false;
-        return Money.create(text).gte(0);
+        const dec = Money.create(text);
+        return dec.gte(0) && Money.round(dec).lte('999999999999.99');
       },
-      { message: 'toleranciaMonto debe ser un decimal no negativo.' }
+      { message: 'toleranciaMonto debe ser un decimal entre 0.00 y 999999999999.99.' }
     ),
   cuentaItfCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaComisionCodigo: z.string().trim().min(2).max(20).optional(),
@@ -326,6 +327,38 @@ export function validarCuentasAsientoConfig(
 // AUDITORÍA TRANSACCIONAL ENCADENADA (auditoria_log)
 // ============================================================================
 
+/**
+ * Ordena recursivamente las claves de objetos siguiendo la regla interna de PostgreSQL JSONB
+ * (longitud de clave ascendente, luego orden lexicográfico UTF-8/ASCII) para que el hash
+ * calculado coincida exactamente con el JSONB recuperado por `verificarIntegridad`.
+ */
+function ordenarClavesComoJsonb(valor: unknown): unknown {
+  if (valor === null || valor === undefined) {
+    return valor;
+  }
+  if (Array.isArray(valor)) {
+    return valor.map(ordenarClavesComoJsonb);
+  }
+  if (valor instanceof Date) {
+    return valor.toISOString();
+  }
+  if (typeof valor === 'object') {
+    const origen = valor as Record<string, unknown>;
+    const claves = Object.keys(origen)
+      .filter((k) => origen[k] !== undefined)
+      .sort((a, b) => {
+        if (a.length !== b.length) return a.length - b.length;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+    const destino: Record<string, unknown> = {};
+    for (const clave of claves) {
+      destino[clave] = ordenarClavesComoJsonb(origen[clave]);
+    }
+    return destino;
+  }
+  return valor;
+}
+
 export async function registrarAuditoriaEnTx(
   client: PoolClient,
   params: {
@@ -342,8 +375,17 @@ export async function registrarAuditoriaEnTx(
   asegurarUuid(params.usuarioId, 'usuarioId');
 
   const id = randomUUID();
-  const datosAnteriores = filtrarDetalleAuditoria(params.tablaAfectada, params.datosAnteriores ?? null);
-  const datosNuevos = filtrarDetalleAuditoria(params.tablaAfectada, params.datosNuevos ?? null);
+  const datosAnteriores = ordenarClavesComoJsonb(
+    filtrarDetalleAuditoria(params.tablaAfectada, params.datosAnteriores ?? null)
+  );
+  const datosNuevos = ordenarClavesComoJsonb(
+    filtrarDetalleAuditoria(params.tablaAfectada, params.datosNuevos ?? null)
+  );
+
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('auditoria_log:' || $1))",
+    [params.empresaId]
+  );
 
   const prevRes = await client.query<{ hash_actual: string }>(
     `SELECT hash_actual
@@ -370,7 +412,7 @@ export async function registrarAuditoriaEnTx(
     `INSERT INTO auditoria_log (
       id, empresa_id, usuario_id, tabla_afectada, registro_id,
       accion, datos_anteriores, datos_nuevos, hash_previo, hash_actual, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, CURRENT_TIMESTAMP)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, clock_timestamp())`,
     [
       id,
       params.empresaId,
@@ -682,7 +724,7 @@ async function obtenerResumenConciliacionEnTx(
      WHERE empresa_id = $1
        AND cuenta_financiera_id = $2
        AND fecha <= $3
-       AND estado <> 'ANULADO'`,
+       AND estado = 'REGISTRADO'`,
     [empresaId, cuentaFinancieraId, fechaFin]
   );
 
@@ -707,7 +749,7 @@ async function obtenerResumenConciliacionEnTx(
      FROM movimientos_tesoreria
      WHERE empresa_id = $1
        AND cuenta_financiera_id = $2
-       AND estado <> 'ANULADO'
+       AND estado = 'REGISTRADO'
        AND (
          fecha BETWEEN $3 AND $4
          OR (fecha < $3 AND conciliado = false)
@@ -955,27 +997,33 @@ export const conciliacionV2Service = {
           codigo: string;
           isActive: boolean;
           esInactiva: boolean;
+          permiteMovimiento: boolean;
         }>(
           `SELECT codigo,
                   is_active AS "isActive",
-                  COALESCE(es_inactiva, false) AS "esInactiva"
+                  COALESCE(es_inactiva, false) AS "esInactiva",
+                  permite_movimiento AS "permiteMovimiento"
            FROM plan_cuentas
            WHERE empresa_id = $1 AND codigo = ANY($2::varchar[])`,
           [empresaId, codigosValidar]
         );
 
-        const activos = new Set(
-          planRes.rows
-            .filter((r) => r.isActive === true && r.esInactiva === false)
-            .map((r) => r.codigo)
-        );
+        const mapaPlan = new Map(planRes.rows.map((r) => [r.codigo, r]));
 
         for (const codigo of codigosValidar) {
-          if (!activos.has(codigo)) {
+          const cuentaPlan = mapaPlan.get(codigo);
+          if (!cuentaPlan || cuentaPlan.isActive !== true || cuentaPlan.esInactiva !== false) {
             throw new ConciliacionV2Error(
               409,
               'CUENTA_PCGE_INEXISTENTE_EN_EMPRESA',
               `La cuenta PCGE "${codigo}" no existe o no está activa (is_active = true) en el plan de cuentas de la empresa.`
+            );
+          }
+          if (cuentaPlan.permiteMovimiento !== true) {
+            throw new ConciliacionV2Error(
+              409,
+              'CUENTA_PCGE_NO_IMPUTABLE',
+              `La cuenta PCGE "${codigo}" es una cuenta título o de agrupación (permite_movimiento = false) y no puede configurarse para asientos.`
             );
           }
         }
@@ -1189,6 +1237,13 @@ export const conciliacionV2Service = {
       }
 
       const pc = pcRes.rows[0];
+      if (!String(pc.codigo).startsWith('10')) {
+        throw new ConciliacionV2Error(
+          409,
+          'CUENTA_PCGE_INVALIDA_PARA_BANCO',
+          `La cuenta contable ${pc.codigo} no pertenece al grupo 10 (Efectivo y Equivalentes de Efectivo) y no puede vincularse a una cuenta financiera.`
+        );
+      }
       if (!pc.isActive || pc.esInactiva) {
         throw new ConciliacionV2Error(
           409,

@@ -4,6 +4,7 @@ import {
   ConciliacionV2Error,
   conciliacionV2Service,
 } from '../services/conciliacionV2Service';
+import { Money } from '../utils/decimal';
 import { successResponse, errorResponse } from '../utils/response';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
 
@@ -17,7 +18,19 @@ const resumenQuerySchema = z.object({
 const actualizarConfigBodySchema = z.object({
   conciliacionV2Habilitada: z.boolean().optional(),
   toleranciaDias: z.number().int().min(0).max(30).optional(),
-  toleranciaMonto: z.union([z.string(), z.number()]).optional(),
+  toleranciaMonto: z
+    .union([z.string(), z.number()])
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined) return true;
+        const text = String(val).trim();
+        if (!/^-?\d+(\.\d+)?$/.test(text)) return false;
+        const dec = Money.create(text);
+        return dec.gte(0) && Money.round(dec).lte('999999999999.99');
+      },
+      { message: 'toleranciaMonto debe ser un decimal entre 0.00 y 999999999999.99.' }
+    ),
   cuentaItfCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaComisionCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaInteresGastoCodigo: z.string().trim().min(2).max(20).optional(),
