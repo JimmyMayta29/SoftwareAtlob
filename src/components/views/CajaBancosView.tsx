@@ -26,6 +26,7 @@ import {
   Clock
 } from 'lucide-react';
 import { MovimientoCajaBanco } from '../../types';
+import { obtenerRangoMesPeriodo } from '../../utils/periodoFecha';
 import { 
   useCuentasFinancieras, 
   useMovimientosTesoreria, 
@@ -96,7 +97,7 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
     empresaId,
     ctaActiva?.id || '',
     `per-${periodo}`,
-    `${periodo}-30`
+    obtenerRangoMesPeriodo(periodo).fechaFin
   );
 
   // Form Movimiento State
