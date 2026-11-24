@@ -4,8 +4,7 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
-import { filtrarDetalleAuditoria } from '../utils/seguridadDatos';
-import { auditoriaChainService, GENESIS_HASH } from './auditoriaChainService';
+import { auditoriaChainService } from './auditoriaChainService';
 import { obtenerRangoMesPeriodo } from '../../src/utils/periodoFecha';
 import {
   ActualizarConfigConciliacionV2Input,
@@ -327,38 +326,6 @@ export function validarCuentasAsientoConfig(
 // AUDITORÍA TRANSACCIONAL ENCADENADA (auditoria_log)
 // ============================================================================
 
-/**
- * Ordena recursivamente las claves de objetos siguiendo la regla interna de PostgreSQL JSONB
- * (longitud de clave ascendente, luego orden lexicográfico UTF-8/ASCII) para que el hash
- * calculado coincida exactamente con el JSONB recuperado por `verificarIntegridad`.
- */
-function ordenarClavesComoJsonb(valor: unknown): unknown {
-  if (valor === null || valor === undefined) {
-    return valor;
-  }
-  if (Array.isArray(valor)) {
-    return valor.map(ordenarClavesComoJsonb);
-  }
-  if (valor instanceof Date) {
-    return valor.toISOString();
-  }
-  if (typeof valor === 'object') {
-    const origen = valor as Record<string, unknown>;
-    const claves = Object.keys(origen)
-      .filter((k) => origen[k] !== undefined)
-      .sort((a, b) => {
-        if (a.length !== b.length) return a.length - b.length;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
-    const destino: Record<string, unknown> = {};
-    for (const clave of claves) {
-      destino[clave] = ordenarClavesComoJsonb(origen[clave]);
-    }
-    return destino;
-  }
-  return valor;
-}
-
 export async function registrarAuditoriaEnTx(
   client: PoolClient,
   params: {
@@ -373,59 +340,7 @@ export async function registrarAuditoriaEnTx(
 ): Promise<void> {
   asegurarUuid(params.empresaId, 'empresaId');
   asegurarUuid(params.usuarioId, 'usuarioId');
-
-  const id = randomUUID();
-  const datosAnteriores = ordenarClavesComoJsonb(
-    filtrarDetalleAuditoria(params.tablaAfectada, params.datosAnteriores ?? null)
-  );
-  const datosNuevos = ordenarClavesComoJsonb(
-    filtrarDetalleAuditoria(params.tablaAfectada, params.datosNuevos ?? null)
-  );
-
-  await client.query(
-    "SELECT pg_advisory_xact_lock(hashtext('auditoria_log:' || $1))",
-    [params.empresaId]
-  );
-
-  const prevRes = await client.query<{ hash_actual: string }>(
-    `SELECT hash_actual
-     FROM auditoria_log
-     WHERE empresa_id = $1
-     ORDER BY created_at DESC, id DESC
-     LIMIT 1`,
-    [params.empresaId]
-  );
-
-  const hashPrevio = prevRes.rows[0]?.hash_actual || GENESIS_HASH;
-  const hashActual = auditoriaChainService.calcularHash(
-    id,
-    params.empresaId,
-    params.usuarioId,
-    params.tablaAfectada,
-    params.registroId,
-    params.accion,
-    datosNuevos,
-    hashPrevio
-  );
-
-  await client.query(
-    `INSERT INTO auditoria_log (
-      id, empresa_id, usuario_id, tabla_afectada, registro_id,
-      accion, datos_anteriores, datos_nuevos, hash_previo, hash_actual, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, clock_timestamp())`,
-    [
-      id,
-      params.empresaId,
-      params.usuarioId,
-      params.tablaAfectada,
-      params.registroId,
-      params.accion,
-      datosAnteriores !== undefined && datosAnteriores !== null ? JSON.stringify(datosAnteriores) : null,
-      datosNuevos !== undefined && datosNuevos !== null ? JSON.stringify(datosNuevos) : null,
-      hashPrevio,
-      hashActual,
-    ]
-  );
+  await auditoriaChainService.registrar(params, client);
 }
 
 // ============================================================================
