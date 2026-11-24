@@ -275,6 +275,8 @@ async function ejecutarBloquePostgresReal() {
   const { ConciliacionV2Error, conciliacionV2Service } = await import('../services/conciliacionV2Service');
   const { conciliacionV2Controller } = await import('../controllers/conciliacionV2Controller');
   const { conciliacionService } = await import('../services/conciliacionService');
+  const { asientoService } = await import('../services/asientoService');
+  const { auditoriaChainService } = await import('../services/auditoriaChainService');
   const { authJwtService } = await import('../services/authJwtService');
   const { apiRoutes } = await import('../routes');
 
@@ -1305,6 +1307,290 @@ async function ejecutarBloquePostgresReal() {
         'GET'
       );
       assert.equal(httpCross.status, 403, 'Usuario de Empresa B no debe acceder a endpoints V2 de Empresa A');
+    });
+
+    // ------------------------------------------------------------------
+    // CASO 10: Concurrencia auditoria_log entre V2 y otros módulos + JSONB anidado
+    // ------------------------------------------------------------------
+    await ejecutarCaso('B10. Concurrencia auditoria_log entre V2, asientos y escritor unificado con datos anidados', async () => {
+      const empB10 = randomUUID();
+      const ejB10 = randomUUID();
+      const perB10 = randomUUID();
+      const subB10 = randomUUID();
+      const cta1041B10 = randomUUID();
+      const cta1042B10 = randomUUID();
+      const cta70111B10 = randomUUID();
+      const cta6412B10 = randomUUID();
+      const cta6391B10 = randomUUID();
+      const cta67311B10 = randomUUID();
+      const cta7793B10 = randomUUID();
+      const cuentaB10Id = randomUUID();
+      const cuentaSinVincB10Id = randomUUID();
+      const extB10Id = randomUUID();
+      const linB10Id = randomUUID();
+      const movB10Id = randomUUID();
+      const rucB10 = `20${randomInt(100000000, 999999999)}`;
+
+      const b10Seed = await pool.connect();
+      try {
+        await b10Seed.query('BEGIN');
+        await b10Seed.query(
+          `INSERT INTO empresas (id, tenant_id, codigo_empresa, ruc, razon_social, regimen_tributario, domicilio_fiscal, moneda_principal, is_active)
+           VALUES ($1, $2, $3, $4, 'EMPRESA CONCIL V2 B10 SAC', 'REGIMEN_GENERAL', 'Av. B10 100', 'PEN', true)`,
+          [empB10, tenantId, `EMP-B10-${sufijo}`, rucB10]
+        );
+        await fijarContextoRls(b10Seed, empB10, usrAdmin);
+        await b10Seed.query(
+          `INSERT INTO usuario_empresa (id, usuario_id, empresa_id, rol_en_empresa, estado)
+           VALUES ($1, $2, $3, 'ADMINISTRADOR', 'ACTIVO')`,
+          [randomUUID(), usrAdmin, empB10]
+        );
+        await b10Seed.query(
+          `INSERT INTO ejercicios (id, empresa_id, anio, estado) VALUES ($1, $2, 2026, 'ABIERTO')`,
+          [ejB10, empB10]
+        );
+        await b10Seed.query(
+          `INSERT INTO periodos (id, empresa_id, ejercicio_id, anio, mes, codigo_periodo, estado)
+           VALUES ($1, $2, $3, 2026, 2, '2026-02', 'ABIERTO')`,
+          [perB10, empB10, ejB10]
+        );
+        await b10Seed.query(
+          `INSERT INTO subdiarios (id, empresa_id, codigo, descripcion, tipo, is_active)
+           VALUES ($1, $2, '05', 'BANCOS B10', 'BANCOS', true)`,
+          [subB10, empB10]
+        );
+        await b10Seed.query(
+          `INSERT INTO plan_cuentas (id, empresa_id, codigo, nombre, nivel, tipo_cuenta, permite_movimiento, is_active)
+           VALUES
+             ($1, $8, '10411', 'Banco BCP B10 MN', 5, 'ACTIVO', true, true),
+             ($2, $8, '10412', 'Banco BBVA B10 MN', 5, 'ACTIVO', true, true),
+             ($3, $8, '70111', 'Ventas Mercaderías B10', 5, 'INGRESO', true, true),
+             ($4, $8, '6412',  'Impuesto a las Transacciones Financieras B10', 4, 'GASTO', true, true),
+             ($5, $8, '6391',  'Gastos Bancarios B10', 4, 'GASTO', true, true),
+             ($6, $8, '67311', 'Intereses Bancarios B10', 5, 'GASTO', true, true),
+             ($7, $8, '7793',  'Otros Ingresos Financieros B10', 4, 'INGRESO', true, true)`,
+          [cta1041B10, cta1042B10, cta70111B10, cta6412B10, cta6391B10, cta67311B10, cta7793B10, empB10]
+        );
+        await b10Seed.query(
+          `INSERT INTO cuentas_financieras (
+             id, empresa_id, tipo, banco, numero, moneda, cuenta_contable_codigo, cuenta_contable_id, saldo_inicial, saldo_actual, activa
+           ) VALUES
+             ($1, $3, 'BANCO', 'BCP', '193-B10-001', 'PEN', '10411', $4, 0.00, 0.00, true),
+             ($2, $3, 'BANCO', 'BBVA', '0011-B10-002', 'PEN', '1041', NULL, 0.00, 0.00, true)`,
+          [cuentaB10Id, cuentaSinVincB10Id, empB10, cta1041B10]
+        );
+        await b10Seed.query(
+          `INSERT INTO movimientos_tesoreria (
+             id, empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo, medio_pago,
+             numero_operacion, moneda, tipo_cambio, importe, glosa, estado, conciliado
+           ) VALUES ($1, $2, $3, $4, '2026-02-15', 'INGRESO', '003', 'OP-B10-1', 'PEN', 1.0000, 500.00, 'Abono B10', 'REGISTRADO', false)`,
+          [movB10Id, empB10, perB10, cuentaB10Id]
+        );
+        await b10Seed.query(
+          `INSERT INTO extractos_bancarios (
+             id, empresa_id, cuenta_financiera_id, nombre_archivo, fecha_corte_desde, fecha_corte_hasta,
+             saldo_inicial, saldo_final, hash_archivo, estado
+           ) VALUES ($1, $2, $3, 'ext_b10_02.csv', '2026-02-01', '2026-02-28', 0.00, 500.00, $4, 'CARGADO')`,
+          [extB10Id, empB10, cuentaB10Id, `hb10-${sufijo}`]
+        );
+        await b10Seed.query(
+          `INSERT INTO extracto_lineas (
+             id, extracto_id, empresa_id, fecha, descripcion, referencia, monto, saldo, conciliada, estado_conciliacion, movimiento_tesoreria_id
+           ) VALUES ($1, $2, $3, '2026-02-15', 'ABONO B10', 'OP-B10-1', 500.00, 500.00, false, 'PENDIENTE_LIBROS', NULL)`,
+          [linB10Id, extB10Id, empB10]
+        );
+        await b10Seed.query('COMMIT');
+      } catch (err) {
+        await b10Seed.query('ROLLBACK');
+        throw err;
+      } finally {
+        b10Seed.release();
+      }
+
+      try {
+        // Lote 1 en paralelo: V2 (config + vinculación + conciliación) + módulo asientos + escritor unificado sin client con detalles anidados
+        const [cfg1, vincB10, partB10, asientoB10, audUnif1] = await Promise.all([
+          conciliacionV2Service.actualizarConfig(empB10, usrAdmin, {
+            conciliacionV2Habilitada: true,
+            toleranciaDias: 4,
+            toleranciaMonto: '0.25',
+            cuentaInteresIngresoCodigo: '7793',
+          }),
+          conciliacionV2Service.vincularCuentaContable(empB10, cuentaSinVincB10Id, usrAdmin, {
+            cuentaContableId: cta1042B10,
+            cci: '00219300099988877766',
+          }),
+          conciliacionV2Service.conciliarPartida(empB10, usrAdmin, {
+            extractoLineaId: linB10Id,
+            movimientoTesoreriaId: movB10Id,
+            observacion: 'Cruce concurrente B10',
+          }),
+          conContextoEmpresa(empB10, usrAdmin, () =>
+            asientoService.crearAsiento(
+              empB10,
+              {
+                periodoId: perB10,
+                subdiarioId: subB10,
+                fecha: '2026-02-20',
+                glosa: 'Asiento real concurrente B10',
+                moneda: 'PEN',
+                lineas: [
+                  { linea: 1, cuentaId: cta1041B10, debe: 250, haber: 0, glosaLinea: 'Cargo banco B10' },
+                  { linea: 2, cuentaId: cta70111B10, debe: 0, haber: 250, glosaLinea: 'Abono ventas B10' },
+                ],
+              },
+              usrAdmin
+            )
+          ),
+          auditoriaChainService.registrar({
+            empresaId: empB10,
+            usuarioId: usrAdmin,
+            tablaAfectada: 'asientos',
+            registroId: randomUUID(),
+            accion: 'INSERT',
+            datosNuevos: {
+              totalHaber: 100,
+              numero: '05020099',
+              detalles: [
+                {
+                  glosaLinea: 'Cargo concurrente',
+                  haber: 0,
+                  debe: 100,
+                  cuentaNombre: 'BCP',
+                  cuentaCodigo: '10411',
+                  linea: 1,
+                },
+                {
+                  glosaLinea: 'Abono concurrente',
+                  haber: 100,
+                  debe: 0,
+                  cuentaNombre: 'CxC',
+                  cuentaCodigo: '1212',
+                  linea: 2,
+                },
+              ],
+              cuo: `CUO-B10-${sufijo}-1`,
+              totalDebe: 100,
+              glosa: 'Asiento concurrente con detalles anidados B10',
+            },
+          }),
+        ]);
+
+        assert.equal(cfg1.conciliacionV2Habilitada, true);
+        assert.equal(vincB10.cuentaContableId, cta1042B10);
+        assert.equal(partB10.conciliada, true);
+        assert.equal(asientoB10.estado, 'CONTABILIZADO');
+        assert.ok(audUnif1.hashActual);
+
+        // Lote 2 en paralelo: cierre V2 + actualización config V2 + segundo escritor unificado anidado para garantizar intercalado
+        const [cierreB10, cfg2, audUnif2] = await Promise.all([
+          conciliacionV2Service.cerrarConciliacion(empB10, usrAdmin, {
+            cuentaFinancieraId: cuentaB10Id,
+            periodo: '2026-02',
+          }),
+          conciliacionV2Service.actualizarConfig(empB10, usrAdmin, {
+            toleranciaDias: 7,
+            toleranciaMonto: '1.00',
+          }),
+          auditoriaChainService.registrar({
+            empresaId: empB10,
+            usuarioId: usrAdmin,
+            tablaAfectada: 'asientos',
+            registroId: randomUUID(),
+            accion: 'UPDATE',
+            datosNuevos: {
+              glosa: 'Segundo evento concurrente anidado B10',
+              totalDebe: 350,
+              cuo: `CUO-B10-${sufijo}-2`,
+              detalles: [
+                {
+                  cuentaNombre: 'BBVA',
+                  linea: 1,
+                  debe: 350,
+                  cuentaCodigo: '10412',
+                  haber: 0,
+                  glosaLinea: 'Cargo 2',
+                },
+                {
+                  cuentaNombre: 'Ventas',
+                  linea: 2,
+                  debe: 0,
+                  cuentaCodigo: '70111',
+                  haber: 350,
+                  glosaLinea: 'Abono 2',
+                },
+              ],
+              totalHaber: 350,
+              numero: '05020100',
+            },
+          }),
+        ]);
+
+        assert.equal(cierreB10.estado, 'CERRADA');
+        assert.equal(cfg2.toleranciaDias, 7);
+        assert.ok(audUnif2.hashActual);
+
+        // Verificar en PostgreSQL real que hay >= 4 filas en auditoria_log y la cadena es 100% íntegra
+        const countRes = await queryEnEmpresa<{ total: number }>(
+          pool,
+          empB10,
+          usrAdmin,
+          `SELECT COUNT(*)::int AS total FROM auditoria_log WHERE empresa_id = $1`,
+          [empB10]
+        );
+        assert.ok(
+          countRes.rows[0].total >= 4,
+          `Se esperaban >= 4 filas en auditoria_log para empB10, se obtuvieron ${countRes.rows[0].total}`
+        );
+
+        const resultado = await conContextoEmpresa(empB10, usrAdmin, () =>
+          auditoriaChainService.verificarIntegridad(empB10)
+        );
+        assert.equal(resultado.valido, true, `Cadena de auditoría corrupta: ${resultado.mensaje}`);
+        assert.ok(
+          resultado.totalRegistros >= 4,
+          `verificarIntegridad debe validar >= 4 registros (validados: ${resultado.totalRegistros})`
+        );
+      } finally {
+        // Limpieza de tablas mutables creadas por B10 (respetando inmutabilidad de auditoria_log y asientos contabilizados)
+        const b10Clean = await pool.connect();
+        try {
+          await b10Clean.query(
+            `SELECT set_config('app.empresa_id', $1, false),
+                    set_config('app.current_empresa_id', $1, false),
+                    set_config('app.usuario_id', $2, false),
+                    set_config('app.current_user_id', $2, false)`,
+            [empB10, usrAdmin]
+          );
+          const sentenciasB10 = [
+            [`DELETE FROM conciliaciones_bancarias WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM extracto_lineas WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM extractos_bancarios WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM movimientos_tesoreria WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM conciliacion_config_empresa WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM cuentas_financieras WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM correlativos WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM asiento_detalle WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM asientos WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM subdiarios WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM plan_cuentas WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM periodos WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM ejercicios WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM usuario_empresa WHERE empresa_id = $1`, [empB10]],
+            [`DELETE FROM empresas WHERE id = $1`, [empB10]],
+          ] as const;
+
+          for (const [sql, params] of sentenciasB10) {
+            try {
+              await b10Clean.query(sql, [...params]);
+            } catch {
+              // auditoria_log y asientos contabilizados quedan protegidos por trigger de inmutabilidad
+            }
+          }
+        } finally {
+          b10Clean.release();
+        }
+      }
     });
   } finally {
     if (prevFlagV2 !== undefined) {
