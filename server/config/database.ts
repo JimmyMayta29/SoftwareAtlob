@@ -16,6 +16,11 @@ let isConnected = false;
 export const contexto = new AsyncLocalStorage<{ empresaId?: string; userId: string }>();
 export function obtenerContextoActual() { return contexto.getStore(); }
 
+const transaccionActivaStorage = new AsyncLocalStorage<boolean>();
+export function estaEnTransaccionActiva(): boolean {
+  return transaccionActivaStorage.getStore() === true;
+}
+
 export function conContextoUsuario<T>(userId: string, action: () => T): T {
   const actual = contexto.getStore();
   if (actual && actual.userId !== userId) throw new Error('CONTEXTO_USUARIO_INCOMPATIBLE');
@@ -88,7 +93,7 @@ export function setPostgresPool(customPool: Pool | any, connected = true) {
 
 async function transaction<T>(empresaId: string | undefined, userId: string | undefined, action: (client: PoolClient) => Promise<T>): Promise<T> {
   if (!pool || !isConnected) {
-    if (env.NODE_ENV !== 'production') return action({} as PoolClient);
+    if (env.NODE_ENV !== 'production') return transaccionActivaStorage.run(true, () => action({} as PoolClient));
     throw new Error('DATABASE_NO_DISPONIBLE');
   }
   const client = await pool.connect();
@@ -96,7 +101,7 @@ async function transaction<T>(empresaId: string | undefined, userId: string | un
     await client.query('BEGIN');
     if (empresaId) await establecerContextoEmpresa(client, empresaId, userId);
     else if (userId) await establecerContextoUsuario(client, userId);
-    const result = await action(client);
+    const result = await transaccionActivaStorage.run(true, () => action(client));
     await client.query('COMMIT');
     return result;
   } catch (error) {

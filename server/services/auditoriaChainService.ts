@@ -1,6 +1,7 @@
 import crypto, { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { db } from '../config/database';
+import { db, estaEnTransaccionActiva } from '../config/database';
+import { env } from '../config/env';
 import { filtrarDetalleAuditoria, sanitizarMensaje } from '../utils/seguridadDatos';
 
 export interface AuditoriaLogEntry {
@@ -97,6 +98,13 @@ export const auditoriaChainService = {
    * Si se recibe `client`, participa atómicamente de esa transacción propagando errores.
    */
   async registrar(params: RegistrarAuditoriaChainParams, client?: PoolClient): Promise<AuditoriaLogEntry> {
+    const modoEntorno = process.env.NODE_ENV || env.NODE_ENV;
+    if (!client && estaEnTransaccionActiva() && (modoEntorno === 'test' || modoEntorno === 'development')) {
+      throw new Error(
+        'AUDITORIA_SIN_CLIENT_EN_TRANSACCION: auditoriaChainService.registrar fue invocado sin PoolClient dentro de una transacción activa. Pase el client transaccional para preservar atomicidad y evitar bloqueos.'
+      );
+    }
+
     const datosAnterioresFiltrados = filtrarDetalleAuditoria(params.tablaAfectada, params.datosAnteriores ?? null);
     const datosNuevosFiltrados = filtrarDetalleAuditoria(params.tablaAfectada, params.datosNuevos ?? null);
     const datosAnteriores = ordenarClavesComoJsonb(datosAnterioresFiltrados ?? null);

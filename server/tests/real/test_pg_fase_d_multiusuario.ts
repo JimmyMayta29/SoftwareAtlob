@@ -821,10 +821,10 @@ async function ejecutar() {
       }
 
       const [loginU1, loginU2, loginU3, loginU4] = await Promise.all([
-        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU1, password: clavePrueba, empresaId } }),
-        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU2, password: clavePrueba, empresaId } }),
-        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU3, password: clavePrueba, empresaId } }),
-        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU4, password: clavePrueba, empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU1, password: clavePrueba, empresaId, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU2, password: clavePrueba, empresaId, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU3, password: clavePrueba, empresaId, empresaPreferencia: empresaId } }),
+        peticionHttps({ hostname: '127.0.0.1', port: httpsPort, path: '/api/auth/login', method: 'POST', ca: caBuffer, body: { email: emailU4, password: clavePrueba, empresaId, empresaPreferencia: empresaId } }),
       ]);
 
       for (const l of [loginU1, loginU2, loginU3, loginU4]) {
