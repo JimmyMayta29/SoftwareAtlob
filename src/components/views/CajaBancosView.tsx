@@ -97,7 +97,7 @@ export const CajaBancosView: React.FC<CajaBancosViewProps> = ({
     empresaId,
     ctaActiva?.id || '',
     `per-${periodo}`,
-    obtenerRangoMesPeriodo(periodo).fechaFin
+    /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo) ? obtenerRangoMesPeriodo(periodo).fechaFin : ''
   );
 
   // Form Movimiento State
