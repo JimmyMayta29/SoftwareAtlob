@@ -98,3 +98,32 @@ Cuando la cuenta financiera tiene `cuenta_contable_id` vinculada, el resumen con
    - `validarCuentasAsientoConfig('INTERES_INGRESO', config, codigosPlanEmpresa)` bloquea la generación de asientos de intereses financieros ganados mientras la empresa no haya configurado explícitamente `cuentaInteresIngresoCodigo` (sugerencia de UI: `'7793'`).
 3. **Bloqueo por cuenta PCGE inexistente o inactiva (`409 CUENTA_PCGE_INEXISTENTE_EN_EMPRESA`)**:
    - Tanto `actualizarConfig` como `validarCuentasAsientoConfig` exigen que todo código PCGE configurado exista activo en `plan_cuentas` de la empresa.
+
+---
+
+## 7. Semilla Demo Idempotente (`npm run seed:conciliacion-demo`)
+
+El script [server/db/seed_conciliacion_demo.ts](../../../server/db/seed_conciliacion_demo.ts) siembra un conjunto de datos idempotente para pruebas locales de **Conciliación Bancaria V2** (`npm run seed:conciliacion-demo`).
+
+### Requisitos y guardias de seguridad
+- **`SEED_DEMO_PASSWORD` obligatoria**: no existe ninguna contraseña por defecto ni fallback. Si `SEED_DEMO_PASSWORD` no está definida o tiene menos de 8 caracteres (después de `.trim()`), el script falla antes de conectarse a PostgreSQL con el error `SEED_DEMO_PASSWORD_REQUERIDA` y código de salida distinto de cero.
+- **Guardia exclusiva sobre `atlob_test`**: la conexión debe apuntar obligatoriamente a la base `/atlob_test` en host local (`localhost`, `127.0.0.1` o `[::1]`) usando el rol `contabilidad_app`. Cualquier intento contra `sistema_contable` u otra base/usuario es rechazado explícitamente (`BASE_PROHIBIDA` / `GUARDIA_ENTORNO_RECHAZADA` / `SESION_BD_INVALIDA`).
+- **Sin exposición de secretos**: la clave proporcionada se procesa únicamente en memoria para generar el hash `bcrypt` del usuario demo y nunca se imprime en consola ni se registra en disco.
+
+### Ejecución segura sin exponer secretos en historial o consola
+
+**PowerShell (Windows):**
+```powershell
+$sec = Read-Host 'SEED_DEMO_PASSWORD (mín. 8 caracteres)' -AsSecureString
+$env:SEED_DEMO_PASSWORD = [Net.NetworkCredential]::new('', $sec).Password
+npm run seed:conciliacion-demo
+Remove-Item Env:SEED_DEMO_PASSWORD
+```
+
+**Bash (Linux/macOS/Git Bash):**
+```bash
+read -r -s -p "SEED_DEMO_PASSWORD (mín. 8 caracteres): " SEED_DEMO_PASSWORD
+echo
+SEED_DEMO_PASSWORD="$SEED_DEMO_PASSWORD" npm run seed:conciliacion-demo
+unset SEED_DEMO_PASSWORD
+```

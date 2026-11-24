@@ -210,11 +210,17 @@ export async function ejecutarSeedConciliacionDemo(): Promise<{
   asientosCreadosAhora: number;
   cuentasFinancierasIds: { bcp: string; bbva: string; interbank: string };
 }> {
-  const connectionString = resolverUrlAtlobTest();
-  const pool = new Pool({ connectionString, max: 3, connectionTimeoutMillis: 5000 });
+  const passwordDemo = process.env.SEED_DEMO_PASSWORD?.trim();
+  if (!passwordDemo || passwordDemo.length < 8) {
+    process.exitCode = 1;
+    throw new Error(
+      'SEED_DEMO_PASSWORD_REQUERIDA: Defina la variable de entorno SEED_DEMO_PASSWORD (mínimo 8 caracteres) antes de ejecutar npm run seed:conciliacion-demo.'
+    );
+  }
 
-  const demoPassword = process.env.SEED_DEMO_PASSWORD || 'AtlobDemo2026!';
-  const passwordHash = await bcrypt.hash(demoPassword, 10);
+  const connectionString = resolverUrlAtlobTest();
+  const passwordHash = await bcrypt.hash(passwordDemo, 10);
+  const pool = new Pool({ connectionString, max: 3, connectionTimeoutMillis: 5000 });
 
   const client = await pool.connect();
   try {
@@ -627,7 +633,7 @@ async function main() {
   const resultado = await ejecutarSeedConciliacionDemo();
   console.log('✅ [Seed Conciliación V2] Dataset demo sembrado idempotente en atlob_test.');
   console.log(`   - Empresa demo: ATLOB DEMO CONCILIACION V2 SAC (RUC 20990001234, ID ${resultado.empresaId})`);
-  console.log(`   - Usuario admin demo: admin.demo@atlob.pe (ID ${resultado.usuarioDemoId}; clave según SEED_DEMO_PASSWORD o clave local por defecto)`);
+  console.log(`   - Usuario admin demo: admin.demo@atlob.pe (ID ${resultado.usuarioDemoId}; clave definida en SEED_DEMO_PASSWORD)`);
   console.log(`   - Asientos contables nuevos creados en esta ejecución: ${resultado.asientosCreadosAhora}`);
   console.log(`   - Cuentas financieras: BCP=${resultado.cuentasFinancierasIds.bcp} | BBVA=${resultado.cuentasFinancierasIds.bbva} | INTERBANK=${resultado.cuentasFinancierasIds.interbank}`);
 }
