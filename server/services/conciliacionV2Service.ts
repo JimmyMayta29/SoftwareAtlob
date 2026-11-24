@@ -24,6 +24,7 @@ import {
   ResultadoCierreV2,
   ResumenConciliacionV2,
   SemaforoConciliacion,
+  TipoClasificacionExtracto,
   VincularCuentaContableInput,
 } from '../types/conciliacionV2';
 
@@ -461,6 +462,12 @@ function mapPartidaExtractoRow(row: any): PartidaExtractoV2 {
     diferenciaImporte: Money.format(row.diferenciaImporte ?? '0'),
     observacionConciliacion: row.observacionConciliacion ?? null,
     conciliadoEn: row.conciliadoEn ? new Date(row.conciliadoEn).toISOString() : null,
+    importId: row.importId ?? null,
+    lineaRawId: row.lineaRawId ?? null,
+    tipoClasificacion: (row.tipoClasificacion ?? null) as TipoClasificacionExtracto | null,
+    rucExtraido: row.rucExtraido ?? null,
+    contraparteExtraida: row.contraparteExtraida ?? null,
+    docExtraido: row.docExtraido ?? null,
   };
 }
 
@@ -592,7 +599,13 @@ async function obtenerResumenConciliacionEnTx(
             el.movimiento_tesoreria_id AS "movimientoTesoreriaId",
             el.diferencia_importe::text AS "diferenciaImporte",
             el.observacion_conciliacion AS "observacionConciliacion",
-            el.conciliado_en AS "conciliadoEn"
+            el.conciliado_en AS "conciliadoEn",
+            el.import_id AS "importId",
+            el.linea_raw_id AS "lineaRawId",
+            el.tipo_clasificacion AS "tipoClasificacion",
+            el.ruc_extraido AS "rucExtraido",
+            el.contraparte_extraida AS "contraparteExtraida",
+            el.doc_extraido AS "docExtraido"
      FROM extracto_lineas el
      JOIN extractos_bancarios eb
        ON eb.id = el.extracto_id
@@ -1442,7 +1455,13 @@ export const conciliacionV2Service = {
                    movimiento_tesoreria_id AS "movimientoTesoreriaId",
                    diferencia_importe::text AS "diferenciaImporte",
                    observacion_conciliacion AS "observacionConciliacion",
-                   conciliado_en AS "conciliadoEn"`,
+                   conciliado_en AS "conciliadoEn",
+                   import_id AS "importId",
+                   linea_raw_id AS "lineaRawId",
+                   tipo_clasificacion AS "tipoClasificacion",
+                   ruc_extraido AS "rucExtraido",
+                   contraparte_extraida AS "contraparteExtraida",
+                   doc_extraido AS "docExtraido"`,
         [
           estadoDestino,
           movNuevoId,
@@ -1568,7 +1587,13 @@ export const conciliacionV2Service = {
                    movimiento_tesoreria_id AS "movimientoTesoreriaId",
                    diferencia_importe::text AS "diferenciaImporte",
                    observacion_conciliacion AS "observacionConciliacion",
-                   conciliado_en AS "conciliadoEn"`,
+                   conciliado_en AS "conciliadoEn",
+                   import_id AS "importId",
+                   linea_raw_id AS "lineaRawId",
+                   tipo_clasificacion AS "tipoClasificacion",
+                   ruc_extraido AS "rucExtraido",
+                   contraparte_extraida AS "contraparteExtraida",
+                   doc_extraido AS "docExtraido"`,
         [parsed.motivo ?? null, linea.id, empresaId]
       );
 
