@@ -4,6 +4,19 @@ import {
   ConciliacionV2Error,
   conciliacionV2Service,
 } from '../services/conciliacionV2Service';
+import { clasificadorGlosaService } from '../services/conciliacion/clasificador/clasificadorGlosaService';
+import {
+  ConciliacionImportacionError,
+  generarPlantillaCsvSegura,
+  importacionExtractoService,
+} from '../services/conciliacion/importacion/importacionExtractoService';
+import { perfilesBancoService } from '../services/conciliacion/perfilesBanco/perfilesBancoService';
+import {
+  FORMATOS_EXTRACTO_V2,
+  SENTIDOS_MONTO_REGLA,
+  TIPOS_CLASIFICACION_EXTRACTO,
+  TIPOS_COINCIDENCIA_REGLA,
+} from '../types/conciliacionV2';
 import { Money } from '../utils/decimal';
 import { successResponse, errorResponse } from '../utils/response';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
@@ -66,6 +79,128 @@ const reabrirBodySchema = z.object({
   motivo: z.string().trim().min(5, 'El motivo debe tener al menos 5 caracteres.').max(500),
 });
 
+const columnaRefSchema = z.union([
+  z.string().trim().min(1).max(120),
+  z.number().int().min(0).max(200),
+]);
+
+const mapeoColumnasSchema = z
+  .object({
+    fecha: columnaRefSchema,
+    descripcion: columnaRefSchema,
+    referencia: columnaRefSchema.nullable().optional(),
+    monto: columnaRefSchema.nullable().optional(),
+    abono: columnaRefSchema.nullable().optional(),
+    cargo: columnaRefSchema.nullable().optional(),
+    saldo: columnaRefSchema.nullable().optional(),
+    signoCargoNegativo: z.boolean().optional(),
+  })
+  .refine(
+    (m) =>
+      Boolean(m.monto !== undefined && m.monto !== null) ||
+      Boolean(m.abono !== undefined && m.abono !== null && m.cargo !== undefined && m.cargo !== null),
+    { message: 'mapeoColumnas requiere columna "monto" o el par "abono" y "cargo".' }
+  );
+
+const crearPerfilBodySchema = z.object({
+  codigo: z
+    .string()
+    .trim()
+    .min(2)
+    .max(50)
+    .regex(/^[A-Za-z0-9_-]+$/, 'El código solo puede contener letras, números, "_" y "-".'),
+  nombre: z.string().trim().min(2).max(120),
+  banco: z.string().trim().min(2).max(80),
+  formato: z.enum(FORMATOS_EXTRACTO_V2),
+  delimitador: z.string().max(5).nullable().optional(),
+  codificacion: z.string().trim().min(2).max(20).optional(),
+  filaEncabezado: z.number().int().min(1).max(200).optional(),
+  formatoFecha: z.string().trim().min(4).max(30).optional(),
+  separadorDecimal: z.enum(['.', ',']).optional(),
+  mapeoColumnas: mapeoColumnasSchema,
+  activo: z.boolean().optional(),
+});
+
+const actualizarPerfilBodySchema = z.object({
+  nombre: z.string().trim().min(2).max(120).optional(),
+  banco: z.string().trim().min(2).max(80).optional(),
+  formato: z.enum(FORMATOS_EXTRACTO_V2).optional(),
+  delimitador: z.string().max(5).nullable().optional(),
+  codificacion: z.string().trim().min(2).max(20).optional(),
+  filaEncabezado: z.number().int().min(1).max(200).optional(),
+  formatoFecha: z.string().trim().min(4).max(30).optional(),
+  separadorDecimal: z.enum(['.', ',']).optional(),
+  mapeoColumnas: mapeoColumnasSchema.optional(),
+  activo: z.boolean().optional(),
+});
+
+const crearReglaBodySchema = z.object({
+  nombre: z.string().trim().min(2).max(120),
+  banco: z.string().trim().min(2).max(80).nullable().optional(),
+  tipoClasificacion: z.enum(TIPOS_CLASIFICACION_EXTRACTO),
+  patronTexto: z.string().trim().min(2).max(200),
+  tipoCoincidencia: z.enum(TIPOS_COINCIDENCIA_REGLA).optional(),
+  sentidoMonto: z.enum(SENTIDOS_MONTO_REGLA).optional(),
+  prioridad: z.number().int().min(1).max(1000).optional(),
+  activo: z.boolean().optional(),
+});
+
+const actualizarReglaBodySchema = z.object({
+  nombre: z.string().trim().min(2).max(120).optional(),
+  banco: z.string().trim().min(2).max(80).nullable().optional(),
+  tipoClasificacion: z.enum(TIPOS_CLASIFICACION_EXTRACTO).optional(),
+  patronTexto: z.string().trim().min(2).max(200).optional(),
+  tipoCoincidencia: z.enum(TIPOS_COINCIDENCIA_REGLA).optional(),
+  sentidoMonto: z.enum(SENTIDOS_MONTO_REGLA).optional(),
+  prioridad: z.number().int().min(1).max(1000).optional(),
+  activo: z.boolean().optional(),
+});
+
+const listarImportacionesQuerySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.').optional(),
+});
+
+const mapeoPersonalizadoSchema = z.object({
+  fecha: columnaRefSchema.optional(),
+  descripcion: columnaRefSchema.optional(),
+  referencia: columnaRefSchema.nullable().optional(),
+  monto: columnaRefSchema.nullable().optional(),
+  abono: columnaRefSchema.nullable().optional(),
+  cargo: columnaRefSchema.nullable().optional(),
+  saldo: columnaRefSchema.nullable().optional(),
+  signoCargoNegativo: z.boolean().optional(),
+  filaEncabezado: z.number().int().min(1).max(200).optional(),
+  delimitador: z.string().max(5).nullable().optional(),
+  formatoFecha: z.string().trim().min(4).max(30).optional(),
+  separadorDecimal: z.enum(['.', ',']).optional(),
+});
+
+const importacionBodySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.'),
+  periodo: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'periodo debe tener formato YYYY-MM.')
+    .nullable()
+    .optional(),
+  perfilBancoId: z.string().uuid('perfilBancoId debe ser un UUID válido.').nullable().optional(),
+  perfilCodigo: z.string().trim().min(2).max(50).nullable().optional(),
+  mapeoPersonalizado: mapeoPersonalizadoSchema.optional(),
+  nombreArchivo: z.string().trim().min(1, 'nombreArchivo es requerido.').max(255),
+  contentType: z.string().trim().max(120).nullable().optional(),
+  contenidoBase64: z
+    .string()
+    .trim()
+    .min(1, 'contenidoBase64 es requerido.')
+    .max(8_000_000, 'contenidoBase64 excede el límite máximo permitido (8,000,000 caracteres).'),
+  saldoInicialDeclarado: z.union([z.string().trim().min(1).max(40), z.number().finite()]).nullable().optional(),
+  saldoFinalDeclarado: z.union([z.string().trim().min(1).max(40), z.number().finite()]).nullable().optional(),
+});
+
+const revertirImportacionBodySchema = z.object({
+  motivo: z.string().trim().min(5, 'El motivo debe tener al menos 5 caracteres.').max(500),
+});
+
 function resolverEmpresaId(req: Request): string {
   const empresaRuta = req.empresaId || (req.params as Record<string, string | undefined>)?.empresaId;
   if (!empresaRuta) {
@@ -118,6 +253,7 @@ function manejarError(res: Response, err: unknown, fallback = 'Error en Concilia
   if (err instanceof ConciliacionV2Error) {
     return errorResponse(res, sanitizarMensaje(err.message), err.statusCode, {
       codigo: err.codigo,
+      ...(err instanceof ConciliacionImportacionError && err.errores ? { errores: err.errores } : {}),
     });
   }
   return errorResponse(res, sanitizarMensaje(err, fallback), 500);
@@ -255,6 +391,172 @@ export const conciliacionV2Controller = {
       return successResponse(res, resultado, 'Conciliación bancaria reabierta exitosamente.');
     } catch (err) {
       return manejarError(res, err, 'Error reabriendo conciliación bancaria');
+    }
+  },
+
+  async listarPerfiles(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const perfiles = await perfilesBancoService.listarPerfiles(empresaId);
+      return successResponse(res, perfiles);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando perfiles bancarios');
+    }
+  },
+
+  async crearPerfil(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = crearPerfilBodySchema.parse(req.body ?? {});
+      const perfil = await perfilesBancoService.crearPerfil(empresaId, payload, userId);
+      return successResponse(res, perfil, 'Perfil bancario creado correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error creando perfil bancario');
+    }
+  },
+
+  async actualizarPerfil(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const perfilId = uuidSchema.parse(req.params.perfilId);
+      const payload = actualizarPerfilBodySchema.parse(req.body ?? {});
+      const perfil = await perfilesBancoService.actualizarPerfil(empresaId, perfilId, payload, userId);
+      return successResponse(res, perfil, 'Perfil bancario actualizado correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error actualizando perfil bancario');
+    }
+  },
+
+  async eliminarPerfil(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const perfilId = uuidSchema.parse(req.params.perfilId);
+      const resultado = await perfilesBancoService.eliminarPerfil(empresaId, perfilId, userId);
+      return successResponse(res, resultado, 'Perfil bancario eliminado correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error eliminando perfil bancario');
+    }
+  },
+
+  async listarReglasClasificacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const reglas = await clasificadorGlosaService.listarReglas(empresaId);
+      return successResponse(res, reglas);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando reglas de clasificación');
+    }
+  },
+
+  async crearReglaClasificacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = crearReglaBodySchema.parse(req.body ?? {});
+      const regla = await clasificadorGlosaService.crearRegla(empresaId, payload, userId);
+      return successResponse(res, regla, 'Regla de clasificación creada correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error creando regla de clasificación');
+    }
+  },
+
+  async actualizarReglaClasificacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const reglaId = uuidSchema.parse(req.params.reglaId);
+      const payload = actualizarReglaBodySchema.parse(req.body ?? {});
+      const regla = await clasificadorGlosaService.actualizarRegla(empresaId, reglaId, payload, userId);
+      return successResponse(res, regla, 'Regla de clasificación actualizada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error actualizando regla de clasificación');
+    }
+  },
+
+  async eliminarReglaClasificacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const reglaId = uuidSchema.parse(req.params.reglaId);
+      const resultado = await clasificadorGlosaService.eliminarRegla(empresaId, reglaId, userId);
+      return successResponse(res, resultado, 'Regla de clasificación eliminada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error eliminando regla de clasificación');
+    }
+  },
+
+  async descargarPlantillaCsv(req: Request, res: Response) {
+    try {
+      resolverEmpresaId(req);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="plantilla_extracto_bancario_v2.csv"');
+      return res.status(200).send(generarPlantillaCsvSegura());
+    } catch (err) {
+      return manejarError(res, err, 'Error generando plantilla CSV de extracto');
+    }
+  },
+
+  async listarImportaciones(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = listarImportacionesQuerySchema.parse({
+        cuentaFinancieraId: req.query.cuentaFinancieraId,
+      });
+      const importaciones = await importacionExtractoService.listarImportaciones(
+        empresaId,
+        query.cuentaFinancieraId
+      );
+      return successResponse(res, importaciones);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando importaciones de extractos');
+    }
+  },
+
+  async previsualizarImportacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const payload = importacionBodySchema.parse(req.body ?? {});
+      const resultado = await importacionExtractoService.previsualizarImportacion(empresaId, payload);
+      return successResponse(res, resultado);
+    } catch (err) {
+      return manejarError(res, err, 'Error previsualizando importación de extracto');
+    }
+  },
+
+  async confirmarImportacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = importacionBodySchema.parse(req.body ?? {});
+      const resultado = await importacionExtractoService.confirmarImportacion(empresaId, payload, userId);
+      const statusCode = resultado.yaExistiaSinNuevas ? 200 : 201;
+      const mensaje = resultado.yaExistiaSinNuevas
+        ? 'El extracto ya había sido importado previamente sin filas nuevas.'
+        : 'Extracto bancario importado correctamente.';
+      return successResponse(res, resultado, mensaje, statusCode);
+    } catch (err) {
+      return manejarError(res, err, 'Error confirmando importación de extracto');
+    }
+  },
+
+  async revertirImportacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const importId = uuidSchema.parse(req.params.importId);
+      const payload = revertirImportacionBodySchema.parse(req.body ?? {});
+      const resultado = await importacionExtractoService.revertirImportacion(
+        empresaId,
+        importId,
+        payload.motivo,
+        userId
+      );
+      return successResponse(res, resultado, 'Importación de extracto revertida correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error revirtiendo importación de extracto');
     }
   },
 };

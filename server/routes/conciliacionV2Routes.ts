@@ -43,4 +43,67 @@ router.post(
   conciliacionV2Controller.reabrirConciliacion
 );
 
+// Perfiles de banco (Fase 2)
+router.get('/perfiles', requireEmpresaMembership(ROLES_LECTURA), conciliacionV2Controller.listarPerfiles);
+router.post(
+  '/perfiles',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.crearPerfil
+);
+router.put(
+  '/perfiles/:perfilId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.actualizarPerfil
+);
+router.delete(
+  '/perfiles/:perfilId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.eliminarPerfil
+);
+
+// Reglas de clasificación de glosas bancarias (Fase 2)
+router.get(
+  '/reglas-clasificacion',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarReglasClasificacion
+);
+router.post(
+  '/reglas-clasificacion',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.crearReglaClasificacion
+);
+router.put(
+  '/reglas-clasificacion/:reglaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.actualizarReglaClasificacion
+);
+router.delete(
+  '/reglas-clasificacion/:reglaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.eliminarReglaClasificacion
+);
+
+// Importación de extractos bancarios (Fase 2)
+router.get(
+  '/importaciones/plantilla-csv',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.descargarPlantillaCsv
+);
+router.get('/importaciones', requireEmpresaMembership(ROLES_LECTURA), conciliacionV2Controller.listarImportaciones);
+router.post(
+  '/importaciones/previsualizar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.previsualizarImportacion
+);
+router.post(
+  '/importaciones/confirmar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.confirmarImportacion
+);
+router.post(
+  '/importaciones/:importId/revertir',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.revertirImportacion
+);
+
 export const conciliacionV2Routes = router;

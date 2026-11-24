@@ -3,12 +3,15 @@ import Decimal from 'decimal.js';
 import {
   AlertTriangle,
   CheckCircle2,
+  History,
   Link2,
   Lock,
   Settings,
   ShieldAlert,
+  SlidersHorizontal,
   Unlock,
   Unlink,
+  Upload,
 } from 'lucide-react';
 import {
   ESTADOS_CONCILIACION_V2,
@@ -17,6 +20,7 @@ import {
   type PartidaExtractoV2,
   type PartidaLibroV2,
   type SemaforoConciliacion,
+  type TipoClasificacionExtracto,
 } from '../../api/conciliacionV2Api';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
@@ -32,7 +36,10 @@ import {
   useResumenConciliacionV2,
   useVincularCuentaContableV2,
 } from '../../hooks/useConciliacionV2';
+import { AsistenteImportacionModal } from '../conciliacion/AsistenteImportacionModal';
 import { ConfigConciliacionV2Modal } from '../conciliacion/ConfigConciliacionV2Modal';
+import { HistorialImportacionesModal } from '../conciliacion/HistorialImportacionesModal';
+import { PerfilesYReglasModal } from '../conciliacion/PerfilesYReglasModal';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { SelectorPeriodo } from '../ui/SelectorPeriodo';
 import { ColumnaTablaDensa, TablaDensa } from '../ui/TablaDensa';
@@ -103,6 +110,28 @@ function claseBadgeEstadoLibro(estado: EstadoLibroV2): string {
   }
 }
 
+function claseBadgeClasificacion(tipo: TipoClasificacionExtracto): string {
+  switch (tipo) {
+    case 'ITF':
+    case 'COMISION_BANCARIA':
+    case 'MANTENIMIENTO':
+    case 'INTERES_GASTO':
+      return 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]';
+    case 'INTERES_INGRESO':
+    case 'TRANSFERENCIA':
+      return 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]';
+    case 'DETRACCION':
+    case 'TRIBUTO_SUNAT':
+    case 'AFP_ONP_ESSALUD':
+    case 'PLANILLA':
+      return 'bg-[#EFF6FF] text-[#1E3A5F] border-[#1E3A5F]';
+    case 'CHEQUE':
+    case 'OTRO':
+    default:
+      return 'bg-[#F3F4F6] text-[#374151] border-[#9CA3AF]';
+  }
+}
+
 function infoSemaforo(semaforo: SemaforoConciliacion, toleranciaMonto: string): {
   etiqueta: string;
   clase: string;
@@ -147,6 +176,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     usuario.rolGlobal === 'ADMINISTRADOR' && verificarPermiso(['ADMINISTRADOR']);
   const puedeVincularContable = verificarPermiso(['ADMINISTRADOR', 'CONTADOR']);
   const puedeOperarPartidas = verificarPermiso(['ADMINISTRADOR', 'CONTADOR', 'ASISTENTE']);
+  const puedeEditarPerfilesYRevertir = verificarPermiso(['ADMINISTRADOR', 'CONTADOR']);
   const puedeCerrar = verificarPermiso(['ADMINISTRADOR', 'CONTADOR']);
   const puedeReabrir = verificarPermiso(['ADMINISTRADOR']);
 
@@ -161,6 +191,9 @@ export const ConciliacionBancariaV2View: React.FC = () => {
 
   // Modales locales
   const [modalConfigAbierto, setModalConfigAbierto] = useState(false);
+  const [modalImportarAbierto, setModalImportarAbierto] = useState(false);
+  const [modalPerfilesAbierto, setModalPerfilesAbierto] = useState(false);
+  const [modalHistorialAbierto, setModalHistorialAbierto] = useState(false);
   const [partidaParaConciliar, setPartidaParaConciliar] = useState<PartidaExtractoV2 | null>(null);
   const [movimientoVinculoId, setMovimientoVinculoId] = useState<string>('');
   const [observacionConciliacion, setObservacionConciliacion] = useState<string>('');
@@ -257,6 +290,10 @@ export const ConciliacionBancariaV2View: React.FC = () => {
       return (
         l.descripcion.toLowerCase().includes(q) ||
         (l.referencia ?? '').toLowerCase().includes(q) ||
+        (l.rucExtraido ?? '').toLowerCase().includes(q) ||
+        (l.docExtraido ?? '').toLowerCase().includes(q) ||
+        (l.contraparteExtraida ?? '').toLowerCase().includes(q) ||
+        (l.tipoClasificacion ?? '').toLowerCase().includes(q) ||
         l.fecha.includes(q) ||
         l.monto.includes(q)
       );
@@ -400,8 +437,38 @@ export const ConciliacionBancariaV2View: React.FC = () => {
       render: (r) => (
         <div className="min-w-0">
           <div className="truncate">{r.descripcion}</div>
-          {r.observacionConciliacion && (
-            <div className="text-[10px] text-[#4B5563] truncate">Obs: {r.observacionConciliacion}</div>
+          {(r.tipoClasificacion ||
+            r.rucExtraido ||
+            r.docExtraido ||
+            r.contraparteExtraida ||
+            r.observacionConciliacion) && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+              {r.tipoClasificacion && (
+                <span
+                  className={`inline-block px-1 py-0 text-[9px] font-bold border ${claseBadgeClasificacion(
+                    r.tipoClasificacion
+                  )}`}
+                >
+                  {r.tipoClasificacion}
+                </span>
+              )}
+              {r.rucExtraido && (
+                <span className="font-mono text-[#1E3A5F]">RUC {r.rucExtraido}</span>
+              )}
+              {r.docExtraido && (
+                <span className="font-mono text-[#374151]">Doc {r.docExtraido}</span>
+              )}
+              {r.contraparteExtraida && (
+                <span className="text-[#4B5563] truncate max-w-[220px]">
+                  · {r.contraparteExtraida}
+                </span>
+              )}
+              {r.observacionConciliacion && (
+                <span className="text-[#4B5563] truncate">
+                  · Obs: {r.observacionConciliacion}
+                </span>
+              )}
+            </div>
           )}
         </div>
       ),
@@ -580,6 +647,26 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         subtitulo="Cruce de Extracto Bancario, Tesorería y Control de Integridad Mayor 104x"
         onRefrescar={handleRefrescar}
         acciones={[
+          {
+            id: 'importar-extracto-v2',
+            label: 'Importar extracto',
+            icono: Upload,
+            disabled: !cuentaSeleccionada || !puedeOperarPartidas || conciliacionCerrada,
+            onClick: () => setModalImportarAbierto(true),
+          },
+          {
+            id: 'perfiles-reglas-v2',
+            label: 'Perfiles y reglas',
+            icono: SlidersHorizontal,
+            onClick: () => setModalPerfilesAbierto(true),
+          },
+          {
+            id: 'historial-importaciones-v2',
+            label: 'Historial importaciones',
+            icono: History,
+            disabled: !cuentaSeleccionada,
+            onClick: () => setModalHistorialAbierto(true),
+          },
           ...(esAdministrador
             ? [
                 {
@@ -1023,6 +1110,33 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         empresaId={empresaId}
         config={configQuery.data}
         esAdministrador={esAdministrador}
+      />
+
+      {/* Asistente de Importación de Extracto V2 */}
+      <AsistenteImportacionModal
+        abierto={modalImportarAbierto}
+        onCerrar={() => setModalImportarAbierto(false)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
+        puedeImportar={puedeOperarPartidas}
+      />
+
+      {/* Editor de Perfiles Bancarios y Reglas de Clasificación */}
+      <PerfilesYReglasModal
+        abierto={modalPerfilesAbierto}
+        onCerrar={() => setModalPerfilesAbierto(false)}
+        empresaId={empresaId}
+        puedeEditar={puedeEditarPerfilesYRevertir}
+      />
+
+      {/* Historial de Importaciones con Reversión */}
+      <HistorialImportacionesModal
+        abierto={modalHistorialAbierto}
+        onCerrar={() => setModalHistorialAbierto(false)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        puedeRevertir={puedeEditarPerfilesYRevertir}
       />
 
       {/* Modal Conciliar Manual */}
