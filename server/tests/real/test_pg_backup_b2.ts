@@ -41,7 +41,7 @@ async function ejecutar() {
     // -------------------------------------------------------------------------
     // CRITERIO B2.1: 100% de tablas y archivos incluidos según política aprobada
     // -------------------------------------------------------------------------
-    console.log('--- 1. Verificación de Política Declarativa de Respaldo (86 Tablas, 7 Carpetas) ---');
+    console.log('--- 1. Verificación de Política Declarativa de Respaldo (87 Tablas, 7 Carpetas) ---');
     const { rows: tablasReales } = await client.query<{ table_name: string }>(`
       SELECT table_name FROM information_schema.tables 
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -56,8 +56,8 @@ async function ejecutar() {
     const tablasEmpresa = REGISTRO_DATOS_EMPRESA.filter(t => t.exportar && t.ambito === 'empresa');
     console.log(`✔ Catálogo verificado: ${REGISTRO_DATOS_EMPRESA.length} tablas totales, ${tablasEmpresa.length} tablas exportables por empresa.`);
     console.log(`✔ Estructura de archivos físicos: ${REGISTRO_ARCHIVOS_EMPRESA.length} carpetas declaradas.`);
-    assert.equal(REGISTRO_DATOS_EMPRESA.length, 86, 'Deben registrarse exactamente 86 tablas');
-    assert.equal(tablasEmpresa.length, 62, 'Deben existir 62 tablas exportables de ámbito empresa');
+    assert.equal(REGISTRO_DATOS_EMPRESA.length, 87, 'Deben registrarse exactamente 87 tablas');
+    assert.equal(tablasEmpresa.length, 63, 'Deben existir 63 tablas exportables de ámbito empresa');
 
     // -------------------------------------------------------------------------
     // Configuración de Datos Operativos para Empresa A y Empresa B

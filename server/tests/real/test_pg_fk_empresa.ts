@@ -66,9 +66,16 @@ export async function prepararPruebaClavesEmpresa(client: PoolClient) {
   assert(sesion?.bd === 'atlob_test' && sesion.rol === 'contabilidad_app' &&
     sesion.usuario === 'contabilidad_app' && !sesion.evita_rls, 'La prueba FK requiere contabilidad_app en atlob_test.');
   const antes = await catalogoClavesEmpresa(client);
-  assert(antes.length >= 75, `La prueba requiere al menos 75 relaciones originales activas (encontradas: ${antes.length}).`);
-  assert(antes.every(fk => fk.columnas.length === 1 && fk.columnasPadre.length === 1 && fk.validada && fk.aplicada),
-    'La prueba requiere las relaciones originales activas.');
+  const originalesSimples = antes.filter(fk => fk.columnas.length === 1 && fk.columnasPadre.length === 1);
+  assert(originalesSimples.length >= 75, `La prueba requiere al menos 75 relaciones originales activas (encontradas: ${originalesSimples.length}).`);
+  assert(
+    antes.every(fk =>
+      ((fk.columnas.length === 1 && fk.columnasPadre.length === 1) ||
+        (fk.columnas.length === 2 && fk.columnasPadre.length === 2 && fk.columnas[0] === 'empresa_id' && fk.columnasPadre[0] === 'empresa_id')) &&
+      fk.validada && fk.aplicada
+    ),
+    'La prueba requiere las relaciones originales activas o compuestas por empresa_id.'
+  );
 
   const tenant = randomUUID();
   await client.query("INSERT INTO tenants (id, nombre) VALUES ($1, 'Prueba de integridad FK')", [tenant]);
@@ -130,14 +137,18 @@ export async function probarClavesEmpresa(
 ) {
   const { antes, a, b, linea, detalle } = muestra;
   const despues = await catalogoClavesEmpresa(client);
-  assert.deepEqual(despues, antes.map(fk => ({
-    ...fk,
-    columnas: ['empresa_id', ...fk.columnas],
-    columnasPadre: ['empresa_id', ...fk.columnasPadre],
-    columnasNulas: fk.borrado === 'n' ? fk.columnas : [],
-  })));
+  assert.deepEqual(despues, antes.map(fk => (
+    fk.columnas.length === 2
+      ? fk
+      : {
+          ...fk,
+          columnas: ['empresa_id', ...fk.columnas],
+          columnasPadre: ['empresa_id', ...fk.columnasPadre],
+          columnasNulas: fk.borrado === 'n' ? fk.columnas : [],
+        }
+  )));
   await verificarRegistroDatosEmpresa(client);
-  console.log('   ✔ Las 75 FK compuestas están validadas y preservan sus acciones. Registro declarativo verificado.');
+  console.log(`   ✔ Las ${despues.length} FK compuestas están validadas y preservan sus acciones. Registro declarativo verificado.`);
 
   await contexto(client, b.empresa);
   const { rows: [asientoB] } = await client.query(`INSERT INTO asientos (empresa_id, periodo_id, subdiario_id, fecha, glosa)
@@ -164,6 +175,13 @@ export async function probarClavesEmpresa(
     VALUES ($1, $2, 'Caja de prueba', 1, 1)`;
   await rechazar(client, 'cajas_chicas_cuenta_financiera_id_fkey', caja, [a.empresa, b.banco]);
   await client.query(caja, [a.empresa, a.banco]);
+  await rechazar(
+    client,
+    'cuentas_financieras_cuenta_contable_id_fkey',
+    `INSERT INTO cuentas_financieras (empresa_id, tipo, banco, numero, cuenta_contable_id)
+     VALUES ($1, 'BANCO', 'BCP', 'PRUEBA-FK-CRUCE', $2)`,
+    [a.empresa, b.cuenta]
+  );
 
   const lineaPlanilla = `INSERT INTO planilla_lineas
     (planilla_id, trabajador_id, sueldo_basico, total_remuneracion, total_descuentos, neto_pagar)

@@ -89,13 +89,30 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'cuentaPorCobrarId', 'importe', 'aplicacionId', 'nuevoSaldo', 'estadoCuenta'
   ],
   cajas_chicas: ['nombre', 'responsableAnexoId', 'cuentaFinancieraId', 'montoFondo', 'saldoActual'],
+  cuentas_financieras: [
+    'tipo', 'banco', 'numero', 'moneda', 'cuentaContableCodigo', 'cuentaContableId',
+    'alias', 'cci', 'saldoInicial', 'saldoActual', 'activa'
+  ],
   extractos_bancarios: [
     'cuentaFinancieraId', 'nombreArchivo', 'totalLineas', 'fechaCorteDesde',
     'fechaCorteHasta', 'saldoInicial', 'saldoFinal', 'hashArchivo'
   ],
+  extracto_lineas: [
+    'extractoId', 'descripcion', 'referencia', 'monto', 'saldo', 'conciliada',
+    'movimientoTesoreriaId', 'estadoConciliacion', 'diferenciaImporte',
+    'observacionConciliacion', 'conciliadoEn', 'hashLinea'
+  ],
   conciliaciones_bancarias: [
     'cuentaFinancieraId', 'fechaCorte', 'saldoSegunLibros', 'saldoSegunBanco',
-    'partidasConciliadas', 'partidasEnTransito', 'diferencia', 'cerradaPor', 'fechaCierre'
+    'partidasConciliadas', 'partidasEnTransito', 'diferencia', 'cerradaPor', 'fechaCierre',
+    'saldoInicialBanco', 'saldoFinalBanco', 'depositosEnTransito', 'chequesNoCobrados',
+    'abonosNoRegistrados', 'cargosNoRegistrados', 'saldoMayor104x', 'diferenciaIntegridadMayor',
+    'motivoReapertura', 'reabiertaPor', 'fechaReapertura'
+  ],
+  conciliacion_config_empresa: [
+    'conciliacionV2Habilitada', 'toleranciaDias', 'toleranciaMonto',
+    'cuentaItfCodigo', 'cuentaComisionCodigo', 'cuentaInteresGastoCodigo',
+    'cuentaInteresIngresoCodigo', 'updatedBy'
   ],
   movimientos_tesoreria: [
     'cuentaFinancieraId', 'tipo', 'medioPago', 'numeroOperacion', 'anexoId',

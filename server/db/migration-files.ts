@@ -24,4 +24,5 @@ export const MIGRATION_FILES = [
   'schema_fase19_kardex_activos_fijos.sql',
   'schema_fase20_restauracion_backup.sql',
   'schema_fase21_sire_anexos.sql',
+  'schema_fase22_conciliacion_v2_base.sql',
 ] as const;
