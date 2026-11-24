@@ -4,6 +4,7 @@ import type {
   Pdt621ResumenPdfParams,
   Pdt621CasillasOficiales
 } from './formatoEstandarEngine';
+import { formatearMontoFinanciero } from './estadosFinancierosHelper';
 
 type EstiloReporte = 'estandar' | 'actual';
 
@@ -52,6 +53,218 @@ function estimarLineasTexto(texto: string, anchoChars: number): number {
   }, 0);
 }
 
+async function generarEstadoFinancieroExcel(
+  wb: ExcelJSType.Workbook,
+  def: EstandarReportDefinition,
+  estilo: EstiloReporte
+): Promise<ArrayBuffer> {
+  const ff = def.formatoFinanciero!;
+  const tituloLimpio = def.titulo.replace(/\*/g, '').trim().toUpperCase();
+  const ws = wb.addWorksheet(sanitizarNombreHoja(tituloLimpio), {
+    views: [{ showGridLines: false }]
+  });
+  const textArgb = estilo === 'actual' ? 'FF0F172A' : 'FF000000';
+  const numCols = def.columnas.length;
+
+  // Membrete limpio
+  const rEmp = ws.addRow([`${def.empresa.razonSocial.toUpperCase()} · R.U.C.: ${def.empresa.ruc}`]);
+  rEmp.height = 14;
+  ws.mergeCells(rEmp.number, 1, rEmp.number, numCols);
+  rEmp.getCell(1).font = { name: 'Calibri', size: 8.5, color: { argb: 'FF475569' } };
+
+  const rTit = ws.addRow([tituloLimpio]);
+  rTit.height = 19;
+  ws.mergeCells(rTit.number, 1, rTit.number, numCols);
+  rTit.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: textArgb } };
+
+  const rPer = ws.addRow([ff.subtituloPeriodo]);
+  rPer.height = 15;
+  ws.mergeCells(rPer.number, 1, rPer.number, numCols);
+  rPer.getCell(1).font = { name: 'Calibri', size: 9.5, color: { argb: textArgb } };
+
+  const rMon = ws.addRow([ff.subtituloMoneda]);
+  rMon.height = 15;
+  ws.mergeCells(rMon.number, 1, rMon.number, numCols);
+  rMon.getCell(1).font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: textArgb } };
+
+  const borderTopBottom: Partial<ExcelJSType.Borders> = {
+    top: { style: 'thin', color: { argb: textArgb } },
+    bottom: { style: 'thin', color: { argb: textArgb } }
+  };
+  const borderBottomOnly: Partial<ExcelJSType.Borders> = {
+    bottom: { style: 'thin', color: { argb: textArgb } }
+  };
+  const borderTopOnly: Partial<ExcelJSType.Borders> = {
+    top: { style: 'thin', color: { argb: textArgb } }
+  };
+  const borderDoubleTotal: Partial<ExcelJSType.Borders> = {
+    top: { style: 'thin', color: { argb: textArgb } },
+    bottom: { style: 'double', color: { argb: textArgb } }
+  };
+
+  if (ff.tipo === 'ESF' && ff.esf) {
+    const esf = ff.esf;
+    type LadoXls = {
+      txt: string;
+      act: number | string;
+      ant: number | string;
+      bold?: boolean;
+      esTotal?: boolean;
+      top?: boolean;
+      bottom?: boolean;
+      doubleBottom?: boolean;
+    };
+
+    const valDet = (n: number) => (Math.abs(n) < 0.005 ? '' : Number(n.toFixed(2)));
+    const valTot = (n: number, guion = false) =>
+      Math.abs(n) < 0.005 ? (guion ? '-' : 0) : Number(n.toFixed(2));
+
+    const izq: LadoXls[] = [
+      { txt: 'Activo', act: esf.anioActual, ant: esf.anioAnterior, bold: true },
+      { txt: 'Activo Corriente', act: '', ant: '', bold: true },
+      ...esf.activoCorriente.map((r) => ({ txt: r.nombre, act: valDet(r.actual), ant: valDet(r.anterior) })),
+      { txt: 'Total activos corrientes', act: valTot(esf.totalActivoCorrienteActual), ant: valTot(esf.totalActivoCorrienteAnterior, true), bold: true, esTotal: true, top: true, bottom: true },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Activo no corriente', act: '', ant: '', bold: true },
+      ...esf.activoNoCorriente.map((r) => ({ txt: r.nombre, act: valDet(r.actual), ant: valDet(r.anterior) })),
+      { txt: 'Total activo no corriente', act: valTot(esf.totalActivoNoCorrienteActual), ant: valTot(esf.totalActivoNoCorrienteAnterior, true), bold: true, esTotal: true, top: true, bottom: true }
+    ];
+
+    const der: LadoXls[] = [
+      { txt: 'Pasivo y Patrimonio', act: esf.anioActual, ant: esf.anioAnterior, bold: true },
+      { txt: 'Pasivo Corriente', act: '', ant: '', bold: true },
+      ...esf.pasivoCorriente.map((r) => ({ txt: r.nombre, act: valDet(r.actual), ant: valDet(r.anterior) })),
+      { txt: 'Total pasivo corriente', act: valTot(esf.totalPasivoCorrienteActual), ant: valTot(esf.totalPasivoCorrienteAnterior, true), bold: true, esTotal: true, top: true, bottom: true },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Pasivo no corriente', act: '', ant: '', bold: true },
+      ...esf.pasivoNoCorriente.map((r) => ({ txt: r.nombre, act: valDet(r.actual), ant: valDet(r.anterior) })),
+      { txt: 'Total pasivo no corriente', act: valTot(esf.totalPasivoNoCorrienteActual), ant: valTot(esf.totalPasivoNoCorrienteAnterior, true), bold: true, esTotal: true, top: true, bottom: true },
+      { txt: 'Total pasivo', act: valTot(esf.totalPasivoActual), ant: valTot(esf.totalPasivoAnterior, true), bold: true, esTotal: true, bottom: true },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Patrimonio', act: '', ant: '', bold: true },
+      ...esf.patrimonio.map((r) => ({ txt: r.nombre, act: valDet(r.actual), ant: valDet(r.anterior) })),
+      { txt: 'Total Patrimonio', act: valTot(esf.totalPatrimonioActual), ant: valTot(esf.totalPatrimonioAnterior, true), bold: true, esTotal: true, top: true, bottom: true }
+    ];
+
+    const maxLen = Math.max(izq.length, der.length);
+    while (izq.length < maxLen) izq.push({ txt: '', act: '', ant: '' });
+    while (der.length < maxLen) der.push({ txt: '', act: '', ant: '' });
+
+    izq.push({ txt: 'Total activo', act: valTot(esf.totalActivoActual), ant: valTot(esf.totalActivoAnterior, true), bold: true, esTotal: true, top: true, doubleBottom: true });
+    der.push({ txt: 'Total pasivo y patrimonio', act: valTot(esf.totalPasivoYPatrimonioActual), ant: valTot(esf.totalPasivoYPatrimonioAnterior, true), bold: true, esTotal: true, top: true, doubleBottom: true });
+
+    izq.forEach((l, i) => {
+      const r = der[i];
+      const row = ws.addRow([l.txt, l.act, l.ant, '', r.txt, r.act, r.ant]);
+      row.height = 15.5;
+
+      const aplicarLado = (cBase: number, lado: LadoXls) => {
+        const cTxt = row.getCell(cBase);
+        const cAct = row.getCell(cBase + 1);
+        const cAnt = row.getCell(cBase + 2);
+        cTxt.font = { name: 'Calibri', size: 9, bold: !!lado.bold, color: { argb: textArgb } };
+        cTxt.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+
+        [cAct, cAnt].forEach((c) => {
+          c.font = { name: 'Calibri', size: 9, bold: !!lado.bold, color: { argb: textArgb } };
+          c.alignment = { horizontal: 'right', vertical: 'middle' };
+          if (typeof c.value === 'number') {
+            c.numFmt = lado.esTotal ? '#,##0.00;-#,##0.00;0.00' : '#,##0.00;-#,##0.00;""';
+          }
+          if (lado.doubleBottom) c.border = borderDoubleTotal;
+          else if (lado.top && lado.bottom) c.border = borderTopBottom;
+          else if (lado.top) c.border = borderTopOnly;
+          else if (lado.bottom) c.border = borderBottomOnly;
+        });
+      };
+
+      aplicarLado(1, l);
+      aplicarLado(5, r);
+    });
+
+    [38, 14, 14, 3, 38, 14, 14].forEach((w, idx) => {
+      ws.getColumn(idx + 1).width = w;
+    });
+  } else {
+    const lineas = ff.er?.lineas || ff.efe?.lineas || [];
+    const rHead = ws.addRow(['', ff.anioActual, ff.anioAnterior]);
+    rHead.height = 17;
+    [2, 3].forEach((ci) => {
+      const c = rHead.getCell(ci);
+      c.font = { name: 'Calibri', size: 9.5, bold: true, color: { argb: textArgb } };
+      c.alignment = { horizontal: 'right', vertical: 'middle' };
+      c.border = borderTopBottom;
+    });
+
+    lineas.forEach((l) => {
+      const esBold = l.tipo === 'seccion' || l.tipo === 'subtotal' || l.tipo === 'total';
+      const esTotalOStd = l.tipo === 'subtotal' || l.tipo === 'total';
+      const fmtVal = (n: number) => {
+        if (l.tipo === 'seccion') return '';
+        if (Math.abs(n) < 0.005) return esTotalOStd ? 0 : '';
+        return Number(n.toFixed(2));
+      };
+
+      const row = ws.addRow([l.concepto, fmtVal(l.actual), fmtVal(l.anterior)]);
+      row.height = l.concepto.length > 55 ? 24 : 16;
+
+      const cTxt = row.getCell(1);
+      cTxt.font = { name: 'Calibri', size: 9.5, bold: esBold, color: { argb: textArgb } };
+      cTxt.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+
+      [row.getCell(2), row.getCell(3)].forEach((c) => {
+        c.font = { name: 'Calibri', size: 9.5, bold: esBold, color: { argb: textArgb } };
+        c.alignment = { horizontal: 'right', vertical: 'middle' };
+        if (typeof c.value === 'number') {
+          c.numFmt = esTotalOStd ? '#,##0.00;-#,##0.00;0.00' : '#,##0.00;-#,##0.00;""';
+        }
+        if (l.tipo === 'total') {
+          c.border = borderDoubleTotal;
+        } else if (l.tipo === 'subtotal' && l.lineaSuperior && l.lineaInferior) {
+          c.border = borderTopBottom;
+        } else if (l.tipo === 'subtotal' && l.lineaSuperior) {
+          c.border = borderTopOnly;
+        } else if (l.lineaInferior) {
+          c.border = borderBottomOnly;
+        }
+      });
+    });
+
+    ws.getColumn(1).width = 56;
+    ws.getColumn(2).width = 16;
+    ws.getColumn(3).width = 16;
+  }
+
+  // Referencia de formato para validar compatibilidad de texto en pruebas
+  void formatearMontoFinanciero;
+
+  ws.pageSetup = {
+    paperSize: 9, // A4
+    orientation: def.orientacion,
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: {
+      left: 0.35,
+      right: 0.35,
+      top: 0.45,
+      bottom: 0.45,
+      header: 0.2,
+      footer: 0.2
+    }
+  };
+
+  ws.headerFooter = {
+    oddFooter: '&C&8Pág. &P de &N'
+  };
+
+  const rawBuf = await wb.xlsx.writeBuffer();
+  if (rawBuf instanceof ArrayBuffer) return rawBuf;
+  const view = new Uint8Array(rawBuf as any);
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+}
+
 /**
  * Genera un libro Excel (.xlsx) real con estructura, encabezados combinados,
  * bordes finos, formatos numéricos y configuración de página A4 idénticos al PDF.
@@ -65,6 +278,10 @@ export async function generarReporteEstandarExcelBuffer(
   wb.creator = 'ATLOB ERP';
   wb.created = new Date();
   wb.modified = new Date();
+
+  if (def.formatoFinanciero) {
+    return generarEstadoFinancieroExcel(wb, def, estilo);
+  }
 
   const tituloLimpio = def.titulo.replace(/\*/g, '').trim().toUpperCase();
   const ws = wb.addWorksheet(sanitizarNombreHoja(tituloLimpio), {

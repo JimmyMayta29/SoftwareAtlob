@@ -5,20 +5,16 @@ import { useAppContext } from '../../context/AppContext';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { EmpresaCliente } from '../../types';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
-import { TablaDensa, ColumnaTablaDensa } from '../ui/TablaDensa';
 import { SelectorPeriodo } from '../ui/SelectorPeriodo';
 import { construirDefinicionEstadoResultadosEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import {
+  construirEstructuraEstadoResultados,
+  formatearCortePeriodoFinanciero,
+  formatearMontoFinanciero,
+  obtenerAniosComparativos
+} from '../../services/reports/formato_estandar/estadosFinancierosHelper';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { reportesApi } from '../../api/reportesApi';
-
-interface LineaEstadoResultados {
-  id: string;
-  codigo: string;
-  concepto: string;
-  esSubtotal?: boolean;
-  importeFuncion: number;
-  importeNaturaleza: number;
-}
 
 interface EstadoResultadosViewProps {
   empresa?: EmpresaCliente;
@@ -34,6 +30,7 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
   const { empresaActiva, periodo: ctxPeriodo } = useEmpresaPeriodo();
   const [periodo, setPeriodo] = useState(propPeriodo || ctxPeriodo || state.activePeriodo || '2026-09');
   const [acumuladoAlMes, setAcumuladoAlMes] = useState<boolean>(true);
+  const [modoPresentacion, setModoPresentacion] = useState<'funcion' | 'naturaleza'>('funcion');
   const [modalEstandarOpen, setModalEstandarOpen] = useState(false);
 
   useEffect(() => {
@@ -48,6 +45,8 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
     direccionFiscal: ''
   }) as EmpresaCliente;
   const empresaId = empresa?.id || '';
+  const { anioAnterior } = obtenerAniosComparativos(periodo);
+  const periodoAnterior = `${anioAnterior}-12`;
 
   const erQuery = useQuery({
     queryKey: ['reportes', empresaId, 'estado-resultados', periodo, acumuladoAlMes],
@@ -56,126 +55,37 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
     staleTime: 0
   });
 
-  const lineas = useMemo<LineaEstadoResultados[]>(() => {
-    const data = erQuery.data;
-    if (!data || (!data.porNaturaleza && !data.porFuncion)) return [];
-    const nat = data.porNaturaleza || {};
-    const func = data.porFuncion || {};
-    return [
-      {
-        id: 'er-1',
-        codigo: '70',
-        concepto: 'Ventas Netas de Bienes y Servicios',
-        importeFuncion: Number(func.ventasNetas) || 0,
-        importeNaturaleza: Number(nat.ventasNetas) || 0
-      },
-      {
-        id: 'er-2',
-        codigo: '69 / 60-61',
-        concepto: '(-) Costo de Ventas / Compras y Variación de Inventarios',
-        importeFuncion: -Math.abs(Number(func.costoVentas) || 0),
-        importeNaturaleza: (Number(nat.variacionInventarios) || 0) - (Number(nat.comprasNetas) || 0)
-      },
-      {
-        id: 'er-3',
-        codigo: '80',
-        concepto: 'UTILIDAD BRUTA / MARGEN COMERCIAL',
-        esSubtotal: true,
-        importeFuncion: Number(func.utilidadBruta) || 0,
-        importeNaturaleza: Number(nat.margenComercial) || 0
-      },
-      {
-        id: 'er-4',
-        codigo: '94 / 62-63',
-        concepto: '(-) Gastos de Administración / Cargas de Personal y Servicios',
-        importeFuncion: -Math.abs(Number(func.gastosAdministracion) || 0),
-        importeNaturaleza: -Math.abs((Number(nat.cargasPersonal) || 0) + (Number(nat.serviciosTerceros) || 0))
-      },
-      {
-        id: 'er-5',
-        codigo: '95 / 64-68',
-        concepto: '(-) Gastos de Ventas / Otros Ingresos y Gastos Operativos',
-        importeFuncion: -Math.abs(Number(func.gastosVentas) || 0),
-        importeNaturaleza: Number(nat.otrosIngresosGastos) || 0
-      },
-      {
-        id: 'er-6',
-        codigo: '84',
-        concepto: 'UTILIDAD OPERATIVA (RESULTADO DE EXPLOTACIÓN)',
-        esSubtotal: true,
-        importeFuncion: Number(func.utilidadOperativa) || 0,
-        importeNaturaleza: Number(nat.resultadoExplotacion) || 0
-      },
-      {
-        id: 'er-7',
-        codigo: '77 - 67',
-        concepto: '(+/-) Ingresos y Gastos Financieros Netos (Diferencia de Cambio)',
-        importeFuncion: (Number(func.ingresosFinancieros) || 0) - (Number(func.gastosFinancieros) || 0),
-        importeNaturaleza: (Number(nat.ingresosFinancieros) || 0) - (Number(nat.gastosFinancieros) || 0)
-      },
-      {
-        id: 'er-8',
-        codigo: '85',
-        concepto: 'RESULTADO ANTES DEL IMPUESTO A LA RENTA',
-        esSubtotal: true,
-        importeFuncion: Number(func.resultadoAntesImpuestos) || 0,
-        importeNaturaleza: Number(nat.resultadoAntesImpuestos) || 0
-      },
-      {
-        id: 'er-9',
-        codigo: '88',
-        concepto: '(-) Impuesto a la Renta Corriente (TUO LIR)',
-        importeFuncion: -Math.abs(Number(func.impuestoRenta) || 0),
-        importeNaturaleza: -Math.abs(Number(nat.impuestoRenta) || 0)
-      },
-      {
-        id: 'er-10',
-        codigo: '89',
-        concepto: 'UTILIDAD / PÉRDIDA NETA DEL EJERCICIO',
-        esSubtotal: true,
-        importeFuncion: Number(func.utilidadNeta) || 0,
-        importeNaturaleza: Number(nat.utilidadNeta) || 0
-      }
-    ];
-  }, [erQuery.data]);
+  const erAnteriorQuery = useQuery({
+    queryKey: ['reportes', empresaId, 'estado-resultados', periodoAnterior, true],
+    queryFn: () => reportesApi.getEstadoResultados(empresaId, periodoAnterior, true),
+    enabled: Boolean(empresaId),
+    retry: false,
+    staleTime: 60_000
+  });
 
-  const columnas: ColumnaTablaDensa<LineaEstadoResultados>[] = [
-    { key: 'codigo', header: 'PCGE', width: '95px', render: (r) => <span className="font-mono font-bold text-[#1E3A5F]">{r.codigo}</span> },
-    {
-      key: 'concepto',
-      header: 'Rubro del Estado de Resultados (Formato 3.20 SUNAT)',
-      render: (r) => <span className={r.esSubtotal ? 'font-bold text-[#111827]' : ''}>{r.concepto}</span>,
-    },
-    {
-      key: 'importeFuncion',
-      header: 'Por Función (Elem. 9) S/',
-      width: '165px',
-      align: 'right',
-      render: (r) => <span className={r.esSubtotal ? 'font-bold text-[#1E3A5F]' : ''}>{r.importeFuncion.toFixed(2)}</span>,
-    },
-    {
-      key: 'importeNaturaleza',
-      header: 'Por Naturaleza (Elem. 6) S/',
-      width: '165px',
-      align: 'right',
-      render: (r) => <span className={r.esSubtotal ? 'font-bold text-[#1E3A5F]' : ''}>{r.importeNaturaleza.toFixed(2)}</span>,
-    },
-  ];
+  const er = useMemo(
+    () => construirEstructuraEstadoResultados(erQuery.data, erAnteriorQuery.data, periodo, modoPresentacion),
+    [erQuery.data, erAnteriorQuery.data, periodo, modoPresentacion]
+  );
 
   const natResumen = erQuery.data?.porNaturaleza || {};
   const funcResumen = erQuery.data?.porFuncion || {};
+  const subtituloCorte = formatearCortePeriodoFinanciero(periodo, acumuladoAlMes);
 
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF]">
       <BarraHerramientasLocal
-        titulo="Estado de Resultados Integrales — Por Función y Por Naturaleza (Formato 3.20 SUNAT)"
-        subtitulo="Conciliación simultánea del resultado del período según Elemento 9 (Función) y Elemento 6/7 (Naturaleza) desde PostgreSQL"
+        titulo="Estado de Resultados Integrales (NIC 1 / Formato 3.20 SUNAT)"
+        subtitulo="Presentación financiera por Función y por Naturaleza desde PostgreSQL"
         acciones={[
           {
             id: 'actualizar',
             label: erQuery.isFetching ? 'Actualizando...' : 'Actualizar',
             icono: RefreshCw,
-            onClick: () => void erQuery.refetch(),
+            onClick: () => {
+              void erQuery.refetch();
+              void erAnteriorQuery.refetch();
+            },
           },
           {
             id: 'estandar',
@@ -187,6 +97,22 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
         ]}
         derecha={
           <div className="flex items-center gap-2">
+            <div className="inline-flex border border-[#D1D5DB] bg-[#F5F7FA] text-[11px]">
+              <button
+                type="button"
+                onClick={() => setModoPresentacion('funcion')}
+                className={`px-2 py-0.5 font-bold cursor-pointer ${modoPresentacion === 'funcion' ? 'bg-[#1E3A5F] text-white' : 'text-[#4B5563]'}`}
+              >
+                Por Función (NIC 1)
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoPresentacion('naturaleza')}
+                className={`px-2 py-0.5 font-bold cursor-pointer ${modoPresentacion === 'naturaleza' ? 'bg-[#1E3A5F] text-white' : 'text-[#4B5563]'}`}
+              >
+                Por Naturaleza
+              </button>
+            </div>
             <div className="inline-flex border border-[#D1D5DB] bg-[#F5F7FA] text-[11px]">
               <button
                 type="button"
@@ -210,9 +136,9 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
 
       <div className="px-3 py-2 bg-[#F5F7FA] border-b border-[#D1D5DB] flex flex-wrap items-center justify-between text-[12px] gap-2">
         <div className="flex flex-wrap items-center gap-5">
-          <span><strong>VENTAS NETAS:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {Number(funcResumen.ventasNetas || 0).toFixed(2)}</span></span>
-          <span><strong>UTILIDAD OPERATIVA:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {Number(funcResumen.utilidadOperativa || 0).toFixed(2)}</span></span>
-          <span><strong>RESULTADO NETO (FUNCIÓN / NAT.):</strong> <span className="font-mono font-bold text-[#1E6F42]">S/ {Number(funcResumen.utilidadNeta ?? natResumen.utilidadNeta ?? 0).toFixed(2)}</span></span>
+          <span><strong>VENTAS NETAS:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {formatearMontoFinanciero(Number(funcResumen.ventasNetas || 0), { esTotal: true })}</span></span>
+          <span><strong>UTILIDAD OPERATIVA:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {formatearMontoFinanciero(Number(funcResumen.utilidadOperativa || 0), { esTotal: true })}</span></span>
+          <span><strong>RESULTADO NETO (FUNCIÓN / NAT.):</strong> <span className="font-mono font-bold text-[#1E6F42]">S/ {formatearMontoFinanciero(Number(funcResumen.utilidadNeta ?? natResumen.utilidadNeta ?? 0), { esTotal: true })}</span></span>
         </div>
         {erQuery.data && (
           <span className={`font-bold text-[11px] ${erQuery.data.coincidenciaExacta ? 'text-[#1E6F42]' : 'text-[#B45309]'}`}>
@@ -230,19 +156,77 @@ export const EstadoResultadosView: React.FC<EstadoResultadosViewProps> = ({
         </div>
       )}
 
-      <div className="flex-1 p-3 overflow-hidden flex flex-col">
-        <TablaDensa
-          columnas={columnas}
-          datos={lineas}
-          rowKey={(r) => r.id}
-        />
+      <div className="flex-1 overflow-auto bg-[#F4F6F9] p-4 sm:p-6">
+        <div className="bg-white max-w-[920px] mx-auto px-7 py-6 sm:px-10 sm:py-8 border border-[#E2E8F0] shadow-xs text-[#0F172A]">
+          <div className="mb-5">
+            <div className="text-[11px] text-[#64748B] uppercase tracking-wide">
+              {empresa.razonSocial || 'EMPRESA CONTABLE'} · R.U.C.: <span className="font-mono">{empresa.ruc || '—'}</span>
+            </div>
+            <h2 className="text-[15px] font-bold tracking-tight text-[#0F172A] mt-1">
+              ESTADO DE RESULTADOS INTEGRALES
+            </h2>
+            <p className="text-[12.5px] text-[#1E293B]">{subtituloCorte}</p>
+            <p className="text-[12.5px] font-bold text-[#0F172A]">(En Soles)</p>
+          </div>
+
+          {erQuery.isLoading ? (
+            <div className="py-12 text-center text-xs text-[#64748B]">Calculando Estado de Resultados desde PostgreSQL…</div>
+          ) : (
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead>
+                <tr>
+                  <th className="text-left font-normal py-1.5" />
+                  <th className="text-right font-bold py-1.5 w-36 border-t border-b border-[#0F172A] text-[#0F172A]">
+                    {er.anioActual}
+                  </th>
+                  <th className="text-right font-bold py-1.5 w-36 border-t border-b border-[#0F172A] text-[#475569]">
+                    {er.anioAnterior}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {er.lineas.map((l) => {
+                  const esBold = l.tipo === 'seccion' || l.tipo === 'subtotal' || l.tipo === 'total';
+                  const esTotalOStd = l.tipo === 'subtotal' || l.tipo === 'total';
+                  const borderCell = l.tipo === 'total'
+                    ? 'border-t border-b-[3px] border-double border-[#0F172A]'
+                    : l.tipo === 'subtotal' && l.lineaSuperior && l.lineaInferior
+                    ? 'border-t border-b border-[#0F172A]'
+                    : l.tipo === 'subtotal' && l.lineaSuperior
+                    ? 'border-t border-[#0F172A]'
+                    : l.lineaInferior
+                    ? 'border-b border-[#0F172A]'
+                    : '';
+
+                  return (
+                    <tr key={l.id} className={esBold ? 'font-bold text-[#0F172A]' : 'text-[#1E293B]'}>
+                      <td className={`py-1 pr-6 ${l.tipo === 'seccion' ? 'pt-4 pb-1' : ''}`}>
+                        {l.concepto}
+                      </td>
+                      <td className={`py-1 text-right tabular-nums w-36 ${borderCell}`}>
+                        {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.actual, { esTotal: esTotalOStd })}
+                      </td>
+                      <td className={`py-1 text-right tabular-nums w-36 text-[#475569] ${borderCell}`}>
+                        {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.anterior, { esTotal: esTotalOStd })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {modalEstandarOpen && (
         <VisorReporteModal
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
-          definicion={construirDefinicionEstadoResultadosEstandar(empresa, erQuery.data || {}, periodo)}
+          definicion={construirDefinicionEstadoResultadosEstandar(empresa, erQuery.data || {}, periodo, {
+            dataComparativa: erAnteriorQuery.data,
+            acumulado: acumuladoAlMes,
+            modo: modoPresentacion
+          })}
         />
       )}
     </div>

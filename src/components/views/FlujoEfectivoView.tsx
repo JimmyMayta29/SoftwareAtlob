@@ -5,18 +5,16 @@ import { useAppContext } from '../../context/AppContext';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { EmpresaCliente } from '../../types';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
-import { TablaDensa, ColumnaTablaDensa } from '../ui/TablaDensa';
 import { SelectorPeriodo } from '../ui/SelectorPeriodo';
 import { construirDefinicionFlujoEfectivoEstandar } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import {
+  construirEstructuraFlujoEfectivo,
+  formatearCortePeriodoFinanciero,
+  formatearMontoFinanciero,
+  obtenerAniosComparativos
+} from '../../services/reports/formato_estandar/estadosFinancierosHelper';
 import { VisorReporteModal } from '../modals/VisorReporteModal';
 import { reportesApi } from '../../api/reportesApi';
-
-interface LineaNic7 {
-  id: string;
-  actividad: 'OPERACIÓN' | 'INVERSIÓN' | 'FINANCIAMIENTO' | 'CONCILIACIÓN';
-  concepto: string;
-  importePen: number;
-}
 
 interface FlujoEfectivoViewProps {
   empresa?: EmpresaCliente;
@@ -46,6 +44,8 @@ export const FlujoEfectivoView: React.FC<FlujoEfectivoViewProps> = ({
     direccionFiscal: ''
   }) as EmpresaCliente;
   const empresaId = empresa?.id || '';
+  const { anioAnterior } = obtenerAniosComparativos(periodo);
+  const periodoAnterior = `${anioAnterior}-12`;
 
   const flujoQuery = useQuery({
     queryKey: ['reportes', empresaId, 'flujo-efectivo', periodo, acumuladoAlMes],
@@ -54,48 +54,36 @@ export const FlujoEfectivoView: React.FC<FlujoEfectivoViewProps> = ({
     staleTime: 0
   });
 
-  const lineas = useMemo<LineaNic7[]>(() => {
-    const data = flujoQuery.data;
-    if (!data) return [];
-    const op = data.actividadesOperacion || {};
-    const inv = data.actividadesInversion || {};
-    const fin = data.actividadesFinanciamiento || {};
-    return [
-      { id: 'op-1', actividad: 'OPERACIÓN', concepto: 'Cobranzas de venta de bienes y prestación de servicios (Cta. 12)', importePen: Number(op.cobranzasClientes) || 0 },
-      { id: 'op-2', actividad: 'OPERACIÓN', concepto: '(-) Pagos a proveedores de bienes y servicios (Cta. 42)', importePen: -Math.abs(Number(op.pagosProveedores) || 0) },
-      { id: 'op-3', actividad: 'OPERACIÓN', concepto: '(-) Pagos de remuneraciones y beneficios sociales (Cta. 41)', importePen: -Math.abs(Number(op.pagosRemuneraciones) || 0) },
-      { id: 'op-4', actividad: 'OPERACIÓN', concepto: '(-) Pagos de tributos y aportes por pagar (Cta. 40)', importePen: -Math.abs(Number(op.pagosTributos) || 0) },
-      { id: 'op-tot', actividad: 'CONCILIACIÓN', concepto: 'FLUJO NETO DE EFECTIVO PROVENIENTE DE ACTIVIDADES DE OPERACIÓN', importePen: Number(op.netoOperacion) || 0 },
-      { id: 'inv-1', actividad: 'INVERSIÓN', concepto: '(-) Compra de propiedad, planta y equipo (Cta. 33)', importePen: -Math.abs(Number(inv.compraActivoFijo) || 0) },
-      { id: 'inv-tot', actividad: 'CONCILIACIÓN', concepto: 'FLUJO NETO DE EFECTIVO EN ACTIVIDADES DE INVERSIÓN', importePen: Number(inv.netoInversion) || 0 },
-      { id: 'fin-1', actividad: 'FINANCIAMIENTO', concepto: 'Aportes de capital en efectivo (Cta. 50)', importePen: Number(fin.aportesCapital) || 0 },
-      { id: 'fin-2', actividad: 'FINANCIAMIENTO', concepto: 'Préstamos recibidos / (-) amortización de deuda financiera (Cta. 45)', importePen: Number(fin.prestamosPagosFinancieros) || 0 },
-      { id: 'fin-tot', actividad: 'CONCILIACIÓN', concepto: 'FLUJO NETO DE EFECTIVO EN ACTIVIDADES DE FINANCIAMIENTO', importePen: Number(fin.netoFinanciamiento) || 0 },
-      { id: 'con-1', actividad: 'CONCILIACIÓN', concepto: 'AUMENTO (DISMINUCIÓN) NETO DE EFECTIVO Y EQUIVALENTES', importePen: Number(data.variacionNetaEfectivo) || 0 },
-      { id: 'con-2', actividad: 'CONCILIACIÓN', concepto: 'Saldo inicial de efectivo y equivalentes de efectivo', importePen: Number(data.saldoInicialEfectivo) || 0 },
-      { id: 'con-3', actividad: 'CONCILIACIÓN', concepto: 'SALDO FINAL DE EFECTIVO Y EQUIVALENTES AL CIERRE (CUENTA 10)', importePen: Number(data.saldoFinalEfectivo) || 0 },
-    ];
-  }, [flujoQuery.data]);
+  const flujoAnteriorQuery = useQuery({
+    queryKey: ['reportes', empresaId, 'flujo-efectivo', periodoAnterior, true],
+    queryFn: () => reportesApi.getFlujoEfectivo(empresaId, periodoAnterior, true),
+    enabled: Boolean(empresaId),
+    retry: false,
+    staleTime: 60_000
+  });
 
-  const columnas: ColumnaTablaDensa<LineaNic7>[] = [
-    { key: 'actividad', header: 'Actividad NIC 7', width: '145px', render: (r) => <span className="font-bold text-[#1E3A5F] text-[11px]">{r.actividad}</span> },
-    { key: 'concepto', header: 'Flujos de Efectivo (Formato 3.18 SUNAT — Método Directo)', render: (r) => <span className={r.actividad === 'CONCILIACIÓN' ? 'font-bold text-[#111827]' : ''}>{r.concepto}</span> },
-    { key: 'importePen', header: 'Flujo S/', width: '135px', align: 'right', render: (r) => <span className={r.actividad === 'CONCILIACIÓN' ? 'font-bold text-[#1E3A5F]' : ''}>{r.importePen.toFixed(2)}</span> },
-  ];
+  const efe = useMemo(
+    () => construirEstructuraFlujoEfectivo(flujoQuery.data, flujoAnteriorQuery.data, periodo),
+    [flujoQuery.data, flujoAnteriorQuery.data, periodo]
+  );
 
   const flujoResumen = flujoQuery.data;
+  const subtituloCorte = formatearCortePeriodoFinanciero(periodo, acumuladoAlMes);
 
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF]">
       <BarraHerramientasLocal
         titulo="Estado de Flujos de Efectivo (NIC 7 / Formato 3.18 SUNAT)"
-        subtitulo="Clasificación de movimientos de efectivo en Actividades de Operación, Inversión y Financiamiento desde PostgreSQL"
+        subtitulo="Clasificación de flujos de efectivo en Operación, Inversión y Financiamiento (Método Directo) desde PostgreSQL"
         acciones={[
           {
             id: 'actualizar',
             label: flujoQuery.isFetching ? 'Actualizando...' : 'Actualizar',
             icono: RefreshCw,
-            onClick: () => void flujoQuery.refetch(),
+            onClick: () => {
+              void flujoQuery.refetch();
+              void flujoAnteriorQuery.refetch();
+            },
           },
           {
             id: 'estandar',
@@ -131,9 +119,9 @@ export const FlujoEfectivoView: React.FC<FlujoEfectivoViewProps> = ({
       {flujoResumen && (
         <div className="px-3 py-2 bg-[#F5F7FA] border-b border-[#D1D5DB] flex flex-wrap items-center justify-between text-[12px] gap-2">
           <div className="flex flex-wrap items-center gap-5">
-            <span><strong>VARIACIÓN NETA:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {Number(flujoResumen.variacionNetaEfectivo || 0).toFixed(2)}</span></span>
-            <span><strong>SALDO FINAL EFECTIVO:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {Number(flujoResumen.saldoFinalEfectivo || 0).toFixed(2)}</span></span>
-            <span><strong>SALDO CUENTA 10 MAYOR:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {Number(flujoResumen.saldoCuenta10Mayor || 0).toFixed(2)}</span></span>
+            <span><strong>VARIACIÓN NETA:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {formatearMontoFinanciero(Number(flujoResumen.variacionNetaEfectivo || 0), { esTotal: true })}</span></span>
+            <span><strong>SALDO FINAL EFECTIVO:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {formatearMontoFinanciero(Number(flujoResumen.saldoFinalEfectivo || 0), { esTotal: true })}</span></span>
+            <span><strong>SALDO CUENTA 10 MAYOR:</strong> <span className="font-mono font-bold text-[#1E3A5F]">S/ {formatearMontoFinanciero(Number(flujoResumen.saldoCuenta10Mayor || 0), { esTotal: true })}</span></span>
           </div>
           <span className={`font-bold text-[11px] ${flujoResumen.estaConciliado ? 'text-[#1E6F42]' : 'text-[#B91C1C]'}`}>
             {flujoResumen.estaConciliado ? 'CONCILIADO CON CUENTA 10' : 'DESCUADRE CON CUENTA 10'}
@@ -150,19 +138,76 @@ export const FlujoEfectivoView: React.FC<FlujoEfectivoViewProps> = ({
         </div>
       )}
 
-      <div className="flex-1 p-3 overflow-hidden flex flex-col">
-        <TablaDensa
-          columnas={columnas}
-          datos={lineas}
-          rowKey={(r) => r.id}
-        />
+      <div className="flex-1 overflow-auto bg-[#F4F6F9] p-4 sm:p-6">
+        <div className="bg-white max-w-[920px] mx-auto px-7 py-6 sm:px-10 sm:py-8 border border-[#E2E8F0] shadow-xs text-[#0F172A]">
+          <div className="mb-5">
+            <div className="text-[11px] text-[#64748B] uppercase tracking-wide">
+              {empresa.razonSocial || 'EMPRESA CONTABLE'} · R.U.C.: <span className="font-mono">{empresa.ruc || '—'}</span>
+            </div>
+            <h2 className="text-[15px] font-bold tracking-tight text-[#0F172A] mt-1">
+              ESTADO DE FLUJOS DE EFECTIVO
+            </h2>
+            <p className="text-[12.5px] text-[#1E293B]">{subtituloCorte} (Método Directo)</p>
+            <p className="text-[12.5px] font-bold text-[#0F172A]">(En Soles)</p>
+          </div>
+
+          {flujoQuery.isLoading ? (
+            <div className="py-12 text-center text-xs text-[#64748B]">Calculando Estado de Flujos de Efectivo desde PostgreSQL…</div>
+          ) : (
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead>
+                <tr>
+                  <th className="text-left font-normal py-1.5" />
+                  <th className="text-right font-bold py-1.5 w-36 border-t border-b border-[#0F172A] text-[#0F172A]">
+                    {efe.anioActual}
+                  </th>
+                  <th className="text-right font-bold py-1.5 w-36 border-t border-b border-[#0F172A] text-[#475569]">
+                    {efe.anioAnterior}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {efe.lineas.map((l) => {
+                  const esBold = l.tipo === 'seccion' || l.tipo === 'subtotal' || l.tipo === 'total';
+                  const esTotalOStd = l.tipo === 'subtotal' || l.tipo === 'total';
+                  const borderCell = l.tipo === 'total'
+                    ? 'border-t border-b-[3px] border-double border-[#0F172A]'
+                    : l.tipo === 'subtotal' && l.lineaSuperior && l.lineaInferior
+                    ? 'border-t border-b border-[#0F172A]'
+                    : l.tipo === 'subtotal' && l.lineaSuperior
+                    ? 'border-t border-[#0F172A]'
+                    : l.lineaInferior
+                    ? 'border-b border-[#0F172A]'
+                    : '';
+
+                  return (
+                    <tr key={l.id} className={esBold ? 'font-bold text-[#0F172A]' : 'text-[#1E293B]'}>
+                      <td className={`py-1 pr-6 ${l.tipo === 'seccion' ? 'pt-4 pb-1' : ''}`}>
+                        {l.concepto}
+                      </td>
+                      <td className={`py-1 text-right tabular-nums w-36 ${borderCell}`}>
+                        {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.actual, { esTotal: esTotalOStd })}
+                      </td>
+                      <td className={`py-1 text-right tabular-nums w-36 text-[#475569] ${borderCell}`}>
+                        {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.anterior, { esTotal: esTotalOStd })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {modalEstandarOpen && (
         <VisorReporteModal
           isOpen={modalEstandarOpen}
           onClose={() => setModalEstandarOpen(false)}
-          definicion={construirDefinicionFlujoEfectivoEstandar(empresa, flujoQuery.data || {}, periodo)}
+          definicion={construirDefinicionFlujoEfectivoEstandar(empresa, flujoQuery.data || {}, periodo, {
+            dataComparativa: flujoAnteriorQuery.data,
+            acumulado: acumuladoAlMes
+          })}
         />
       )}
     </div>

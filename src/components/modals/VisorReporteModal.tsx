@@ -15,6 +15,7 @@ import {
   formatearImporteEstandar,
   formatearFechaHoraEmision24h
 } from '../../services/reports/formato_estandar/formatoEstandarEngine';
+import { formatearMontoFinanciero } from '../../services/reports/formato_estandar/estadosFinancierosHelper';
 import { useReportStyle } from '../../context/ReportStyleContext';
 
 interface VisorReporteModalProps {
@@ -67,6 +68,9 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
   const tituloLimpio = definicion.titulo.replace(/\*/g, '').trim().toUpperCase();
   const firstSumIdx = definicion.columnas.findIndex((c) => c.isNumeric && c.sumar);
   const esPortrait = definicion.orientacion === 'portrait';
+  const ff = definicion.formatoFinanciero;
+  const colorTextoFf = reportStyle === 'actual' ? 'text-[#0F172A]' : 'text-black';
+  const borderColorFf = reportStyle === 'actual' ? 'border-[#0F172A]' : 'border-black';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
@@ -191,6 +195,208 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
 
         {/* Hoja Imprimible (A4 Horizontal o Vertical Exacto) */}
         <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-200 print:bg-white print:p-0 print:m-0 flex justify-center">
+          {ff ? (
+            <div className={`bg-white ${colorTextoFf} w-full max-w-[210mm] shadow-lg print:shadow-none print:max-w-none px-7 py-6 sm:px-9 sm:py-8 border border-slate-300 print:border-none font-sans text-[10px] leading-snug select-text flex flex-col justify-between`}>
+              <div>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="space-y-0.5">
+                    <div className="text-[9px] text-slate-600 uppercase tracking-wide">
+                      {definicion.empresa.razonSocial.toUpperCase()} · R.U.C.: <span className="font-mono">{definicion.empresa.ruc}</span>
+                    </div>
+                    <h1 className="font-bold text-[13px] tracking-tight pt-1">
+                      {tituloLimpio}
+                    </h1>
+                    <div className="text-[10.5px] font-normal">
+                      {ff.subtituloPeriodo}
+                    </div>
+                    <div className="text-[10.5px] font-bold">
+                      {ff.subtituloMoneda}
+                    </div>
+                  </div>
+                  {mostrarFechaHoraImpresion && (
+                    <div className="text-right text-[8.5px] text-slate-500">
+                      Emitido: {formatearFechaHoraEmision24h()}
+                    </div>
+                  )}
+                </div>
+
+                {ff.tipo === 'ESF' && ff.esf ? (
+                  <div className="grid grid-cols-2 gap-6 items-stretch">
+                    {/* Columna Activo */}
+                    <div className="flex flex-col justify-between">
+                      <table className="w-full border-collapse text-[9px]">
+                        <thead>
+                          <tr>
+                            <th className="text-left font-bold py-1">Activo</th>
+                            <th className="text-right font-bold py-1 w-20">{ff.anioActual}</th>
+                            <th className="text-right font-bold py-1 w-20">{ff.anioAnterior}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td colSpan={3} className="font-bold pt-1 pb-0.5">Activo Corriente</td>
+                          </tr>
+                          {ff.esf.activoCorriente.map((r) => (
+                            <tr key={r.id}>
+                              <td className="py-[1.5px] pr-2">{r.nombre}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.actual)}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.anterior)}</td>
+                            </tr>
+                          ))}
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total activos corrientes</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoCorrienteActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoCorrienteAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                          <tr><td colSpan={3} className="h-4" /></tr>
+                          <tr>
+                            <td colSpan={3} className="font-bold pt-1 pb-0.5">Activo no corriente</td>
+                          </tr>
+                          {ff.esf.activoNoCorriente.map((r) => (
+                            <tr key={r.id}>
+                              <td className="py-[1.5px] pr-2">{r.nombre}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.actual)}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.anterior)}</td>
+                            </tr>
+                          ))}
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total activo no corriente</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoNoCorrienteActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoNoCorrienteAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <table className="w-full border-collapse text-[9px] mt-2">
+                        <tbody>
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total activo</td>
+                            <td className={`py-1 text-right tabular-nums w-20 border-t border-b-[3px] border-double ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums w-20 border-t border-b-[3px] border-double ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalActivoAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Columna Pasivo y Patrimonio */}
+                    <div className="flex flex-col justify-between">
+                      <table className="w-full border-collapse text-[9px]">
+                        <thead>
+                          <tr>
+                            <th className="text-left font-bold py-1">Pasivo y Patrimonio</th>
+                            <th className="text-right font-bold py-1 w-20">{ff.anioActual}</th>
+                            <th className="text-right font-bold py-1 w-20">{ff.anioAnterior}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td colSpan={3} className="font-bold pt-1 pb-0.5">Pasivo Corriente</td>
+                          </tr>
+                          {ff.esf.pasivoCorriente.map((r) => (
+                            <tr key={r.id}>
+                              <td className="py-[1.5px] pr-2">{r.nombre}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.actual)}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.anterior)}</td>
+                            </tr>
+                          ))}
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total pasivo corriente</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoCorrienteActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoCorrienteAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                          <tr><td colSpan={3} className="h-3" /></tr>
+                          <tr>
+                            <td colSpan={3} className="font-bold pt-1 pb-0.5">Pasivo no corriente</td>
+                          </tr>
+                          {ff.esf.pasivoNoCorriente.map((r) => (
+                            <tr key={r.id}>
+                              <td className="py-[1.5px] pr-2">{r.nombre}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.actual)}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.anterior)}</td>
+                            </tr>
+                          ))}
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total pasivo no corriente</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoNoCorrienteActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoNoCorrienteAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total pasivo</td>
+                            <td className={`py-1 text-right tabular-nums border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                          <tr><td colSpan={3} className="h-3" /></tr>
+                          <tr>
+                            <td colSpan={3} className="font-bold pt-1 pb-0.5">Patrimonio</td>
+                          </tr>
+                          {ff.esf.patrimonio.map((r) => (
+                            <tr key={r.id}>
+                              <td className="py-[1.5px] pr-2">{r.nombre}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.actual)}</td>
+                              <td className="py-[1.5px] text-right tabular-nums">{formatearMontoFinanciero(r.anterior)}</td>
+                            </tr>
+                          ))}
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total Patrimonio</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPatrimonioActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums border-t border-b ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPatrimonioAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <table className="w-full border-collapse text-[9px] mt-2">
+                        <tbody>
+                          <tr className="font-bold">
+                            <td className="py-1 pr-2">Total pasivo y patrimonio</td>
+                            <td className={`py-1 text-right tabular-nums w-20 border-t border-b-[3px] border-double ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoYPatrimonioActual, { esTotal: true })}</td>
+                            <td className={`py-1 text-right tabular-nums w-20 border-t border-b-[3px] border-double ${borderColorFf}`}>{formatearMontoFinanciero(ff.esf.totalPasivoYPatrimonioAnterior, { guionEnCero: true })}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <table className="w-full border-collapse text-[10px]">
+                    <thead>
+                      <tr>
+                        <th className="text-left font-normal py-1" />
+                        <th className={`text-right font-bold py-1 w-32 border-t border-b ${borderColorFf}`}>{ff.anioActual}</th>
+                        <th className={`text-right font-bold py-1 w-32 border-t border-b ${borderColorFf}`}>{ff.anioAnterior}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(ff.er?.lineas || ff.efe?.lineas || []).map((l) => {
+                        const esBold = l.tipo === 'seccion' || l.tipo === 'subtotal' || l.tipo === 'total';
+                        const esTotalOStd = l.tipo === 'subtotal' || l.tipo === 'total';
+                        const borderCell = l.tipo === 'total'
+                          ? `border-t border-b-[3px] border-double ${borderColorFf}`
+                          : l.tipo === 'subtotal' && l.lineaSuperior && l.lineaInferior
+                          ? `border-t border-b ${borderColorFf}`
+                          : l.tipo === 'subtotal' && l.lineaSuperior
+                          ? `border-t ${borderColorFf}`
+                          : l.lineaInferior
+                          ? `border-b ${borderColorFf}`
+                          : '';
+                        return (
+                          <tr key={l.id} className={esBold ? 'font-bold' : ''}>
+                            <td className={`py-1 pr-4 ${l.tipo === 'seccion' ? 'pt-3 pb-1' : ''}`}>{l.concepto}</td>
+                            <td className={`py-1 text-right tabular-nums ${borderCell}`}>
+                              {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.actual, { esTotal: esTotalOStd })}
+                            </td>
+                            <td className={`py-1 text-right tabular-nums ${borderCell}`}>
+                              {l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.anterior, { esTotal: esTotalOStd })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="mt-6 text-center text-[9px] text-slate-600">
+                Pág. 1 de 1
+              </div>
+            </div>
+          ) : (
           <div className={`bg-white text-black w-full ${esPortrait ? 'max-w-[210mm]' : 'max-w-[297mm]'} shadow-lg print:shadow-none print:max-w-none p-5 sm:p-7 border border-slate-300 print:border-none font-sans font-light text-[10px] leading-tight select-text`}>
             
             {/* 1. Encabezado del reporte sin asteriscos */}
@@ -362,6 +568,7 @@ export const VisorReporteModal: React.FC<VisorReporteModalProps> = ({
               Pág. 1 de 1
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

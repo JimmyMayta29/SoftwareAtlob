@@ -8,6 +8,16 @@ import {
   descargarPdt621Excel,
   resolverCasillasOficialesPdt621
 } from './excelEstandarEngine';
+import {
+  agruparEstadoSituacionFinanciera,
+  construirEstructuraEstadoResultados,
+  construirEstructuraFlujoEfectivo,
+  formatearCortePeriodoFinanciero,
+  formatearMontoFinanciero,
+  type EstructuraEsfFinanciera,
+  type EstructuraErFinanciera,
+  type EstructuraFeFinanciera
+} from './estadosFinancierosHelper';
 
 export {
   generarReporteEstandarExcelBuffer,
@@ -37,6 +47,17 @@ export interface FilaGrupoReporteEstandar {
   totalesGrupo: Record<string, number>;
 }
 
+export interface FormatoFinancieroMetadata {
+  tipo: 'ESF' | 'ER' | 'EFE';
+  subtituloPeriodo: string;
+  subtituloMoneda: string;
+  anioActual: string;
+  anioAnterior: string;
+  esf?: EstructuraEsfFinanciera;
+  er?: EstructuraErFinanciera;
+  efe?: EstructuraFeFinanciera;
+}
+
 export interface EstandarReportDefinition {
   titulo: string;
   orientacion: 'landscape' | 'portrait';
@@ -52,6 +73,7 @@ export interface EstandarReportDefinition {
   grupos: FilaGrupoReporteEstandar[];
   totalesGenerales: Record<string, number>;
   mostrarFechaHoraImpresion?: boolean;
+  formatoFinanciero?: FormatoFinancieroMetadata;
 }
 
 /**
@@ -1115,79 +1137,79 @@ export function construirDefinicionHojaTrabajo10ColEstandar(
 }
 
 /**
- * Construye la definición tabular para el ESTADO DE SITUACIÓN FINANCIERA (Formato 3.1)
+ * Construye la definición tabular para el ESTADO DE SITUACIÓN FINANCIERA (Formato 3.1 / NIC 1)
  */
 export function construirDefinicionEstadoSituacionFinancieraEstandar(
   empresa: EmpresaCliente,
   dataEEFF: any,
   periodo: string,
-  opciones?: { mostrarFechaHora?: boolean }
+  opciones?: { mostrarFechaHora?: boolean; dataComparativa?: any; acumulado?: boolean }
 ): EstandarReportDefinition {
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
+  const esf = agruparEstadoSituacionFinanciera(dataEEFF, opciones?.dataComparativa, periodo);
+  const subtituloPeriodo = formatearCortePeriodoFinanciero(periodo, opciones?.acumulado ?? true);
 
-  // 4 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
+  // 7 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'codigo', label: 'Cuenta', align: 'center', cellWidthPdf: 20 },
-    { id: 'rubro', label: 'Rubro / Partida Contable (PCGE)', align: 'left', cellWidthPdf: 112 },
-    { id: 'nota', label: 'Nota', align: 'center', cellWidthPdf: 16 },
-    { id: 'importe', label: `Saldo al Cierre ${anio} (S/)`, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 42 }
+    { id: 'activoRubro', label: 'Activo', align: 'left', cellWidthPdf: 53 },
+    { id: 'importe', label: esf.anioActual, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 20 },
+    { id: 'activoAnterior', label: esf.anioAnterior, align: 'right', isNumeric: true, cellWidthPdf: 19 },
+    { id: 'separador', label: '', align: 'center', cellWidthPdf: 6 },
+    { id: 'pasivoRubro', label: 'Pasivo y Patrimonio', align: 'left', cellWidthPdf: 53 },
+    { id: 'pasivoActual', label: esf.anioActual, align: 'right', isNumeric: true, cellWidthPdf: 20 },
+    { id: 'pasivoAnterior', label: esf.anioAnterior, align: 'right', isNumeric: true, cellWidthPdf: 19 }
   ];
 
-  const superHeaders: SuperHeaderColumna[] = [
-    { label: 'Clasificación Financiera Oficial (Formato 3.1 SUNAT)', colSpan: 3 },
-    { label: 'Importes (Soles)', colSpan: 1 }
-  ];
-
-  const mapearBloque = (items: any[] | undefined, notaDefault: string) =>
-    (Array.isArray(items) ? items : []).map((it) => ({
-      codigo: String(it.codigo || ''),
-      rubro: String(it.nombre || it.rubro || 'Cuenta'),
-      nota: it.nota ? String(it.nota) : notaDefault,
-      importe: Number(it.monto ?? it.importe ?? 0)
+  const mapearRubros = (rubros: typeof esf.activoCorriente) =>
+    rubros.map((r) => ({
+      activoRubro: r.nombre,
+      importe: r.actual,
+      activoAnterior: r.anterior
     }));
 
-  const filasPatrimonio = mapearBloque(dataEEFF?.patrimonioNeto, '5');
-  const resultadoEj = Number(dataEEFF?.resultadoDelEjercicio || 0);
-  if (resultadoEj !== 0 || (Array.isArray(dataEEFF?.activoCorriente) && dataEEFF.activoCorriente.length > 0)) {
-    filasPatrimonio.push({
-      codigo: '59 / 89',
-      rubro: 'Resultado del Ejercicio',
-      nota: '5',
-      importe: resultadoEj
-    });
-  }
+  const mapearPasivoRubros = (rubros: typeof esf.pasivoCorriente) =>
+    rubros.map((r) => ({
+      pasivoRubro: r.nombre,
+      pasivoActual: r.actual,
+      pasivoAnterior: r.anterior
+    }));
 
-  const gruposDef = [
-    { id: 'ACT_CTE', titulo: '1. ACTIVO CORRIENTE', filas: mapearBloque(dataEEFF?.activoCorriente, '1') },
-    { id: 'ACT_NO_CTE', titulo: '2. ACTIVO NO CORRIENTE', filas: mapearBloque(dataEEFF?.activoNoCorriente, '2') },
-    { id: 'PAS_CTE', titulo: '3. PASIVO CORRIENTE', filas: mapearBloque(dataEEFF?.pasivoCorriente, '3') },
-    { id: 'PAS_NO_CTE', titulo: '4. PASIVO NO CORRIENTE', filas: mapearBloque(dataEEFF?.pasivoNoCorriente, '4') },
-    { id: 'PAT_NETO', titulo: '5. PATRIMONIO NETO', filas: filasPatrimonio }
+  const grupos: FilaGrupoReporteEstandar[] = [
+    {
+      grupoId: 'ACT_CTE',
+      tituloGrupo: 'Activo Corriente',
+      filas: mapearRubros(esf.activoCorriente),
+      totalesGrupo: { importe: esf.totalActivoCorrienteActual }
+    },
+    {
+      grupoId: 'ACT_NO_CTE',
+      tituloGrupo: 'Activo no corriente',
+      filas: mapearRubros(esf.activoNoCorriente),
+      totalesGrupo: { importe: esf.totalActivoNoCorrienteActual }
+    },
+    {
+      grupoId: 'PAS_CTE',
+      tituloGrupo: 'Pasivo Corriente',
+      filas: mapearPasivoRubros(esf.pasivoCorriente),
+      totalesGrupo: { importe: esf.totalPasivoCorrienteActual }
+    },
+    {
+      grupoId: 'PAS_NO_CTE',
+      tituloGrupo: 'Pasivo no corriente',
+      filas: mapearPasivoRubros(esf.pasivoNoCorriente),
+      totalesGrupo: { importe: esf.totalPasivoNoCorrienteActual }
+    },
+    {
+      grupoId: 'PAT_NETO',
+      tituloGrupo: 'Patrimonio',
+      filas: mapearPasivoRubros(esf.patrimonio),
+      totalesGrupo: { importe: esf.totalPatrimonioActual }
+    }
   ];
 
-  const totalesGenerales: Record<string, number> = {
-    importe: Number(dataEEFF?.totalActivo ?? 0)
-  };
-  const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => {
-    const totalesGrupo: Record<string, number> = { importe: 0 };
-    g.filas.forEach((f) => {
-      totalesGrupo.importe += f.importe;
-    });
-    if (dataEEFF?.totalActivo === undefined && (g.id === 'ACT_CTE' || g.id === 'ACT_NO_CTE')) {
-      totalesGenerales.importe += totalesGrupo.importe;
-    }
-
-    return {
-      grupoId: g.id,
-      tituloGrupo: g.titulo,
-      filas: g.filas,
-      totalesGrupo
-    };
-  });
-
   return {
-    titulo: 'ESTADO DE SITUACIÓN FINANCIERA (BALANCE GENERAL)',
+    titulo: 'ESTADO DE SITUACIÓN FINANCIERA',
     orientacion: 'portrait',
     empresa: {
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
@@ -1196,91 +1218,67 @@ export function construirDefinicionEstadoSituacionFinancieraEstandar(
       periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
-    superHeaders,
     columnas,
     grupos,
-    totalesGenerales,
-    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora
+    totalesGenerales: { importe: Number(esf.totalActivoActual || 0) },
+    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora,
+    formatoFinanciero: {
+      tipo: 'ESF',
+      subtituloPeriodo,
+      subtituloMoneda: '(En Soles)',
+      anioActual: esf.anioActual,
+      anioAnterior: esf.anioAnterior,
+      esf
+    }
   };
 }
 
 /**
- * Construye la definición tabular para el ESTADO DE RESULTADOS (Formato 3.20)
+ * Construye la definición tabular para el ESTADO DE RESULTADOS (Formato 3.20 / NIC 1)
  */
 export function construirDefinicionEstadoResultadosEstandar(
   empresa: EmpresaCliente,
   dataEEFF: any,
   periodo: string,
-  opciones?: { mostrarFechaHora?: boolean }
+  opciones?: { mostrarFechaHora?: boolean; dataComparativa?: any; acumulado?: boolean; modo?: 'funcion' | 'naturaleza' }
 ): EstandarReportDefinition {
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
+  const er = construirEstructuraEstadoResultados(
+    dataEEFF,
+    opciones?.dataComparativa,
+    periodo,
+    opciones?.modo ?? 'funcion'
+  );
+  const subtituloPeriodo = formatearCortePeriodoFinanciero(periodo, opciones?.acumulado ?? true);
 
-  // 4 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
+  // 3 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'codigo', label: 'PCGE', align: 'center', cellWidthPdf: 24 },
-    { id: 'rubro', label: 'Concepto / Rubro del Estado de Resultados', align: 'left', cellWidthPdf: 98 },
-    { id: 'porFuncion', label: 'Por Función (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
-    { id: 'porNaturaleza', label: 'Por Naturaleza (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
+    { id: 'rubro', label: 'Concepto', align: 'left', cellWidthPdf: 122 },
+    { id: 'porFuncion', label: er.anioActual, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
+    { id: 'comparativo', label: er.anioAnterior, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
   ];
 
-  const superHeaders: SuperHeaderColumna[] = [
-    { label: 'Estructura Financiera (Formato 3.20 SUNAT)', colSpan: 2 },
-    { label: `Resultados Acumulados al Mes (${anio})`, colSpan: 2 }
-  ];
-
-  const nat = dataEEFF?.porNaturaleza || {};
-  const func = dataEEFF?.porFuncion || {};
-
-  const gruposDef = [
+  const grupos: FilaGrupoReporteEstandar[] = [
     {
-      id: 'ING_OP',
-      titulo: '1. INGRESOS Y MARGEN BRUTO',
-      filas: [
-        { codigo: '70', rubro: 'Ventas netas de bienes y servicios', porFuncion: Number(func.ventasNetas || 0), porNaturaleza: Number(nat.ventasNetas || 0) },
-        { codigo: '69 / 60-61', rubro: '(-) Costo de ventas / Compras y Variación de Existencias', porFuncion: -Math.abs(Number(func.costoVentas || 0)), porNaturaleza: Number(nat.variacionInventarios || 0) - Number(nat.comprasNetas || 0) },
-        { codigo: '80', rubro: 'UTILIDAD BRUTA / MARGEN COMERCIAL', porFuncion: Number(func.utilidadBruta || 0), porNaturaleza: Number(nat.margenComercial || 0) }
-      ]
-    },
-    {
-      id: 'GAS_OP',
-      titulo: '2. GASTOS DE OPERACIÓN Y RESULTADO OPERATIVO',
-      filas: [
-        { codigo: '94 / 62-63', rubro: '(-) Gastos de administración / Personal y Servicios', porFuncion: -Math.abs(Number(func.gastosAdministracion || 0)), porNaturaleza: -Math.abs(Number(nat.cargasPersonal || 0) + Number(nat.serviciosTerceros || 0)) },
-        { codigo: '95 / 64-68', rubro: '(-) Gastos de ventas / Otros ingresos y gastos operativos', porFuncion: -Math.abs(Number(func.gastosVentas || 0)), porNaturaleza: Number(nat.otrosIngresosGastos || 0) },
-        { codigo: '84', rubro: 'UTILIDAD OPERATIVA (RESULTADO DE EXPLOTACIÓN)', porFuncion: Number(func.utilidadOperativa || 0), porNaturaleza: Number(nat.resultadoExplotacion || 0) }
-      ]
-    },
-    {
-      id: 'RES_FIN',
-      titulo: '3. RESULTADO FINANCIERO Y UTILIDAD NETA',
-      filas: [
-        { codigo: '77 - 67', rubro: '(+/-) Ingresos y gastos financieros netos', porFuncion: Number(func.ingresosFinancieros || 0) - Number(func.gastosFinancieros || 0), porNaturaleza: Number(nat.ingresosFinancieros || 0) - Number(nat.gastosFinancieros || 0) },
-        { codigo: '88', rubro: '(-) Impuesto a la renta corriente', porFuncion: -Math.abs(Number(func.impuestoRenta || 0)), porNaturaleza: -Math.abs(Number(nat.impuestoRenta || 0)) },
-        { codigo: '89', rubro: 'UTILIDAD / PÉRDIDA NETA DEL EJERCICIO', porFuncion: Number(func.utilidadNeta || 0), porNaturaleza: Number(nat.utilidadNeta || 0) }
-      ]
+      grupoId: 'ER_INTEGRAL',
+      tituloGrupo: er.modo === 'funcion' ? 'Operaciones continuas:' : 'Resultados por Naturaleza:',
+      filas: er.lineas
+        .filter((l) => l.tipo !== 'seccion')
+        .map((l) => ({
+          rubro: l.concepto,
+          porFuncion: l.actual,
+          comparativo: l.anterior
+        })),
+      totalesGrupo: {
+        porFuncion: er.utilidadNetaActual,
+        comparativo: er.utilidadNetaAnterior
+      }
     }
   ];
 
-  const totalesGenerales: Record<string, number> = {
-    porFuncion: Number(func.utilidadNeta || 0),
-    porNaturaleza: Number(nat.utilidadNeta || 0)
-  };
-  const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => {
-    const ultima = g.filas[g.filas.length - 1];
-    return {
-      grupoId: g.id,
-      tituloGrupo: g.titulo,
-      filas: g.filas,
-      totalesGrupo: {
-        porFuncion: ultima ? ultima.porFuncion : 0,
-        porNaturaleza: ultima ? ultima.porNaturaleza : 0
-      }
-    };
-  });
-
   return {
-    titulo: 'ESTADO DE RESULTADOS POR FUNCIÓN Y NATURALEZA',
+    titulo: 'ESTADO DE RESULTADOS INTEGRALES',
     orientacion: 'portrait',
     empresa: {
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
@@ -1289,95 +1287,72 @@ export function construirDefinicionEstadoResultadosEstandar(
       periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
-    superHeaders,
     columnas,
     grupos,
-    totalesGenerales,
-    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora
+    totalesGenerales: {
+      porFuncion: Number(er.utilidadNetaActual || 0),
+      comparativo: Number(er.utilidadNetaAnterior || 0)
+    },
+    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora,
+    formatoFinanciero: {
+      tipo: 'ER',
+      subtituloPeriodo,
+      subtituloMoneda: '(En Soles)',
+      anioActual: er.anioActual,
+      anioAnterior: er.anioAnterior,
+      er
+    }
   };
 }
 
 /**
- * Construye la definición tabular para el ESTADO DE FLUJOS DE EFECTIVO (Formato 3.18)
+ * Construye la definición tabular para el ESTADO DE FLUJOS DE EFECTIVO (Formato 3.18 / NIC 7)
  */
 export function construirDefinicionFlujoEfectivoEstandar(
   empresa: EmpresaCliente,
   dataEEFF: any,
   periodo: string,
-  opciones?: { mostrarFechaHora?: boolean }
+  opciones?: { mostrarFechaHora?: boolean; dataComparativa?: any; acumulado?: boolean }
 ): EstandarReportDefinition {
   const mesNombre = obtenerNombreMesPeriodo(periodo);
   const anio = periodo ? periodo.split('-')[0] : '2026';
+  const efe = construirEstructuraFlujoEfectivo(dataEEFF, opciones?.dataComparativa, periodo);
+  const subtituloPeriodo = formatearCortePeriodoFinanciero(periodo, opciones?.acumulado ?? true);
 
   // 3 columnas calibradas exactamente a A4 Vertical (190 mm útiles, margen 10 mm)
   const columnas: ColumnaReporteEstandar[] = [
-    { id: 'rubro', label: 'Concepto del Flujo de Efectivo', align: 'left', cellWidthPdf: 132 },
-    { id: 'nota', label: 'PCGE', align: 'center', cellWidthPdf: 18 },
-    { id: 'importe', label: 'Flujo Neto (S/)', align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 40 }
-  ];
-
-  const superHeaders: SuperHeaderColumna[] = [
-    { label: 'Método Directo SUNAT (Formato 3.18)', colSpan: 2 },
-    { label: 'Importe (Soles)', colSpan: 1 }
+    { id: 'rubro', label: 'Concepto', align: 'left', cellWidthPdf: 122 },
+    { id: 'importe', label: efe.anioActual, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 },
+    { id: 'comparativo', label: efe.anioAnterior, align: 'right', isNumeric: true, sumar: true, cellWidthPdf: 34 }
   ];
 
   const op = dataEEFF?.actividadesOperacion || {};
   const inv = dataEEFF?.actividadesInversion || {};
   const fin = dataEEFF?.actividadesFinanciamiento || {};
 
-  const gruposDef = [
+  const grupos: FilaGrupoReporteEstandar[] = [
     {
-      id: 'FLUJO_OP',
-      titulo: '1. ACTIVIDADES DE OPERACIÓN',
-      filas: [
-        { rubro: 'Cobranza de la venta de bienes y prestación de servicios', nota: '12', importe: Number(op.cobranzasClientes || 0) },
-        { rubro: '(-) Pagos a proveedores por el suministro de bienes y servicios', nota: '42', importe: -Math.abs(Number(op.pagosProveedores || 0)) },
-        { rubro: '(-) Pagos de remuneraciones y beneficios sociales al personal', nota: '41', importe: -Math.abs(Number(op.pagosRemuneraciones || 0)) },
-        { rubro: '(-) Pagos de tributos y gravámenes a SUNAT y EsSalud', nota: '40', importe: -Math.abs(Number(op.pagosTributos || 0)) }
-      ],
-      total: Number(op.netoOperacion || 0)
+      grupoId: 'FLUJO_OP',
+      tituloGrupo: 'Actividades de Operación',
+      filas: efe.lineas.slice(1, 5).map((l) => ({ rubro: l.concepto, importe: l.actual, comparativo: l.anterior })),
+      totalesGrupo: { importe: Number(op.netoOperacion || 0) }
     },
     {
-      id: 'FLUJO_INV',
-      titulo: '2. ACTIVIDADES DE INVERSIÓN',
-      filas: [
-        { rubro: '(-) Pagos por compra de propiedad, planta y equipo', nota: '33', importe: -Math.abs(Number(inv.compraActivoFijo || 0)) }
-      ],
-      total: Number(inv.netoInversion || 0)
+      grupoId: 'FLUJO_INV',
+      tituloGrupo: 'Actividades de Inversión',
+      filas: efe.lineas.slice(7, 8).map((l) => ({ rubro: l.concepto, importe: l.actual, comparativo: l.anterior })),
+      totalesGrupo: { importe: Number(inv.netoInversion || 0) }
     },
     {
-      id: 'FLUJO_FIN',
-      titulo: '3. ACTIVIDADES DE FINANCIAMIENTO',
-      filas: [
-        { rubro: 'Aportes de capital en efectivo', nota: '50', importe: Number(fin.aportesCapital || 0) },
-        { rubro: 'Préstamos recibidos / (-) amortización de pasivos financieros', nota: '45', importe: Number(fin.prestamosPagosFinancieros || 0) }
-      ],
-      total: Number(fin.netoFinanciamiento || 0)
-    },
-    {
-      id: 'SALDO_EFECTIVO',
-      titulo: '4. CONCILIACIÓN DEL SALDO DE EFECTIVO',
-      filas: [
-        { rubro: 'AUMENTO (DISMINUCIÓN) NETO DE EFECTIVO DEL EJERCICIO', nota: '-', importe: Number(dataEEFF?.variacionNetaEfectivo || 0) },
-        { rubro: 'Saldo de efectivo y equivalentes al inicio del período', nota: '10', importe: Number(dataEEFF?.saldoInicialEfectivo || 0) },
-        { rubro: 'SALDO DE EFECTIVO Y EQUIVALENTES AL CIERRE (CUENTA 10)', nota: '10', importe: Number(dataEEFF?.saldoFinalEfectivo || 0) }
-      ],
-      total: Number(dataEEFF?.saldoFinalEfectivo || 0)
+      grupoId: 'FLUJO_FIN',
+      tituloGrupo: 'Actividades de Financiamiento',
+      filas: efe.lineas.slice(10, 12).map((l) => ({ rubro: l.concepto, importe: l.actual, comparativo: l.anterior })),
+      totalesGrupo: { importe: Number(fin.netoFinanciamiento || 0) }
     }
   ];
 
-  const totalesGenerales: Record<string, number> = {
-    importe: Number(dataEEFF?.saldoFinalEfectivo || 0)
-  };
-  const grupos: FilaGrupoReporteEstandar[] = gruposDef.map((g) => ({
-    grupoId: g.id,
-    tituloGrupo: g.titulo,
-    filas: g.filas,
-    totalesGrupo: { importe: g.total }
-  }));
-
   return {
-    titulo: 'ESTADO DE FLUJOS DE EFECTIVO (MÉTODO DIRECTO)',
+    titulo: 'ESTADO DE FLUJOS DE EFECTIVO',
     orientacion: 'portrait',
     empresa: {
       razonSocial: empresa.razonSocial || 'EMPRESA CONTABLE',
@@ -1386,11 +1361,21 @@ export function construirDefinicionFlujoEfectivoEstandar(
       periodo: `${anio} - ${mesNombre}`
     },
     moneda: 'SOLES',
-    superHeaders,
     columnas,
     grupos,
-    totalesGenerales,
-    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora
+    totalesGenerales: {
+      importe: Number(efe.saldoFinalActual || 0),
+      comparativo: Number(efe.saldoFinalAnterior || 0)
+    },
+    mostrarFechaHoraImpresion: !!opciones?.mostrarFechaHora,
+    formatoFinanciero: {
+      tipo: 'EFE',
+      subtituloPeriodo,
+      subtituloMoneda: '(En Soles)',
+      anioActual: efe.anioActual,
+      anioAnterior: efe.anioAnterior,
+      efe
+    }
   };
 }
 
@@ -1567,10 +1552,313 @@ export function construirDefinicionVoucherContableEstandar(
 }
 
 
+function generarEstadoFinancieroPdfDoc(
+  def: EstandarReportDefinition,
+  estilo: 'estandar' | 'actual'
+): jsPDF {
+  const ff = def.formatoFinanciero!;
+  const tituloLimpio = def.titulo.replace(/\*/g, '').trim().toUpperCase();
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 10;
+  const usableWidth = Number((pageWidth - marginX * 2).toFixed(2)); // 190 mm
+  const primaryRgb: [number, number, number] = estilo === 'actual' ? [15, 23, 42] : [0, 0, 0];
+  const mutedRgb: [number, number, number] = [71, 85, 105];
+
+  type CeldaRegla = { top?: boolean; bottom?: boolean; doubleBottom?: boolean };
+  const reglasPorCelda = new Map<string, CeldaRegla>();
+  const marcarRegla = (rowIdx: number, colIdx: number, regla: CeldaRegla) => {
+    reglasPorCelda.set(`${rowIdx}:${colIdx}`, regla);
+  };
+
+  let bodyRows: any[] = [];
+  let columnStyles: Record<number, any> = {};
+
+  if (ff.tipo === 'ESF' && ff.esf) {
+    const esf = ff.esf;
+    type LadoFila = {
+      txt: string;
+      act: string;
+      ant: string;
+      bold?: boolean;
+      reglaTop?: boolean;
+      reglaBottom?: boolean;
+      reglaDoble?: boolean;
+    };
+
+    const izq: LadoFila[] = [
+      { txt: 'Activo', act: esf.anioActual, ant: esf.anioAnterior, bold: true },
+      { txt: 'Activo Corriente', act: '', ant: '', bold: true },
+      ...esf.activoCorriente.map((r) => ({
+        txt: r.nombre,
+        act: formatearMontoFinanciero(r.actual),
+        ant: formatearMontoFinanciero(r.anterior)
+      })),
+      {
+        txt: 'Total activos corrientes',
+        act: formatearMontoFinanciero(esf.totalActivoCorrienteActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalActivoCorrienteAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaTop: true,
+        reglaBottom: true
+      },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Activo no corriente', act: '', ant: '', bold: true },
+      ...esf.activoNoCorriente.map((r) => ({
+        txt: r.nombre,
+        act: formatearMontoFinanciero(r.actual),
+        ant: formatearMontoFinanciero(r.anterior)
+      })),
+      {
+        txt: 'Total activo no corriente',
+        act: formatearMontoFinanciero(esf.totalActivoNoCorrienteActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalActivoNoCorrienteAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaTop: true,
+        reglaBottom: true
+      }
+    ];
+
+    const der: LadoFila[] = [
+      { txt: 'Pasivo y Patrimonio', act: esf.anioActual, ant: esf.anioAnterior, bold: true },
+      { txt: 'Pasivo Corriente', act: '', ant: '', bold: true },
+      ...esf.pasivoCorriente.map((r) => ({
+        txt: r.nombre,
+        act: formatearMontoFinanciero(r.actual),
+        ant: formatearMontoFinanciero(r.anterior)
+      })),
+      {
+        txt: 'Total pasivo corriente',
+        act: formatearMontoFinanciero(esf.totalPasivoCorrienteActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalPasivoCorrienteAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaTop: true,
+        reglaBottom: true
+      },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Pasivo no corriente', act: '', ant: '', bold: true },
+      ...esf.pasivoNoCorriente.map((r) => ({
+        txt: r.nombre,
+        act: formatearMontoFinanciero(r.actual),
+        ant: formatearMontoFinanciero(r.anterior)
+      })),
+      {
+        txt: 'Total pasivo no corriente',
+        act: formatearMontoFinanciero(esf.totalPasivoNoCorrienteActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalPasivoNoCorrienteAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaTop: true,
+        reglaBottom: true
+      },
+      {
+        txt: 'Total pasivo',
+        act: formatearMontoFinanciero(esf.totalPasivoActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalPasivoAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaBottom: true
+      },
+      { txt: '', act: '', ant: '' },
+      { txt: 'Patrimonio', act: '', ant: '', bold: true },
+      ...esf.patrimonio.map((r) => ({
+        txt: r.nombre,
+        act: formatearMontoFinanciero(r.actual),
+        ant: formatearMontoFinanciero(r.anterior)
+      })),
+      {
+        txt: 'Total Patrimonio',
+        act: formatearMontoFinanciero(esf.totalPatrimonioActual, { esTotal: true }),
+        ant: formatearMontoFinanciero(esf.totalPatrimonioAnterior, { guionEnCero: true }),
+        bold: true,
+        reglaTop: true,
+        reglaBottom: true
+      }
+    ];
+
+    const maxLen = Math.max(izq.length, der.length);
+    while (izq.length < maxLen) izq.push({ txt: '', act: '', ant: '' });
+    while (der.length < maxLen) der.push({ txt: '', act: '', ant: '' });
+
+    izq.push({
+      txt: 'Total activo',
+      act: formatearMontoFinanciero(esf.totalActivoActual, { esTotal: true }),
+      ant: formatearMontoFinanciero(esf.totalActivoAnterior, { guionEnCero: true }),
+      bold: true,
+      reglaTop: true,
+      reglaDoble: true
+    });
+    der.push({
+      txt: 'Total pasivo y patrimonio',
+      act: formatearMontoFinanciero(esf.totalPasivoYPatrimonioActual, { esTotal: true }),
+      ant: formatearMontoFinanciero(esf.totalPasivoYPatrimonioAnterior, { guionEnCero: true }),
+      bold: true,
+      reglaTop: true,
+      reglaDoble: true
+    });
+
+    bodyRows = izq.map((l, rowIdx) => {
+      const r = der[rowIdx];
+      if (l.reglaTop || l.reglaBottom || l.reglaDoble) {
+        marcarRegla(rowIdx, 1, { top: l.reglaTop, bottom: l.reglaBottom, doubleBottom: l.reglaDoble });
+        marcarRegla(rowIdx, 2, { top: l.reglaTop, bottom: l.reglaBottom, doubleBottom: l.reglaDoble });
+      }
+      if (r.reglaTop || r.reglaBottom || r.reglaDoble) {
+        marcarRegla(rowIdx, 5, { top: r.reglaTop, bottom: r.reglaBottom, doubleBottom: r.reglaDoble });
+        marcarRegla(rowIdx, 6, { top: r.reglaTop, bottom: r.reglaBottom, doubleBottom: r.reglaDoble });
+      }
+      return [
+        { content: l.txt, styles: { fontStyle: l.bold ? 'bold' : 'normal', halign: 'left' } },
+        { content: l.act, styles: { fontStyle: l.bold ? 'bold' : 'normal', halign: 'right' } },
+        { content: l.ant, styles: { fontStyle: l.bold ? 'bold' : 'normal', halign: 'right' } },
+        { content: '', styles: { halign: 'center' } },
+        { content: r.txt, styles: { fontStyle: r.bold ? 'bold' : 'normal', halign: 'left' } },
+        { content: r.act, styles: { fontStyle: r.bold ? 'bold' : 'normal', halign: 'right' } },
+        { content: r.ant, styles: { fontStyle: r.bold ? 'bold' : 'normal', halign: 'right' } }
+      ];
+    });
+
+    const w = [53, 20, 19, 6, 53, 20, 19];
+    w.forEach((cw, idx) => {
+      columnStyles[idx] = { cellWidth: cw, overflow: idx === 0 || idx === 4 ? 'linebreak' : 'ellipsize' };
+    });
+  } else {
+    const lineas = ff.er?.lineas || ff.efe?.lineas || [];
+    marcarRegla(0, 1, { top: true, bottom: true });
+    marcarRegla(0, 2, { top: true, bottom: true });
+
+    bodyRows.push([
+      { content: '', styles: { halign: 'left' } },
+      { content: ff.anioActual, styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: ff.anioAnterior, styles: { fontStyle: 'bold', halign: 'right' } }
+    ]);
+
+    lineas.forEach((l, idx) => {
+      const rowIdx = idx + 1;
+      const esBold = l.tipo === 'seccion' || l.tipo === 'subtotal' || l.tipo === 'total';
+      const esTotalOStd = l.tipo === 'subtotal' || l.tipo === 'total';
+      const txtAct = l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.actual, { esTotal: esTotalOStd });
+      const txtAnt = l.tipo === 'seccion' ? '' : formatearMontoFinanciero(l.anterior, { esTotal: esTotalOStd });
+
+      if (l.lineaInferior) {
+        marcarRegla(rowIdx, 1, { bottom: true });
+        marcarRegla(rowIdx, 2, { bottom: true });
+      }
+      if (l.tipo === 'subtotal') {
+        marcarRegla(rowIdx, 1, { top: Boolean(l.lineaSuperior), bottom: Boolean(l.lineaInferior) });
+        marcarRegla(rowIdx, 2, { top: Boolean(l.lineaSuperior), bottom: Boolean(l.lineaInferior) });
+      }
+      if (l.tipo === 'total') {
+        marcarRegla(rowIdx, 1, { top: true, doubleBottom: true });
+        marcarRegla(rowIdx, 2, { top: true, doubleBottom: true });
+      }
+
+      bodyRows.push([
+        { content: l.concepto, styles: { fontStyle: esBold ? 'bold' : 'normal', halign: 'left' } },
+        { content: txtAct, styles: { fontStyle: esBold ? 'bold' : 'normal', halign: 'right' } },
+        { content: txtAnt, styles: { fontStyle: esBold ? 'bold' : 'normal', halign: 'right' } }
+      ]);
+    });
+
+    columnStyles = {
+      0: { cellWidth: 122, overflow: 'linebreak' },
+      1: { cellWidth: 34, overflow: 'ellipsize' },
+      2: { cellWidth: 34, overflow: 'ellipsize' }
+    };
+  }
+
+  autoTable(doc, {
+    body: bodyRows,
+    tableWidth: usableWidth,
+    showHead: 'never',
+    rowPageBreak: 'avoid',
+    startY: 31,
+    margin: { top: 31, bottom: 13, left: marginX, right: marginX },
+    theme: 'plain',
+    styles: {
+      font: 'helvetica',
+      fontStyle: 'normal',
+      fontSize: ff.tipo === 'ESF' ? 6.8 : 7.8,
+      cellPadding: ff.tipo === 'ESF' ? { top: 0.9, bottom: 0.9, left: 0.5, right: 0.5 } : { top: 1.2, bottom: 1.2, left: 0.8, right: 0.8 },
+      textColor: primaryRgb,
+      fillColor: [255, 255, 255],
+      lineWidth: 0,
+      valign: 'middle'
+    },
+    columnStyles,
+    didDrawCell: (data) => {
+      if (data.section !== 'body') return;
+      const regla = reglasPorCelda.get(`${data.row.index}:${data.column.index}`);
+      if (!regla) return;
+      const { x, y, width, height } = data.cell;
+      doc.setDrawColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
+      doc.setLineWidth(0.22);
+      if (regla.top) {
+        doc.line(x + 0.6, y + 0.15, x + width - 0.3, y + 0.15);
+      }
+      if (regla.bottom) {
+        doc.line(x + 0.6, y + height - 0.15, x + width - 0.3, y + height - 0.15);
+      }
+      if (regla.doubleBottom) {
+        doc.line(x + 0.6, y + height - 0.85, x + width - 0.3, y + height - 0.85);
+        doc.line(x + 0.6, y + height - 0.15, x + width - 0.3, y + height - 0.15);
+      }
+    },
+    didDrawPage: () => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(mutedRgb[0], mutedRgb[1], mutedRgb[2]);
+      doc.text(`${def.empresa.razonSocial.toUpperCase()}  ·  R.U.C.: ${def.empresa.ruc}`, marginX, 9.5);
+
+      if (def.mostrarFechaHoraImpresion) {
+        doc.setFontSize(6.3);
+        doc.text(`Emitido: ${formatearFechaHoraEmision24h()}`, pageWidth - marginX, 9.5, { align: 'right' });
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      doc.setTextColor(primaryRgb[0], primaryRgb[1], primaryRgb[2]);
+      doc.text(tituloLimpio, marginX, 15.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.2);
+      doc.text(ff.subtituloPeriodo, marginX, 20.5);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.2);
+      doc.text(ff.subtituloMoneda, marginX, 25);
+    }
+  });
+
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(mutedRgb[0], mutedRgb[1], mutedRgb[2]);
+    doc.text(`Pág. ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 5, { align: 'center' });
+  }
+
+  doc.setProperties({
+    title: tituloLimpio,
+    subject: estilo === 'actual' ? 'Formato actual' : 'Formato estandar',
+    author: 'ATLOB ERP'
+  });
+
+  return doc;
+}
+
 export function generarReporteEstandarPdfDoc(
   def: EstandarReportDefinition,
   estilo: 'estandar' | 'actual' = 'estandar'
 ): jsPDF {
+  if (def.formatoFinanciero) {
+    return generarEstadoFinancieroPdfDoc(def, estilo);
+  }
   const tituloLimpio = def.titulo.replace(/\*/g, '').trim().toUpperCase();
   const doc = new jsPDF({
     orientation: def.orientacion,
