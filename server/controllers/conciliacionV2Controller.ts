@@ -12,11 +12,17 @@ import {
 } from '../services/conciliacion/importacion/importacionExtractoService';
 import { perfilesBancoService } from '../services/conciliacion/perfilesBanco/perfilesBancoService';
 import { matchingService } from '../services/conciliacion/matching/matchingService';
+import { carteraConciliacionService } from '../services/conciliacion/cartera/carteraConciliacionService';
+import { asientosConciliacionService } from '../services/conciliacion/asientos/asientosConciliacionService';
+import { chequesYControlService } from '../services/conciliacion/cheques/chequesYControlService';
 import {
+  ESTADOS_CHEQUE_BANCARIO_V2,
   FORMATOS_EXTRACTO_V2,
   SENTIDOS_MONTO_REGLA,
   TIPOS_CLASIFICACION_EXTRACTO,
   TIPOS_COINCIDENCIA_REGLA,
+  TIPOS_OPERACION_CARTERA_ESPECIAL_V2,
+  TIPOS_OPERACION_PLANTILLA_V2,
 } from '../types/conciliacionV2';
 import { Money } from '../utils/decimal';
 import { successResponse, errorResponse } from '../utils/response';
@@ -24,6 +30,34 @@ import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 const uuidSchema = z.string().uuid('Identificador UUID inválido.');
 const periodoSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'periodo debe tener formato YYYY-MM.');
+const fechaIsoSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe tener formato YYYY-MM-DD.');
+
+function crearDecimalMoneySchema(
+  campo: string,
+  opciones: { estrictoPositivo?: boolean; permitirNegativo?: boolean } = {}
+) {
+  return z.union([z.string(), z.number()]).refine(
+    (val) => {
+      if (typeof val === 'number' && !Number.isFinite(val)) return false;
+      const text = String(val).trim();
+      if (!/^-?\d+(\.\d+)?$/.test(text)) return false;
+      const dec = Money.round(text);
+      if (dec.abs().gt('999999999999.99')) return false;
+      if (opciones.estrictoPositivo) return dec.gt(0);
+      if (!opciones.permitirNegativo) return dec.gte(0);
+      return true;
+    },
+    {
+      message: opciones.estrictoPositivo
+        ? `${campo} debe ser un decimal estrictamente mayor a 0.00.`
+        : opciones.permitirNegativo
+          ? `${campo} debe ser un decimal válido.`
+          : `${campo} debe ser un decimal mayor o igual a 0.00.`,
+    }
+  );
+}
 
 const ESTADOS_GRUPO_CONCILIACION_V2 = [
   'SUGERIDO',
@@ -320,6 +354,126 @@ const crearReglaAprendidaBodySchema = z.object({
 });
 
 const actualizarReglaAprendidaBodySchema = crearReglaAprendidaBodySchema.partial();
+
+const aplicarLineaCarteraBodySchema = z.object({
+  cuentaFinancieraId: uuidSchema,
+  periodo: periodoSchema,
+  extractoLineaId: uuidSchema,
+  tipoCartera: z.enum(['CXC', 'CXP', 'OTRO_PERUANO']),
+  tipoOperacionEspecial: z.enum(TIPOS_OPERACION_CARTERA_ESPECIAL_V2).optional(),
+  aplicaciones: z
+    .array(
+      z.object({
+        documentoId: uuidSchema,
+        importeAplicado: crearDecimalMoneySchema('importeAplicado', { estrictoPositivo: true }),
+      })
+    )
+    .max(100)
+    .optional(),
+  medioPago: z.string().trim().min(1).max(30).optional(),
+  tipoCambio: z.number().finite().positive('tipoCambio debe ser mayor a cero.').optional(),
+  anexoId: uuidSchema.nullable().optional(),
+  cuentaContrapartidaCodigo: z.string().trim().min(2).max(20).nullable().optional(),
+  detraccionId: uuidSchema.nullable().optional(),
+  esAnticipo: z.boolean().optional(),
+  tieneRetencion: z.boolean().optional(),
+  montoRetencion: crearDecimalMoneySchema('montoRetencion').nullable().optional(),
+  porcentajeRetencion: z.number().finite().min(0).max(100).nullable().optional(),
+  comisionPosMonto: crearDecimalMoneySchema('comisionPosMonto').nullable().optional(),
+  cuentaComisionPosCodigo: z.string().trim().min(2).max(20).nullable().optional(),
+  generarAsientoComisionPos: z.boolean().optional(),
+  esCheque: z.boolean().optional(),
+  esDepositoCheque: z.boolean().optional(),
+  numeroCheque: z.string().trim().max(40).nullable().optional(),
+  diferenciaCambio: crearDecimalMoneySchema('diferenciaCambio', { permitirNegativo: true })
+    .nullable()
+    .optional(),
+  tipoDiferencia: z.enum(['GANANCIA', 'PERDIDA', 'NINGUNA']).optional(),
+  montoOriginalDoc: crearDecimalMoneySchema('montoOriginalDoc').nullable().optional(),
+  glosa: z.string().trim().max(250).nullable().optional(),
+});
+
+const crearPlantillaAsientoBodySchema = z.object({
+  codigo: z
+    .string()
+    .trim()
+    .min(2)
+    .max(50)
+    .regex(/^[A-Za-z0-9_-]+$/, 'El código solo puede contener letras, números, "_" y "-".'),
+  nombre: z.string().trim().min(2).max(120),
+  tipoOperacion: z.enum(TIPOS_OPERACION_PLANTILLA_V2),
+  cuentaContrapartidaCodigo: z.string().trim().min(2).max(20).nullable().optional(),
+  subdiarioCodigo: z.string().trim().min(2).max(10).optional(),
+  glosaPlantilla: z.string().trim().min(3).max(250),
+  activo: z.boolean().optional(),
+});
+
+const actualizarPlantillaAsientoBodySchema = z.object({
+  nombre: z.string().trim().min(2).max(120).optional(),
+  tipoOperacion: z.enum(TIPOS_OPERACION_PLANTILLA_V2).optional(),
+  cuentaContrapartidaCodigo: z.string().trim().min(2).max(20).nullable().optional(),
+  subdiarioCodigo: z.string().trim().min(2).max(10).optional(),
+  glosaPlantilla: z.string().trim().min(3).max(250).optional(),
+  activo: z.boolean().optional(),
+});
+
+const previsualizarAsientoLineaBodySchema = z.object({
+  cuentaFinancieraId: uuidSchema,
+  periodo: periodoSchema,
+  extractoLineaId: uuidSchema,
+  plantillaId: z.string().trim().min(1).max(64).nullable().optional(),
+  tipoOperacion: z.enum(TIPOS_OPERACION_PLANTILLA_V2).optional(),
+  cuentaContrapartidaCodigo: z.string().trim().min(2).max(20).nullable().optional(),
+  subdiarioCodigo: z.string().trim().min(2).max(10).nullable().optional(),
+  centroCostoId: uuidSchema.nullable().optional(),
+  anexoId: uuidSchema.nullable().optional(),
+  glosa: z.string().trim().max(250).nullable().optional(),
+  tipoCambio: z.number().finite().positive('tipoCambio debe ser mayor a cero.').optional(),
+});
+
+const generarAsientoLineaBodySchema = previsualizarAsientoLineaBodySchema.extend({
+  confirmadoVistaPrevia: z
+    .boolean()
+    .refine((v) => v === true, {
+      message: 'confirmadoVistaPrevia debe ser true para generar el asiento.',
+    }),
+  hashVistaPrevia: z
+    .string()
+    .trim()
+    .min(16, 'hashVistaPrevia es obligatorio.')
+    .max(128, 'hashVistaPrevia excede el máximo permitido.'),
+});
+
+const listarChequesQuerySchema = z.object({
+  cuentaFinancieraId: uuidSchema.optional(),
+  estado: z.enum(ESTADOS_CHEQUE_BANCARIO_V2).optional(),
+});
+
+const registrarChequeBodySchema = z.object({
+  cuentaFinancieraId: uuidSchema,
+  movimientoTesoreriaId: uuidSchema.nullable().optional(),
+  extractoLineaId: uuidSchema.nullable().optional(),
+  anexoId: uuidSchema.nullable().optional(),
+  numeroCheque: z.string().trim().min(1, 'numeroCheque es obligatorio.').max(40),
+  beneficiario: z.string().trim().min(2, 'beneficiario debe tener al menos 2 caracteres.').max(200),
+  moneda: z.enum(['PEN', 'USD']).optional(),
+  monto: crearDecimalMoneySchema('monto', { estrictoPositivo: true }),
+  fechaGiro: fechaIsoSchema,
+  fechaEntrega: fechaIsoSchema.nullable().optional(),
+  fechaVencimiento: fechaIsoSchema.nullable().optional(),
+  esNoNegociable: z.boolean().optional(),
+  observacion: z.string().trim().max(500).nullable().optional(),
+});
+
+const actualizarEstadoChequeBodySchema = z.object({
+  estado: z.enum(ESTADOS_CHEQUE_BANCARIO_V2),
+  fechaEntrega: fechaIsoSchema.nullable().optional(),
+  fechaCobro: fechaIsoSchema.nullable().optional(),
+  extractoLineaId: uuidSchema.nullable().optional(),
+  observacion: z.string().trim().max(500).nullable().optional(),
+});
+
+const alertasControlQuerySchema = resumenQuerySchema;
 
 function normalizarQueryOpcional(val: unknown): unknown {
   return typeof val === 'string' && val.trim() === '' ? undefined : val;
@@ -854,6 +1008,198 @@ export const conciliacionV2Controller = {
       return successResponse(res, resultado, 'Regla aprendida eliminada correctamente.');
     } catch (err) {
       return manejarError(res, err, 'Error eliminando regla aprendida');
+    }
+  },
+
+  async sugerirDocumentosCartera(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const extractoLineaId = uuidSchema.parse(req.params.extractoLineaId);
+      const sugerencias = await carteraConciliacionService.sugerirDocumentosPendientes(
+        empresaId,
+        extractoLineaId
+      );
+      return successResponse(res, sugerencias);
+    } catch (err) {
+      return manejarError(res, err, 'Error sugiriendo documentos de cartera');
+    }
+  },
+
+  async aplicarLineaCartera(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = aplicarLineaCarteraBodySchema.parse(req.body ?? {});
+      const resultado = await carteraConciliacionService.aplicarLineaACartera(
+        empresaId,
+        userId,
+        payload
+      );
+      return successResponse(
+        res,
+        resultado,
+        'Línea de extracto aplicada a cartera correctamente.',
+        201
+      );
+    } catch (err) {
+      return manejarError(res, err, 'Error aplicando línea de extracto a cartera');
+    }
+  },
+
+  async listarPlantillasAsiento(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const plantillas = await asientosConciliacionService.listarPlantillasAsiento(empresaId);
+      return successResponse(res, plantillas);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando plantillas de asiento');
+    }
+  },
+
+  async crearPlantillaAsiento(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = crearPlantillaAsientoBodySchema.parse(req.body ?? {});
+      const plantilla = await asientosConciliacionService.crearPlantillaAsiento(
+        empresaId,
+        userId,
+        payload
+      );
+      return successResponse(res, plantilla, 'Plantilla de asiento creada correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error creando plantilla de asiento');
+    }
+  },
+
+  async actualizarPlantillaAsiento(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const plantillaId = uuidSchema.parse(req.params.plantillaId);
+      const payload = actualizarPlantillaAsientoBodySchema.parse(req.body ?? {});
+      const plantilla = await asientosConciliacionService.actualizarPlantillaAsiento(
+        empresaId,
+        userId,
+        plantillaId,
+        payload
+      );
+      return successResponse(res, plantilla, 'Plantilla de asiento actualizada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error actualizando plantilla de asiento');
+    }
+  },
+
+  async eliminarPlantillaAsiento(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const plantillaId = uuidSchema.parse(req.params.plantillaId);
+      const resultado = await asientosConciliacionService.eliminarPlantillaAsiento(
+        empresaId,
+        userId,
+        plantillaId
+      );
+      return successResponse(res, resultado, 'Plantilla de asiento eliminada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error eliminando plantilla de asiento');
+    }
+  },
+
+  async previsualizarAsientoLinea(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const payload = previsualizarAsientoLineaBodySchema.parse(req.body ?? {});
+      const preview = await asientosConciliacionService.previsualizarAsientoLinea(
+        empresaId,
+        payload
+      );
+      return successResponse(res, preview);
+    } catch (err) {
+      return manejarError(res, err, 'Error previsualizando asiento desde línea');
+    }
+  },
+
+  async generarAsientoLinea(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = generarAsientoLineaBodySchema.parse(req.body ?? {});
+      const resultado = await asientosConciliacionService.generarAsientoDesdeLinea(
+        empresaId,
+        userId,
+        payload
+      );
+      return successResponse(
+        res,
+        resultado,
+        'Asiento contable generado y conciliado correctamente.',
+        201
+      );
+    } catch (err) {
+      return manejarError(res, err, 'Error generando asiento desde línea');
+    }
+  },
+
+  async listarCheques(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = listarChequesQuerySchema.parse({
+        cuentaFinancieraId: normalizarQueryOpcional(req.query.cuentaFinancieraId),
+        estado: normalizarQueryOpcional(req.query.estado),
+      });
+      const cheques = await chequesYControlService.listarCheques(empresaId, query);
+      return successResponse(res, cheques);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando cheques bancarios');
+    }
+  },
+
+  async registrarCheque(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = registrarChequeBodySchema.parse(req.body ?? {});
+      const cheque = await chequesYControlService.registrarCheque(empresaId, userId, payload);
+      return successResponse(res, cheque, 'Cheque bancario registrado correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error registrando cheque bancario');
+    }
+  },
+
+  async actualizarEstadoCheque(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const chequeId = uuidSchema.parse(req.params.chequeId);
+      const payload = actualizarEstadoChequeBodySchema.parse(req.body ?? {});
+      const cheque = await chequesYControlService.actualizarEstadoCheque(
+        empresaId,
+        userId,
+        chequeId,
+        payload
+      );
+      return successResponse(res, cheque, 'Estado de cheque actualizado correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error actualizando estado de cheque bancario');
+    }
+  },
+
+  async obtenerAlertasControl(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = alertasControlQuerySchema.parse({
+        cuentaFinancieraId: req.query.cuentaFinancieraId,
+        periodo: req.query.periodo,
+      });
+      const alertas = await chequesYControlService.obtenerAlertasControl(
+        empresaId,
+        query.cuentaFinancieraId,
+        query.periodo
+      );
+      return successResponse(res, alertas);
+    } catch (err) {
+      return manejarError(res, err, 'Error obteniendo alertas de control tributario');
     }
   },
 };

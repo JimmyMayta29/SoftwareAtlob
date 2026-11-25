@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
+  FileCheck2,
+  FileSpreadsheet,
   Link2,
   Search,
   Sparkles,
@@ -49,6 +51,8 @@ export interface PanelDualConciliacionProps {
   ) => Promise<void>;
   onDesconciliarGrupo: (grupoId: string, motivo: string) => Promise<void>;
   onDesconciliarPartidaLegacy: (extractoLineaId: string, motivo: string) => Promise<void>;
+  onAbrirAplicarCartera?: (linea: PartidaExtractoV2) => void;
+  onAbrirGenerarAsiento?: (linea: PartidaExtractoV2) => void;
 }
 
 function claseBadgeEstadoExtracto(estado: EstadoConciliacionV2): string {
@@ -102,6 +106,8 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   onConciliarManualGrupo,
   onDesconciliarGrupo,
   onDesconciliarPartidaLegacy,
+  onAbrirAplicarCartera,
+  onAbrirGenerarAsiento,
 }) => {
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstadoDual>('TODOS');
   const [textoBusqueda, setTextoBusqueda] = useState('');
@@ -751,7 +757,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   <th className="text-left">Descripción / Referencia</th>
                   <th className="w-28 text-left">Estado</th>
                   <th className="w-24 text-right tabular-nums">Monto ({moneda})</th>
-                  <th className="w-24 text-center">Acción</th>
+                  <th className="w-40 text-center">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -879,8 +885,40 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                               <Unlink className="w-3 h-3" />
                               <span>Desconciliar</span>
                             </button>
+                          ) : !operacionesBloqueadas &&
+                            l.estadoConciliacion !== 'DUPLICADO' &&
+                            (onAbrirAplicarCartera || onAbrirGenerarAsiento) ? (
+                            <div className="flex flex-wrap items-center justify-center gap-1">
+                              {onAbrirAplicarCartera && (
+                                <button
+                                  type="button"
+                                  onClick={() => onAbrirAplicarCartera(l)}
+                                  title="Aplicar línea bancaria a Cartera CxC/CxP o caso especial"
+                                  className="h-5 px-1.5 bg-[#FFFFFF] hover:bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none"
+                                >
+                                  <FileCheck2 className="w-2.5 h-2.5" />
+                                  <span>Aplicar CxC/CxP</span>
+                                </button>
+                              )}
+                              {onAbrirGenerarAsiento && (
+                                <button
+                                  type="button"
+                                  onClick={() => onAbrirGenerarAsiento(l)}
+                                  title="Previsualizar y generar asiento contable bancario"
+                                  className="h-5 px-1.5 bg-[#F5F7FA] hover:bg-[#ECFDF5] text-[#1E6F42] border border-[#1E6F42] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none"
+                                >
+                                  <FileSpreadsheet className="w-2.5 h-2.5" />
+                                  <span>Generar Asiento</span>
+                                </button>
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-[10px] text-[#9CA3AF]">—</span>
+                            <span
+                              title={operacionesBloqueadas ? motivoBloqueo : undefined}
+                              className="text-[10px] text-[#9CA3AF]"
+                            >
+                              —
+                            </span>
                           )}
                         </td>
                       </tr>

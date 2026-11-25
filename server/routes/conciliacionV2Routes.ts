@@ -165,4 +165,70 @@ router.delete(
   conciliacionV2Controller.eliminarReglaAprendida
 );
 
+// Cartera CxC/CxP y operaciones peruanas (Fase 4)
+router.get(
+  '/cartera/sugerencias/:extractoLineaId',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.sugerirDocumentosCartera
+);
+router.post(
+  '/cartera/aplicar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.aplicarLineaCartera
+);
+
+// Plantillas y generación de asientos desde extracto (Fase 4)
+router.get(
+  '/plantillas-asiento',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarPlantillasAsiento
+);
+router.post(
+  '/plantillas-asiento',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.crearPlantillaAsiento
+);
+router.put(
+  '/plantillas-asiento/:plantillaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.actualizarPlantillaAsiento
+);
+router.delete(
+  '/plantillas-asiento/:plantillaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.eliminarPlantillaAsiento
+);
+router.post(
+  '/asientos/previsualizar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.previsualizarAsientoLinea
+);
+router.post(
+  '/asientos/generar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.generarAsientoLinea
+);
+
+// Cheques bancarios y alertas de control tributario (Fase 4)
+router.get(
+  '/cheques',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarCheques
+);
+router.post(
+  '/cheques',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.registrarCheque
+);
+router.put(
+  '/cheques/:chequeId/estado',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.actualizarEstadoCheque
+);
+router.get(
+  '/alertas-control',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.obtenerAlertasControl
+);
+
 export const conciliacionV2Routes = router;

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
+  CreditCard,
   History,
   Link2,
   Lock,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import type {
   ConciliarManualGrupoInput,
+  PartidaExtractoV2,
   SemaforoConciliacion,
 } from '../../api/conciliacionV2Api';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
@@ -24,6 +26,7 @@ import { useToast } from '../../context/ToastContext';
 import {
   extraerMensajeErrorConciliacion,
   useAceptarSugerencias,
+  useAlertasControlV2,
   useCerrarConciliacionV2,
   useConciliacionV2Config,
   useConciliarManualGrupo,
@@ -38,7 +41,10 @@ import {
   useResumenConciliacionV2,
   useVincularCuentaContableV2,
 } from '../../hooks/useConciliacionV2';
+import { AplicarCarteraModal } from '../conciliacion/AplicarCarteraModal';
+import { AsientoBancarioPreviewModal } from '../conciliacion/AsientoBancarioPreviewModal';
 import { AsistenteImportacionModal } from '../conciliacion/AsistenteImportacionModal';
+import { ChequesYAlertasPanel } from '../conciliacion/ChequesYAlertasPanel';
 import { ConfigConciliacionV2Modal } from '../conciliacion/ConfigConciliacionV2Modal';
 import { formatearMonedaExacta } from '../conciliacion/conciliacionUtils';
 import { HistorialImportacionesModal } from '../conciliacion/HistorialImportacionesModal';
@@ -126,6 +132,11 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const [modalReabrirAbierto, setModalReabrirAbierto] = useState(false);
   const [motivoReapertura, setMotivoReapertura] = useState<string>('');
 
+  // Modales Fase 4
+  const [lineaCarteraModal, setLineaCarteraModal] = useState<PartidaExtractoV2 | null>(null);
+  const [lineaAsientoModal, setLineaAsientoModal] = useState<PartidaExtractoV2 | null>(null);
+  const [modalChequesAlertasAbierto, setModalChequesAlertasAbierto] = useState(false);
+
   // Bandeja de sugerencias
   const [sugerenciasAbierto, setSugerenciasAbierto] = useState(true);
   const [rechazandoGrupoId, setRechazandoGrupoId] = useState<string | null>(null);
@@ -167,6 +178,20 @@ export const ConciliacionBancariaV2View: React.FC = () => {
 
   const gruposQuery = useGruposMatching(empresaId, cuentaSeleccionadaId || null, periodo);
   const grupos = gruposQuery.data ?? [];
+
+  const alertasControlQuery = useAlertasControlV2(
+    empresaId,
+    cuentaSeleccionadaId || null,
+    periodo,
+    Boolean(empresaId && cuentaSeleccionadaId)
+  );
+  const alertasControl = alertasControlQuery.data;
+  const totalAlertas = alertasControl?.totalAlertas ?? 0;
+  const tieneAlertasCriticas = Boolean(
+    alertasControl &&
+      (alertasControl.alertasBancarizacion.some((a) => a.severidad === 'CRITICA') ||
+        alertasControl.chequesAntiguedad.some((c) => c.vencidoPlazoLegal))
+  );
 
   const gruposSugeridos = useMemo(
     () => grupos.filter((g) => g.estado === 'SUGERIDO'),
@@ -267,6 +292,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     if (cuentaSeleccionadaId) {
       void resumenQuery.refetch();
       void gruposQuery.refetch();
+      void alertasControlQuery.refetch();
     }
   };
 
@@ -427,7 +453,10 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     modalPerfilesAbierto ||
     modalHistorialAbierto ||
     modalHistorialReglasAbierto ||
-    modalReabrirAbierto;
+    modalReabrirAbierto ||
+    Boolean(lineaCarteraModal) ||
+    Boolean(lineaAsientoModal) ||
+    modalChequesAlertasAbierto;
 
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF] text-[#111827]">
@@ -489,6 +518,35 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               ]
             : []),
         ]}
+        accionesExtra={
+          <button
+            type="button"
+            disabled={!cuentaSeleccionada}
+            onClick={() => setModalChequesAlertasAbierto(true)}
+            title="Gestión de cheques bancarios, alertas tributarias (ITF / Ley 28194) y plantillas de asiento"
+            className={`h-6 px-2.5 text-[12px] inline-flex items-center gap-1.5 border rounded-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+              totalAlertas > 0
+                ? tieneAlertasCriticas
+                  ? 'bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] border-[#B91C1C] font-bold'
+                  : 'bg-[#FEF3C7] hover:bg-[#FDE68A] text-[#B45309] border-[#B45309] font-bold'
+                : 'bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border-[#D1D5DB]'
+            }`}
+          >
+            <CreditCard className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <span>Cheques y Alertas</span>
+            <span
+              className={`px-1.5 py-0 text-[10px] font-mono font-bold ${
+                totalAlertas > 0
+                  ? tieneAlertasCriticas
+                    ? 'bg-[#B91C1C] text-[#FFFFFF]'
+                    : 'bg-[#B45309] text-[#FFFFFF]'
+                  : 'bg-[#E5E7EB] text-[#4B5563]'
+              }`}
+            >
+              {totalAlertas}
+            </span>
+          </button>
+        }
         derecha={
           <SelectorPeriodo
             periodo={periodo}
@@ -895,6 +953,8 @@ export const ConciliacionBancariaV2View: React.FC = () => {
           onConciliarManualGrupo={handleConciliarManualGrupo}
           onDesconciliarGrupo={handleDesconciliarGrupo}
           onDesconciliarPartidaLegacy={handleDesconciliarPartidaLegacy}
+          onAbrirAplicarCartera={(linea) => setLineaCarteraModal(linea)}
+          onAbrirGenerarAsiento={(linea) => setLineaAsientoModal(linea)}
         />
       </div>
 
@@ -943,6 +1003,49 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         periodo={periodo}
         puedeEditarReglas={puedeEditarPerfilesYRevertir}
         tabInicial={tabHistorialReglas}
+      />
+
+      {/* Modal Aplicación a Cartera CxC/CxP y Casos Peruanos (Fase 4) */}
+      <AplicarCarteraModal
+        abierto={Boolean(lineaCarteraModal)}
+        onCerrar={() => setLineaCarteraModal(null)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
+        linea={lineaCarteraModal}
+        puedeOperar={!operacionesBloqueadas}
+      />
+
+      {/* Modal Vista Previa y Generación de Asiento Bancario (Fase 4) */}
+      <AsientoBancarioPreviewModal
+        abierto={Boolean(lineaAsientoModal)}
+        onCerrar={() => setLineaAsientoModal(null)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
+        linea={lineaAsientoModal}
+        config={configQuery.data}
+        puedeOperar={!operacionesBloqueadas}
+        esAdministrador={esAdministrador}
+        onAbrirConfiguracion={() => setModalConfigAbierto(true)}
+      />
+
+      {/* Panel de Cheques, Control Tributario y Plantillas de Asiento (Fase 4) */}
+      <ChequesYAlertasPanel
+        abierto={modalChequesAlertasAbierto}
+        onCerrar={() => setModalChequesAlertasAbierto(false)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
+        resumen={resumen}
+        alertasControl={alertasControl}
+        cargandoAlertas={alertasControlQuery.isLoading}
+        errorAlertas={alertasControlQuery.error}
+        puedeOperarCheques={puedeOperarPartidas}
+        puedeEditarPlantillas={puedeEditarPerfilesYRevertir}
+        conciliacionCerrada={conciliacionCerrada}
+        requiereVinculacion={requiereVinculacion}
+        onAbrirAsientoLinea={(linea) => setLineaAsientoModal(linea)}
       />
 
       {/* Modal Reabrir Conciliación (solo ADMINISTRADOR) */}

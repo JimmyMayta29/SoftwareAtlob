@@ -3,20 +3,28 @@ import {
   conciliacionV2Api,
   type AceptarSugerenciasInput,
   type ActualizarConfigConciliacionV2Input,
+  type ActualizarEstadoChequeInput,
   type ActualizarPerfilBancoInput,
+  type ActualizarPlantillaAsientoInput,
   type ActualizarReglaAprendidaInput,
   type ActualizarReglaClasificacionInput,
+  type AplicarLineaCarteraInput,
   type CerrarConciliacionV2Input,
   type ConciliarManualGrupoInput,
   type ConciliarPartidaV2Input,
   type ConfirmarImportacionInput,
+  type CrearChequeBancarioInput,
   type CrearPerfilBancoInput,
+  type CrearPlantillaAsientoInput,
   type CrearReglaAprendidaInput,
   type CrearReglaClasificacionInput,
   type DesconciliarGrupoInput,
   type DesconciliarPartidaV2Input,
   type EjecutarMatchingInput,
+  type EstadoChequeBancarioV2,
   type EstadoGrupoConciliacionV2,
+  type GenerarAsientoLineaInput,
+  type PrevisualizarAsientoLineaInput,
   type PrevisualizarImportacionInput,
   type ReabrirConciliacionV2Input,
   type RechazarSugerenciaInput,
@@ -27,20 +35,42 @@ import { useToast } from '../context/ToastContext';
 
 export type {
   AceptarSugerenciasInput,
+  ActualizarEstadoChequeInput,
+  ActualizarPlantillaAsientoInput,
   ActualizarReglaAprendidaInput,
+  AlertaBancarizacionV2,
+  AlertaChequeAntiguedadV2,
+  AlertaItfV2,
+  AplicarLineaCarteraInput,
+  ChequeBancarioV2,
   ConciliarManualGrupoInput,
+  CrearChequeBancarioInput,
+  CrearPlantillaAsientoInput,
   CrearReglaAprendidaInput,
   DesconciliarGrupoInput,
   EjecutarMatchingInput,
+  EstadoChequeBancarioV2,
   EstadoGrupoConciliacionV2,
+  GenerarAsientoLineaInput,
   GrupoConciliacionV2,
   HistorialDesconciliacionV2,
   ItemConciliacionV2,
+  LineaAsientoPreviewV2,
   OrigenPartidaLibroV2,
+  PlantillaAsientoV2,
+  PreviewAsientoConciliacionV2,
+  PrevisualizarAsientoLineaInput,
   RechazarSugerenciaInput,
   ReglaAprendidaV2,
+  ResultadoAplicarCarteraV2,
   ResultadoEjecucionMatchingV2,
+  ResultadoGenerarAsientoLineaV2,
+  ResumenAlertasControlV2,
+  SugerenciaDocumentoCarteraV2,
+  TipoDocumentoCarteraV2,
   TipoMatchV2,
+  TipoOperacionCarteraEspecialV2,
+  TipoOperacionPlantillaV2,
 } from '../../server/types/conciliacionV2';
 
 export const conciliacionV2Keys = {
@@ -82,6 +112,23 @@ export const conciliacionV2Keys = {
     ] as const,
   reglasAprendidas: (empresaId: string | null | undefined) =>
     ['conciliacionV2', 'reglas-aprendidas', empresaId] as const,
+  carteraSugerencias: (
+    empresaId: string | null | undefined,
+    extractoLineaId: string | null | undefined
+  ) => ['conciliacionV2', 'cartera-sugerencias', empresaId, extractoLineaId] as const,
+  plantillasAsiento: (empresaId: string | null | undefined) =>
+    ['conciliacionV2', 'plantillas-asiento', empresaId] as const,
+  cheques: (
+    empresaId: string | null | undefined,
+    cuentaFinancieraId?: string | null,
+    estado?: EstadoChequeBancarioV2 | ''
+  ) =>
+    ['conciliacionV2', 'cheques', empresaId, cuentaFinancieraId ?? 'ALL', estado || 'ALL'] as const,
+  alertasControl: (
+    empresaId: string | null | undefined,
+    cuentaFinancieraId: string | null | undefined,
+    periodo: string
+  ) => ['conciliacionV2', 'alertas-control', empresaId, cuentaFinancieraId, periodo] as const,
 };
 
 export function extraerMensajeErrorConciliacion(err: unknown, fallback: string): string {
@@ -205,6 +252,7 @@ export function useConciliarPartidaV2(empresaId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
       toast.success('Partida conciliada correctamente.', 'Conciliación V2');
     },
@@ -231,6 +279,7 @@ export function useDesconciliarPartidaV2(empresaId: string | null | undefined) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({
         queryKey: ['conciliacionV2', 'historial-desconciliacion', empresaId],
       });
@@ -519,6 +568,7 @@ export function useConfirmarImportacionV2(empresaId: string | null | undefined) 
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'importaciones', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({ queryKey: conciliacionV2Keys.cuentas(empresaId) });
       if (res.yaExistiaSinNuevas) {
         toast.info(
@@ -615,6 +665,7 @@ export function useEjecutarMatching(empresaId: string | null | undefined) {
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
       toast.success(
         `Matching completado en ${res.duracionMs} ms: ${res.autoConciliados} auto-conciliados y ${res.sugeridos} sugeridos.`,
@@ -644,6 +695,7 @@ export function useAceptarSugerencias(empresaId: string | null | undefined) {
     onSuccess: (grupos) => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({
         queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
       });
@@ -709,6 +761,7 @@ export function useConciliarManualGrupo(empresaId: string | null | undefined) {
     onSuccess: (grupo) => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({
         queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
       });
@@ -747,6 +800,7 @@ export function useDesconciliarGrupo(empresaId: string | null | undefined) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
       void queryClient.invalidateQueries({
         queryKey: ['conciliacionV2', 'historial-desconciliacion', empresaId],
       });
@@ -874,5 +928,307 @@ export function useEliminarReglaAprendida(empresaId: string | null | undefined) 
         'Error al Eliminar Regla'
       );
     },
+  });
+}
+
+// ============================================================================
+// FASE 4: CARTERA CXC/CXP, PLANTILLAS, ASIENTOS BANCARIOS, CHEQUES Y ALERTAS
+// ============================================================================
+
+export function useSugerenciasCarteraV2(
+  empresaId: string | null | undefined,
+  extractoLineaId: string | null | undefined,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.carteraSugerencias(empresaId, extractoLineaId),
+    queryFn: () => conciliacionV2Api.sugerirDocumentosCartera(empresaId!, extractoLineaId!),
+    enabled: Boolean(empresaId && extractoLineaId) && enabled,
+    retry: false,
+  });
+}
+
+export function useAplicarLineaCarteraV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: AplicarLineaCarteraInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.aplicarLineaCartera(empresaId, payload);
+    },
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'cheques', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['conciliacionV2', 'cartera-sugerencias', empresaId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['cuentasPorCobrar', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['cuentasPorPagar', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+
+      const docsCount = res.documentosActualizados.length;
+      toast.success(
+        docsCount > 0
+          ? `Línea aplicada a ${docsCount} documento(s) y conciliada correctamente.`
+          : 'Operación registrada en tesorería y conciliada correctamente.',
+        'Aplicación a Cartera'
+      );
+      if (res.alertaBancarizacion) {
+        toast.warning(res.alertaBancarizacion, 'Control Ley 28194');
+      }
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo aplicar la línea bancaria a cartera.'),
+        'Error al Aplicar Cartera'
+      );
+    },
+  });
+}
+
+export function usePlantillasAsientoV2(empresaId: string | null | undefined, enabled = true) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.plantillasAsiento(empresaId),
+    queryFn: () => conciliacionV2Api.listarPlantillasAsiento(empresaId!),
+    enabled: Boolean(empresaId) && enabled,
+    retry: false,
+  });
+}
+
+export function useCrearPlantillaAsientoV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: CrearPlantillaAsientoInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.crearPlantillaAsiento(empresaId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.plantillasAsiento(empresaId),
+      });
+      toast.success('Plantilla de asiento creada correctamente.', 'Plantillas de Asiento');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo crear la plantilla de asiento.'),
+        'Error en Plantilla'
+      );
+    },
+  });
+}
+
+export function useActualizarPlantillaAsientoV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: ({
+      plantillaId,
+      payload,
+    }: {
+      plantillaId: string;
+      payload: ActualizarPlantillaAsientoInput;
+    }) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.actualizarPlantillaAsiento(empresaId, plantillaId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.plantillasAsiento(empresaId),
+      });
+      toast.success('Plantilla de asiento actualizada.', 'Plantillas de Asiento');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo actualizar la plantilla de asiento.'),
+        'Error en Plantilla'
+      );
+    },
+  });
+}
+
+export function useEliminarPlantillaAsientoV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (plantillaId: string) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.eliminarPlantillaAsiento(empresaId, plantillaId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.plantillasAsiento(empresaId),
+      });
+      toast.success('Plantilla de asiento eliminada.', 'Plantillas de Asiento');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo eliminar la plantilla de asiento.'),
+        'Error al Eliminar Plantilla'
+      );
+    },
+  });
+}
+
+export function usePrevisualizarAsientoLineaV2(empresaId: string | null | undefined) {
+  return useMutation({
+    mutationFn: (payload: PrevisualizarAsientoLineaInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.previsualizarAsientoLinea(empresaId, payload);
+    },
+  });
+}
+
+export function useGenerarAsientoLineaV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: GenerarAsientoLineaInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.generarAsientoLinea(empresaId, payload);
+    },
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['asientos', empresaId] });
+
+      const refAsiento = res.asientoNumero || res.cuo || res.asientoId.slice(0, 8);
+      toast.success(
+        `Asiento ${refAsiento} generado y conciliado correctamente.`,
+        'Asiento Bancario'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo contabilizar y conciliar la línea.'),
+        'Error al Generar Asiento'
+      );
+    },
+  });
+}
+
+export function useChequesV2(
+  empresaId: string | null | undefined,
+  cuentaFinancieraId?: string | null,
+  estado?: EstadoChequeBancarioV2 | '',
+  enabled = true
+) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.cheques(empresaId, cuentaFinancieraId, estado),
+    queryFn: () =>
+      conciliacionV2Api.listarCheques(empresaId!, {
+        ...(cuentaFinancieraId ? { cuentaFinancieraId } : {}),
+        ...(estado ? { estado } : {}),
+      }),
+    enabled: Boolean(empresaId) && enabled,
+    retry: false,
+  });
+}
+
+export function useRegistrarChequeV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: CrearChequeBancarioInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.registrarCheque(empresaId, payload);
+    },
+    onSuccess: (cheque) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'cheques', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      toast.success(
+        `Cheque N° ${cheque.numeroCheque} registrado en estado ${cheque.estado}.`,
+        'Gestión de Cheques'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo registrar el cheque bancario.'),
+        'Error en Cheque'
+      );
+    },
+  });
+}
+
+export function useActualizarEstadoChequeV2(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: ({
+      chequeId,
+      payload,
+    }: {
+      chequeId: string;
+      payload: ActualizarEstadoChequeInput;
+    }) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.actualizarEstadoCheque(empresaId, chequeId, payload);
+    },
+    onSuccess: (cheque) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'cheques', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'alertas-control', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      toast.success(
+        `Cheque N° ${cheque.numeroCheque} actualizado a ${cheque.estado}.`,
+        'Gestión de Cheques'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo actualizar el estado del cheque.'),
+        'Error al Actualizar Cheque'
+      );
+    },
+  });
+}
+
+export function useAlertasControlV2(
+  empresaId: string | null | undefined,
+  cuentaFinancieraId: string | null | undefined,
+  periodo: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.alertasControl(empresaId, cuentaFinancieraId, periodo),
+    queryFn: () =>
+      conciliacionV2Api.obtenerAlertasControl(empresaId!, {
+        cuentaFinancieraId: cuentaFinancieraId!,
+        periodo,
+      }),
+    enabled:
+      enabled &&
+      Boolean(empresaId && cuentaFinancieraId && /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)),
+    retry: false,
   });
 }

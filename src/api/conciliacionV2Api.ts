@@ -1,22 +1,35 @@
 import { apiClient } from './client';
 import {
+  ESTADOS_CHEQUE_BANCARIO_V2,
   ESTADOS_CONCILIACION_V2,
   FORMATOS_EXTRACTO_V2,
   SENTIDOS_MONTO_REGLA,
   TIPOS_CLASIFICACION_EXTRACTO,
   TIPOS_COINCIDENCIA_REGLA,
+  TIPOS_DOCUMENTO_CARTERA_V2,
+  TIPOS_OPERACION_CARTERA_ESPECIAL_V2,
+  TIPOS_OPERACION_PLANTILLA_V2,
   type AceptarSugerenciasInput,
   type ActualizarConfigConciliacionV2Input,
+  type ActualizarEstadoChequeInput,
   type ActualizarPerfilBancoInput,
+  type ActualizarPlantillaAsientoInput,
   type ActualizarReglaAprendidaInput,
   type ActualizarReglaClasificacionInput,
   type AdvertenciaImportacion,
+  type AlertaBancarizacionV2,
+  type AlertaChequeAntiguedadV2,
+  type AlertaItfV2,
+  type AplicarLineaCarteraInput,
   type CerrarConciliacionV2Input,
+  type ChequeBancarioV2,
   type ConciliarManualGrupoInput,
   type ConciliarPartidaV2Input,
   type ConfigConciliacionV2,
   type ConfirmarImportacionInput,
+  type CrearChequeBancarioInput,
   type CrearPerfilBancoInput,
+  type CrearPlantillaAsientoInput,
   type CrearReglaAprendidaInput,
   type CrearReglaClasificacionInput,
   type CuentaBancariaV2,
@@ -25,62 +38,88 @@ import {
   type DesconciliarPartidaV2Input,
   type EjecutarMatchingInput,
   type ErrorFilaImportacion,
+  type EstadoChequeBancarioV2,
   type EstadoConciliacionV2,
   type EstadoGrupoConciliacionV2,
   type EstadoLibroV2,
   type FormatoExtractoV2,
+  type GenerarAsientoLineaInput,
   type GrupoConciliacionV2,
   type HistorialDesconciliacionV2,
   type ImportacionExtractoResumenV2,
   type IntegridadMayor104x,
   type ItemConciliacionV2,
+  type LineaAsientoPreviewV2,
   type LineaPrevisualizadaV2,
   type MapeoColumnasPerfil,
   type OrigenPartidaLibroV2,
   type PartidaExtractoV2,
   type PartidaLibroV2,
   type PerfilBancoV2,
+  type PlantillaAsientoV2,
+  type PreviewAsientoConciliacionV2,
+  type PrevisualizarAsientoLineaInput,
   type PrevisualizarImportacionInput,
   type ReabrirConciliacionV2Input,
   type RechazarSugerenciaInput,
   type ReglaAprendidaV2,
   type ReglaClasificacionV2,
+  type ResultadoAplicarCarteraV2,
   type ResultadoCierreV2,
   type ResultadoConfirmacionImportacionV2,
   type ResultadoEjecucionMatchingV2,
+  type ResultadoGenerarAsientoLineaV2,
   type ResultadoPrevisualizacionImportacionV2,
   type ResultadoReversionImportacionV2,
+  type ResumenAlertasControlV2,
   type ResumenConciliacionV2,
   type RevertirImportacionInput,
   type SemaforoConciliacion,
   type SentidoMontoRegla,
+  type SugerenciaDocumentoCarteraV2,
   type TipoClasificacionExtracto,
   type TipoCoincidenciaRegla,
+  type TipoDocumentoCarteraV2,
   type TipoMatchV2,
+  type TipoOperacionCarteraEspecialV2,
+  type TipoOperacionPlantillaV2,
   type VincularCuentaContableInput,
 } from '../../server/types/conciliacionV2';
 
 export {
+  ESTADOS_CHEQUE_BANCARIO_V2,
   ESTADOS_CONCILIACION_V2,
   FORMATOS_EXTRACTO_V2,
   SENTIDOS_MONTO_REGLA,
   TIPOS_CLASIFICACION_EXTRACTO,
   TIPOS_COINCIDENCIA_REGLA,
+  TIPOS_DOCUMENTO_CARTERA_V2,
+  TIPOS_OPERACION_CARTERA_ESPECIAL_V2,
+  TIPOS_OPERACION_PLANTILLA_V2,
 };
 
 export type {
   AceptarSugerenciasInput,
   ActualizarConfigConciliacionV2Input,
+  ActualizarEstadoChequeInput,
   ActualizarPerfilBancoInput,
+  ActualizarPlantillaAsientoInput,
   ActualizarReglaAprendidaInput,
   ActualizarReglaClasificacionInput,
   AdvertenciaImportacion,
+  AlertaBancarizacionV2,
+  AlertaChequeAntiguedadV2,
+  AlertaItfV2,
+  AplicarLineaCarteraInput,
   CerrarConciliacionV2Input,
+  ChequeBancarioV2,
   ConciliarManualGrupoInput,
   ConciliarPartidaV2Input,
   ConfigConciliacionV2,
   ConfirmarImportacionInput,
+  CrearChequeBancarioInput,
   CrearPerfilBancoInput,
+  CrearPlantillaAsientoInput,
   CrearReglaAprendidaInput,
   CrearReglaClasificacionInput,
   CuentaBancariaV2,
@@ -89,38 +128,51 @@ export type {
   DesconciliarPartidaV2Input,
   EjecutarMatchingInput,
   ErrorFilaImportacion,
+  EstadoChequeBancarioV2,
   EstadoConciliacionV2,
   EstadoGrupoConciliacionV2,
   EstadoLibroV2,
   FormatoExtractoV2,
+  GenerarAsientoLineaInput,
   GrupoConciliacionV2,
   HistorialDesconciliacionV2,
   ImportacionExtractoResumenV2,
   IntegridadMayor104x,
   ItemConciliacionV2,
+  LineaAsientoPreviewV2,
   LineaPrevisualizadaV2,
   MapeoColumnasPerfil,
   OrigenPartidaLibroV2,
   PartidaExtractoV2,
   PartidaLibroV2,
   PerfilBancoV2,
+  PlantillaAsientoV2,
+  PreviewAsientoConciliacionV2,
+  PrevisualizarAsientoLineaInput,
   PrevisualizarImportacionInput,
   ReabrirConciliacionV2Input,
   RechazarSugerenciaInput,
   ReglaAprendidaV2,
   ReglaClasificacionV2,
+  ResultadoAplicarCarteraV2,
   ResultadoCierreV2,
   ResultadoConfirmacionImportacionV2,
   ResultadoEjecucionMatchingV2,
+  ResultadoGenerarAsientoLineaV2,
   ResultadoPrevisualizacionImportacionV2,
   ResultadoReversionImportacionV2,
+  ResumenAlertasControlV2,
   ResumenConciliacionV2,
   RevertirImportacionInput,
   SemaforoConciliacion,
   SentidoMontoRegla,
+  SugerenciaDocumentoCarteraV2,
   TipoClasificacionExtracto,
   TipoCoincidenciaRegla,
+  TipoDocumentoCarteraV2,
   TipoMatchV2,
+  TipoOperacionCarteraEspecialV2,
+  TipoOperacionPlantillaV2,
   VincularCuentaContableInput,
 };
 
@@ -516,5 +568,135 @@ export const conciliacionV2Api = {
       `${baseUrl(empresaId)}/reglas-aprendidas/${reglaId}`
     );
     return extraerDataOpcional<{ eliminado: boolean; id: string }>(res);
+  },
+
+  // --- Fase 4: Cartera CxC/CxP, Plantillas, Asientos Bancarios, Cheques y Alertas ---
+
+  async sugerirDocumentosCartera(
+    empresaId: string,
+    extractoLineaId: string
+  ): Promise<SugerenciaDocumentoCarteraV2[]> {
+    const res = await apiClient.get<RespuestaApi<SugerenciaDocumentoCarteraV2[]>>(
+      `${baseUrl(empresaId)}/cartera/sugerencias/${extractoLineaId}`
+    );
+    return extraerData<SugerenciaDocumentoCarteraV2[]>(res);
+  },
+
+  async aplicarLineaCartera(
+    empresaId: string,
+    payload: AplicarLineaCarteraInput
+  ): Promise<ResultadoAplicarCarteraV2> {
+    const res = await apiClient.post<RespuestaApi<ResultadoAplicarCarteraV2>>(
+      `${baseUrl(empresaId)}/cartera/aplicar`,
+      payload
+    );
+    return extraerData<ResultadoAplicarCarteraV2>(res);
+  },
+
+  async listarPlantillasAsiento(empresaId: string): Promise<PlantillaAsientoV2[]> {
+    const res = await apiClient.get<RespuestaApi<PlantillaAsientoV2[]>>(
+      `${baseUrl(empresaId)}/plantillas-asiento`
+    );
+    return extraerData<PlantillaAsientoV2[]>(res);
+  },
+
+  async crearPlantillaAsiento(
+    empresaId: string,
+    payload: CrearPlantillaAsientoInput
+  ): Promise<PlantillaAsientoV2> {
+    const res = await apiClient.post<RespuestaApi<PlantillaAsientoV2>>(
+      `${baseUrl(empresaId)}/plantillas-asiento`,
+      payload
+    );
+    return extraerData<PlantillaAsientoV2>(res);
+  },
+
+  async actualizarPlantillaAsiento(
+    empresaId: string,
+    plantillaId: string,
+    payload: ActualizarPlantillaAsientoInput
+  ): Promise<PlantillaAsientoV2> {
+    const res = await apiClient.put<RespuestaApi<PlantillaAsientoV2>>(
+      `${baseUrl(empresaId)}/plantillas-asiento/${plantillaId}`,
+      payload
+    );
+    return extraerData<PlantillaAsientoV2>(res);
+  },
+
+  async eliminarPlantillaAsiento(
+    empresaId: string,
+    plantillaId: string
+  ): Promise<{ eliminado: boolean; id: string } | void> {
+    const res = await apiClient.delete<RespuestaApi<{ eliminado: boolean; id: string }>>(
+      `${baseUrl(empresaId)}/plantillas-asiento/${plantillaId}`
+    );
+    return extraerDataOpcional<{ eliminado: boolean; id: string }>(res);
+  },
+
+  async previsualizarAsientoLinea(
+    empresaId: string,
+    payload: PrevisualizarAsientoLineaInput
+  ): Promise<PreviewAsientoConciliacionV2> {
+    const res = await apiClient.post<RespuestaApi<PreviewAsientoConciliacionV2>>(
+      `${baseUrl(empresaId)}/asientos/previsualizar`,
+      payload
+    );
+    return extraerData<PreviewAsientoConciliacionV2>(res);
+  },
+
+  async generarAsientoLinea(
+    empresaId: string,
+    payload: GenerarAsientoLineaInput
+  ): Promise<ResultadoGenerarAsientoLineaV2> {
+    const res = await apiClient.post<RespuestaApi<ResultadoGenerarAsientoLineaV2>>(
+      `${baseUrl(empresaId)}/asientos/generar`,
+      payload
+    );
+    return extraerData<ResultadoGenerarAsientoLineaV2>(res);
+  },
+
+  async listarCheques(
+    empresaId: string,
+    params?: { cuentaFinancieraId?: string; estado?: EstadoChequeBancarioV2 }
+  ): Promise<ChequeBancarioV2[]> {
+    const res = await apiClient.get<RespuestaApi<ChequeBancarioV2[]>>(
+      `${baseUrl(empresaId)}/cheques`,
+      { params }
+    );
+    return extraerData<ChequeBancarioV2[]>(res);
+  },
+
+  async registrarCheque(
+    empresaId: string,
+    payload: CrearChequeBancarioInput
+  ): Promise<ChequeBancarioV2> {
+    const res = await apiClient.post<RespuestaApi<ChequeBancarioV2>>(
+      `${baseUrl(empresaId)}/cheques`,
+      payload
+    );
+    return extraerData<ChequeBancarioV2>(res);
+  },
+
+  async actualizarEstadoCheque(
+    empresaId: string,
+    chequeId: string,
+    payload: ActualizarEstadoChequeInput
+  ): Promise<ChequeBancarioV2> {
+    const res = await apiClient.put<RespuestaApi<ChequeBancarioV2>>(
+      `${baseUrl(empresaId)}/cheques/${chequeId}/estado`,
+      payload
+    );
+    return extraerData<ChequeBancarioV2>(res);
+  },
+
+  async obtenerAlertasControl(
+    empresaId: string,
+    params: { cuentaFinancieraId: string; periodo: string }
+  ): Promise<ResumenAlertasControlV2> {
+    const res = await apiClient.get<RespuestaApi<ResumenAlertasControlV2>>(
+      `${baseUrl(empresaId)}/alertas-control`,
+      { params }
+    );
+    return extraerData<ResumenAlertasControlV2>(res);
   },
 };
