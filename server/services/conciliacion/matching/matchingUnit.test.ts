@@ -663,4 +663,83 @@ caso('8. Rendimiento: 5,000 líneas (2,500 banco + 2,500 libro) en < 2,000 ms', 
   console.log(`     ⏱️  5,000 líneas procesadas en ${elapsedMs.toFixed(1)} ms`);
 });
 
+caso('9. Seguridad y escala: ceros largos ignorados en Capa 1 y banda densa acotada en Capa 2/3', () => {
+  const resCeros = ejecutarMotorMatching({
+    partidasBanco: [
+      {
+        id: 'b-ceros-largos',
+        fecha: '2026-10-10',
+        monto: '-250.00',
+        referencia: '00000000',
+        descripcion: 'CARGO GENERICO A',
+      },
+      {
+        id: 'b-ceros-neg',
+        fecha: '2026-10-10',
+        monto: '-350.00',
+        referencia: '-00000',
+        descripcion: 'CARGO GENERICO B',
+      },
+    ],
+    partidasLibro: [
+      {
+        id: 'l-ceros-largos',
+        origenLibro: 'MOVIMIENTO_TESORERIA',
+        asientoId: 'a-c1',
+        asientoDetalleId: null,
+        fecha: '2026-10-10',
+        importeConSigno: '-250.00',
+        numeroOperacion: '00000000',
+        glosa: 'Otro concepto distinto',
+      },
+      {
+        id: 'l-ceros-neg',
+        origenLibro: 'MOVIMIENTO_TESORERIA',
+        asientoId: 'a-c2',
+        asientoDetalleId: null,
+        fecha: '2026-10-10',
+        importeConSigno: '-350.00',
+        numeroOperacion: '-00000',
+        glosa: 'Concepto diferente sin coincidencia',
+      },
+    ],
+  });
+
+  // No deben hacer match en Capa 1 por referencias de ceros largos
+  assert.equal(resCeros.grupos.filter((g) => g.capaMatching === 1).length, 0);
+
+  // Banda densa: 1,500 banco + 1,500 libro con exactamente el mismo monto (-50.00)
+  const bancosDensos: PartidaBancoMatching[] = [];
+  const librosDensos: PartidaLibroMatching[] = [];
+  for (let i = 0; i < 1500; i += 1) {
+    bancosDensos.push({
+      id: `bd-${i}`,
+      fecha: '2026-10-15',
+      monto: '-50.00',
+      referencia: null,
+      descripcion: `MOVIMIENTO DENSO ${i}`,
+    });
+    librosDensos.push({
+      id: `ld-${i}`,
+      origenLibro: 'MOVIMIENTO_TESORERIA',
+      asientoId: `ad-${i}`,
+      asientoDetalleId: null,
+      fecha: '2026-10-15',
+      importeConSigno: '-50.00',
+      numeroOperacion: null,
+      glosa: `Asiento denso distinto ${i}`,
+    });
+  }
+
+  const t0 = performance.now();
+  ejecutarMotorMatching({
+    partidasBanco: bancosDensos,
+    partidasLibro: librosDensos,
+    parametros: { toleranciaDias: 3, toleranciaMonto: '0.00' },
+  });
+  const elapsedMs = performance.now() - t0;
+  assert.ok(elapsedMs < 2000, `Banda densa excedió 2000 ms: ${elapsedMs.toFixed(1)} ms`);
+  console.log(`     ⏱️  3,000 líneas con monto idéntico procesadas en ${elapsedMs.toFixed(1)} ms`);
+});
+
 console.log(`\n🎉 Todas las pruebas unitarias de matching pasaron (${pasados}/${pasados}).\n`);

@@ -751,7 +751,12 @@ export const conciliacionV2Controller = {
       const empresaId = resolverEmpresaId(req);
       const userId = resolverUsuarioId(req);
       const payload = conciliarManualGrupoBodySchema.parse(req.body ?? {});
-      const grupo = await matchingService.conciliarManualGrupo(empresaId, userId, payload);
+      const grupo = await matchingService.conciliarManualGrupo(
+        empresaId,
+        userId,
+        payload,
+        req.userRolEnEmpresa ?? req.user?.rolGlobal
+      );
       return successResponse(res, grupo, 'Grupo conciliado manualmente correctamente.', 201);
     } catch (err) {
       return manejarError(res, err, 'Error conciliando grupo manualmente');

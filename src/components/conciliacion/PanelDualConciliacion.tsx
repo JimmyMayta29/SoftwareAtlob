@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Link2,
@@ -40,6 +40,7 @@ export interface PanelDualConciliacionProps {
   mensajeError: string | null;
   operacionesBloqueadas: boolean;
   motivoBloqueo?: string;
+  puedeAprenderRegla?: boolean;
   hayModalAbierto: boolean;
   conciliandoManual: boolean;
   desconciliando: boolean;
@@ -94,6 +95,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   mensajeError,
   operacionesBloqueadas,
   motivoBloqueo,
+  puedeAprenderRegla = false,
   hayModalAbierto,
   conciliandoManual,
   desconciliando,
@@ -114,6 +116,9 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   const [patronRegla, setPatronRegla] = useState('');
   const [rucRegla, setRucRegla] = useState('');
   const [tipoClasifRegla, setTipoClasifRegla] = useState<TipoClasificacionExtracto | ''>('');
+  const patronAutollenadoRef = useRef<boolean>(false);
+  const extractoInicialRef = useRef<string>('');
+  const libroInicialRef = useRef<string>('');
 
   // Modal desconciliar (motivo >= 5 chars)
   const [desconciliarObjetivo, setDesconciliarObjetivo] = useState<{
@@ -215,40 +220,68 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
     setLibrosSeleccionadosKeys((prev) => prev.filter((k) => librosDisp.has(k)));
   }, [resumen?.extractoLineas, librosUnificados]);
 
-  // Pre-rellenar regla sugerida al marcar "Recordar regla"
+  // Si pierde permiso para aprender reglas, desactivar checkbox
   useEffect(() => {
-    if (!recordarRegla) return;
-    if (!patronRegla.trim() && extractoSeleccionadoIds.length > 0) {
-      const primera = (resumen?.extractoLineas ?? []).find(
-        (l) => l.id === extractoSeleccionadoIds[0]
-      );
+    if (!puedeAprenderRegla && recordarRegla) {
+      setRecordarRegla(false);
+    }
+  }, [puedeAprenderRegla, recordarRegla]);
+
+  // Pre-rellenar regla sugerida al marcar "Recordar regla" sin sobreescribir edición manual
+  useEffect(() => {
+    if (!recordarRegla || !puedeAprenderRegla) {
+      patronAutollenadoRef.current = false;
+      extractoInicialRef.current = '';
+      libroInicialRef.current = '';
+      return;
+    }
+
+    const extractoInicial = extractoSeleccionadoIds[0] ?? '';
+    const libroInicial = librosSeleccionadosKeys[0] ?? '';
+
+    if (extractoInicialRef.current !== extractoInicial) {
+      patronAutollenadoRef.current = false;
+      extractoInicialRef.current = extractoInicial;
+    }
+
+    if (!patronAutollenadoRef.current && extractoInicial) {
+      const primera = (resumen?.extractoLineas ?? []).find((l) => l.id === extractoInicial);
       if (primera) {
-        setPatronRegla(
-          (primera.contraparteExtraida || primera.descripcion || '').slice(0, 120).trim()
-        );
-        if (!rucRegla && primera.rucExtraido) {
-          setRucRegla(primera.rucExtraido);
+        const patronSugerido = (primera.contraparteExtraida || primera.descripcion || '')
+          .slice(0, 120)
+          .trim();
+        if (patronSugerido) {
+          setPatronRegla((prev) => (prev.trim() ? prev : patronSugerido));
         }
-        if (!tipoClasifRegla && primera.tipoClasificacion) {
-          setTipoClasifRegla(primera.tipoClasificacion);
+        if (primera.rucExtraido) {
+          const rucExtraido = primera.rucExtraido;
+          setRucRegla((prev) => prev || rucExtraido);
         }
+        if (primera.tipoClasificacion) {
+          const tipoExtraido = primera.tipoClasificacion;
+          setTipoClasifRegla((prev) => prev || tipoExtraido);
+        }
+        patronAutollenadoRef.current = true;
       }
     }
-    if (!rucRegla && librosSeleccionadosKeys.length > 0) {
-      const primerLibro = librosUnificados.find((m) => m.claveCompuesta === librosSeleccionadosKeys[0]);
+
+    if (!libroInicial) {
+      libroInicialRef.current = '';
+    } else if (libroInicialRef.current !== libroInicial) {
+      libroInicialRef.current = libroInicial;
+      const primerLibro = librosUnificados.find((m) => m.claveCompuesta === libroInicial);
       if (primerLibro?.anexoRuc) {
-        setRucRegla(primerLibro.anexoRuc);
+        const anexoRuc = primerLibro.anexoRuc;
+        setRucRegla((prev) => prev || anexoRuc);
       }
     }
   }, [
     recordarRegla,
+    puedeAprenderRegla,
     extractoSeleccionadoIds,
     librosSeleccionadosKeys,
     resumen?.extractoLineas,
     librosUnificados,
-    patronRegla,
-    rucRegla,
-    tipoClasifRegla,
   ]);
 
   // Conteos y progreso
@@ -346,7 +379,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
     !conciliandoManual &&
     !desconciliando &&
     tieneSeleccionAmbosLados &&
-    (!recordarRegla || patronRegla.trim().length >= 2);
+    (!puedeAprenderRegla || !recordarRegla || patronRegla.trim().length >= 2);
 
   const toggleExtracto = (id: string) => {
     setExtractoSeleccionadoIds((prev) =>
@@ -382,19 +415,21 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         id: m.id,
       })),
       observacion: observacionManual.trim() ? observacionManual.trim() : null,
-      aprenderRegla: recordarRegla
-        ? {
-            patronContraparte: patronRegla.trim(),
-            rucContraparte: rucRegla.trim() ? rucRegla.trim() : null,
-            tipoClasificacion: tipoClasifRegla || null,
-          }
-        : null,
+      aprenderRegla:
+        puedeAprenderRegla && recordarRegla
+          ? {
+              patronContraparte: patronRegla.trim(),
+              rucContraparte: rucRegla.trim() ? rucRegla.trim() : null,
+              tipoClasificacion: tipoClasifRegla || null,
+            }
+          : null,
     };
 
     await onConciliarManualGrupo(payload);
     limpiarSeleccion();
   }, [
     puedeConfirmarSeleccion,
+    puedeAprenderRegla,
     extractoSeleccionados,
     librosSeleccionados,
     observacionManual,
@@ -601,17 +636,19 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             {(extractoSeleccionados.length > 0 || librosSeleccionados.length > 0) && (
               <>
-                <label className="inline-flex items-center gap-1.5 text-[11px] text-[#111827] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={recordarRegla}
-                    disabled={operacionesBloqueadas || conciliandoManual}
-                    onChange={(e) => setRecordarRegla(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-[#1E3A5F]"
-                  />
-                  <Sparkles className="w-3 h-3 text-[#1E3A5F]" />
-                  <span>Recordar regla para esta contraparte</span>
-                </label>
+                {puedeAprenderRegla && (
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-[#111827] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={recordarRegla}
+                      disabled={operacionesBloqueadas || conciliandoManual}
+                      onChange={(e) => setRecordarRegla(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-[#1E3A5F]"
+                    />
+                    <Sparkles className="w-3 h-3 text-[#1E3A5F]" />
+                    <span>Recordar regla para esta contraparte</span>
+                  </label>
+                )}
 
                 <button
                   type="button"
@@ -656,7 +693,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
               placeholder="Observación opcional de conciliación manual..."
               className="h-6 px-2 flex-1 min-w-[200px] bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
             />
-            {recordarRegla && (
+            {puedeAprenderRegla && recordarRegla && (
               <>
                 <input
                   type="text"

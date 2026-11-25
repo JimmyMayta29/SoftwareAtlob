@@ -18,7 +18,7 @@ import {
 } from '../../../types/conciliacionV2';
 import { Money } from '../../../utils/decimal';
 import { auditoriaChainService } from '../../auditoriaChainService';
-import { ConciliacionV2Error } from '../../conciliacionV2Service';
+import { ConciliacionV2Error, registrarAuditoriaEnTx } from '../../conciliacionV2Service';
 import {
   clasificarLineaExtracto,
   listarReglasPersonalizadasEnTx,
@@ -1115,6 +1115,16 @@ export const importacionExtractoService = {
       }
 
       const lote = impRes.rows[0];
+
+      // Serializar operaciones de reversión por cuenta financiera
+      await client.query(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         FOR UPDATE`,
+        [empresaId, lote.cuentaFinancieraId]
+      );
+
       if (lote.estado === 'REVERTIDO') {
         throw new ConciliacionV2Error(
           409,
@@ -1130,6 +1140,51 @@ export const importacionExtractoService = {
         lote.cuentaFinancieraId,
         periodoVerificar
       );
+
+      // Bloquear reversión si alguna línea tiene historial de desconciliación o participa en grupos confirmados/desconciliados
+      const historialOGruposRes = await client.query<{ bloqueada: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM extracto_lineas el
+           WHERE el.empresa_id = $1
+             AND el.import_id = $2
+             AND (
+               EXISTS (
+                 SELECT 1
+                 FROM conciliacion_historial_desconciliacion chd
+                 WHERE chd.empresa_id = $1
+                   AND chd.extracto_linea_id = el.id
+               )
+               OR EXISTS (
+                 SELECT 1
+                 FROM conciliacion_item ci
+                 JOIN conciliacion_grupo cg
+                   ON cg.empresa_id = ci.empresa_id
+                  AND cg.id = ci.grupo_id
+                 WHERE ci.empresa_id = $1
+                   AND ci.extracto_linea_id = el.id
+                   AND (
+                     cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL', 'DESCONCILIADO')
+                     OR EXISTS (
+                       SELECT 1
+                       FROM conciliacion_historial_desconciliacion chd_g
+                       WHERE chd_g.empresa_id = $1
+                         AND chd_g.grupo_id = cg.id
+                     )
+                   )
+               )
+             )
+         ) AS bloqueada`,
+        [empresaId, importId]
+      );
+
+      if (historialOGruposRes.rows[0]?.bloqueada) {
+        throw new ConciliacionV2Error(
+          409,
+          'IMPORTACION_CON_HISTORIAL_CONCILIACION',
+          'No se puede revertir la importación porque existen partidas con grupos confirmados o historial de conciliación asociado.'
+        );
+      }
 
       // Bloquear reversión si alguna partida del lote ya fue conciliada
       const concilRes = await client.query<{ total: string }>(
@@ -1147,6 +1202,95 @@ export const importacionExtractoService = {
           'IMPORTACION_CON_PARTIDAS_CONCILIADAS',
           'No se puede revertir la importación porque tiene partidas ya conciliadas. Desconcilielas antes de revertir.'
         );
+      }
+
+      // Eliminar grupos no confirmados (SUGERIDO / RECHAZADO) vinculados a líneas del lote antes de borrar extracto_lineas
+      const gruposNoConfirmadosRes = await client.query<{ id: string; estado: string }>(
+        `SELECT cg.id, cg.estado
+         FROM conciliacion_grupo cg
+         WHERE cg.empresa_id = $1
+           AND cg.estado IN ('SUGERIDO', 'RECHAZADO')
+           AND EXISTS (
+             SELECT 1
+             FROM conciliacion_item ci
+             JOIN extracto_lineas el
+               ON el.empresa_id = ci.empresa_id
+              AND el.id = ci.extracto_linea_id
+             WHERE ci.empresa_id = cg.empresa_id
+               AND ci.grupo_id = cg.id
+               AND el.import_id = $2
+           )
+         ORDER BY cg.id
+         FOR UPDATE OF cg`,
+        [empresaId, importId]
+      );
+
+      let gruposSugeridosEliminados = 0;
+      if (gruposNoConfirmadosRes.rows.length > 0) {
+        const grupoIds = gruposNoConfirmadosRes.rows.map((r) => r.id);
+
+        const otrasLineasRes = await client.query<{ extractoLineaId: string }>(
+          `SELECT DISTINCT ci.extracto_linea_id AS "extractoLineaId"
+           FROM conciliacion_item ci
+           JOIN extracto_lineas el
+             ON el.empresa_id = ci.empresa_id
+            AND el.id = ci.extracto_linea_id
+           WHERE ci.empresa_id = $1
+             AND ci.grupo_id = ANY($2::uuid[])
+             AND ci.lado = 'BANCO'
+             AND ci.extracto_linea_id IS NOT NULL
+             AND el.import_id IS DISTINCT FROM $3`,
+          [empresaId, grupoIds, importId]
+        );
+
+        const delGruposRes = await client.query(
+          `DELETE FROM conciliacion_grupo
+           WHERE empresa_id = $1 AND id = ANY($2::uuid[])`,
+          [empresaId, grupoIds]
+        );
+        gruposSugeridosEliminados = delGruposRes.rowCount ?? grupoIds.length;
+
+        const otrasLineasIds = otrasLineasRes.rows.map((r) => r.extractoLineaId);
+        if (otrasLineasIds.length > 0) {
+          await client.query(
+            `UPDATE extracto_lineas el
+             SET estado_conciliacion = 'PENDIENTE_LIBROS'
+             WHERE el.empresa_id = $1
+               AND el.id = ANY($2::uuid[])
+               AND el.import_id IS DISTINCT FROM $3
+               AND el.conciliada = FALSE
+               AND el.estado_conciliacion = 'SUGERIDO'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM conciliacion_item ci
+                 JOIN conciliacion_grupo cg
+                   ON cg.empresa_id = ci.empresa_id
+                  AND cg.id = ci.grupo_id
+                 WHERE ci.empresa_id = el.empresa_id
+                   AND ci.lado = 'BANCO'
+                   AND ci.extracto_linea_id = el.id
+                   AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+               )`,
+            [empresaId, otrasLineasIds, importId]
+          );
+        }
+
+        await registrarAuditoriaEnTx(client, {
+          empresaId,
+          usuarioId,
+          tablaAfectada: 'conciliacion_grupo',
+          registroId: importId,
+          accion: 'DELETE_GRUPOS_NO_CONFIRMADOS',
+          datosAnteriores: {
+            importId,
+            gruposEliminados: gruposNoConfirmadosRes.rows,
+          },
+          datosNuevos: {
+            importId,
+            gruposSugeridosEliminados,
+            grupoIds,
+          },
+        });
       }
 
       // Eliminar solo líneas operativas del lote (extracto_linea_raw permanece inmutable)

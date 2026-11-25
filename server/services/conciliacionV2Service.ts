@@ -1459,6 +1459,32 @@ export const conciliacionV2Service = {
     const estadoDestino = parsed.estadoConciliacion ?? 'CONCILIADO_MANUAL';
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      const cuentaLookupRes = await client.query<{ cuentaFinancieraId: string }>(
+        `SELECT eb.cuenta_financiera_id AS "cuentaFinancieraId"
+         FROM extracto_lineas el
+         JOIN extractos_bancarios eb
+           ON eb.id = el.extracto_id
+          AND eb.empresa_id = el.empresa_id
+         WHERE el.id = $1 AND el.empresa_id = $2`,
+        [parsed.extractoLineaId, empresaId]
+      );
+
+      if (cuentaLookupRes.rows.length === 0) {
+        throw new ConciliacionV2Error(
+          404,
+          'PARTIDA_EXTRACTO_NO_ENCONTRADA',
+          'La partida del extracto bancario no existe para esta empresa.'
+        );
+      }
+
+      await client.query(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         FOR UPDATE`,
+        [empresaId, cuentaLookupRes.rows[0].cuentaFinancieraId]
+      );
+
       const lineaRes = await client.query<{
         id: string;
         extractoId: string;
@@ -1613,6 +1639,7 @@ export const conciliacionV2Service = {
         await client.query(
           `UPDATE movimientos_tesoreria
            SET conciliado = true,
+               estado_conciliacion_libro = 'CONCILIADO',
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $1 AND empresa_id = $2`,
           [movNuevoId, empresaId]
@@ -1629,10 +1656,30 @@ export const conciliacionV2Service = {
              AND id <> $3`,
           [empresaId, movAnteriorId, linea.id]
         );
-        if (Number(otrasRefsRes.rows[0]?.total ?? '0') === 0) {
+        const otrosGruposRes = await client.query<{ total: string }>(
+          `SELECT COUNT(*)::text AS total
+           FROM conciliacion_item ci
+           JOIN conciliacion_grupo cg
+             ON cg.id = ci.grupo_id
+            AND cg.empresa_id = ci.empresa_id
+           WHERE ci.empresa_id = $1
+             AND ci.lado = 'LIBRO'
+             AND ci.origen_libro = 'MOVIMIENTO_TESORERIA'
+             AND ci.movimiento_tesoreria_id = $2
+             AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')`,
+          [empresaId, movAnteriorId]
+        );
+        if (
+          Number(otrasRefsRes.rows[0]?.total ?? '0') === 0 &&
+          Number(otrosGruposRes.rows[0]?.total ?? '0') === 0
+        ) {
           await client.query(
             `UPDATE movimientos_tesoreria
              SET conciliado = false,
+                 estado_conciliacion_libro = CASE
+                   WHEN tipo = 'EGRESO' AND medio_pago = '007' THEN 'CHEQUE_NO_COBRADO'
+                   ELSE 'PENDIENTE_BANCO'
+                 END,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $1 AND empresa_id = $2`,
             [movAnteriorId, empresaId]
@@ -1678,6 +1725,106 @@ export const conciliacionV2Service = {
           empresaId,
         ]
       );
+
+      // Rechazar grupos SUGERIDO vinculados a la línea o al movimiento conciliado
+      const sugeridosRes = await client.query<{ id: string; observacion: string | null }>(
+        `SELECT cg.id, cg.observacion
+         FROM conciliacion_grupo cg
+         WHERE cg.empresa_id = $1
+           AND cg.estado = 'SUGERIDO'
+           AND EXISTS (
+             SELECT 1
+             FROM conciliacion_item ci
+             WHERE ci.empresa_id = cg.empresa_id
+               AND ci.grupo_id = cg.id
+               AND (
+                 (ci.lado = 'BANCO' AND ci.extracto_linea_id = $2)
+                 OR (
+                   $3::uuid IS NOT NULL
+                   AND ci.lado = 'LIBRO'
+                   AND ci.origen_libro = 'MOVIMIENTO_TESORERIA'
+                   AND ci.movimiento_tesoreria_id = $3
+                 )
+               )
+           )
+         FOR UPDATE OF cg`,
+        [empresaId, linea.id, movNuevoId]
+      );
+
+      if (sugeridosRes.rows.length > 0) {
+        const sugeridoIds = sugeridosRes.rows.map((r) => r.id);
+        const motivoRechazo = 'Superpuesto por conciliación individual de partida';
+
+        const otrasLineasSugRes = await client.query<{ extractoLineaId: string }>(
+          `SELECT DISTINCT extracto_linea_id AS "extractoLineaId"
+           FROM conciliacion_item
+           WHERE empresa_id = $1
+             AND grupo_id = ANY($2::uuid[])
+             AND lado = 'BANCO'
+             AND extracto_linea_id IS NOT NULL
+             AND extracto_linea_id <> $3`,
+          [empresaId, sugeridoIds, linea.id]
+        );
+
+        await client.query(
+          `UPDATE conciliacion_grupo
+           SET estado = 'RECHAZADO',
+               observacion = CASE
+                 WHEN observacion IS NULL OR observacion = '' THEN $1
+                 ELSE observacion || ' [' || $1 || ']'
+               END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE empresa_id = $2 AND id = ANY($3::uuid[])`,
+          [motivoRechazo, empresaId, sugeridoIds]
+        );
+
+        const otrasLineasIds = otrasLineasSugRes.rows.map((r) => r.extractoLineaId);
+        if (otrasLineasIds.length > 0) {
+          await client.query(
+            `UPDATE extracto_lineas el
+             SET estado_conciliacion = 'PENDIENTE_LIBROS'
+             WHERE el.empresa_id = $1
+               AND el.id = ANY($2::uuid[])
+               AND el.conciliada = false
+               AND el.estado_conciliacion = 'SUGERIDO'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM conciliacion_item ci
+                 JOIN conciliacion_grupo cg
+                   ON cg.id = ci.grupo_id
+                  AND cg.empresa_id = ci.empresa_id
+                 WHERE ci.empresa_id = el.empresa_id
+                   AND ci.lado = 'BANCO'
+                   AND ci.extracto_linea_id = el.id
+                   AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+               )`,
+            [empresaId, otrasLineasIds]
+          );
+        }
+
+        for (const sg of sugeridosRes.rows) {
+          const nuevaObs = sg.observacion
+            ? `${sg.observacion} [${motivoRechazo}]`
+            : motivoRechazo;
+          await registrarAuditoriaEnTx(client, {
+            empresaId,
+            usuarioId: userId,
+            tablaAfectada: 'conciliacion_grupo',
+            registroId: sg.id,
+            accion: 'UPDATE',
+            datosAnteriores: {
+              estado: 'SUGERIDO',
+              observacion: sg.observacion,
+            },
+            datosNuevos: {
+              estado: 'RECHAZADO',
+              observacion: nuevaObs,
+              motivo: motivoRechazo,
+              gruposRechazadosIds: sugeridoIds,
+            },
+          });
+        }
+      }
 
       const partidaActualizada = mapPartidaExtractoRow(updRes.rows[0]);
 
@@ -1725,6 +1872,32 @@ export const conciliacionV2Service = {
     const parsed = desconciliarPartidaSchema.parse(input);
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      const cuentaLookupRes = await client.query<{ cuentaFinancieraId: string }>(
+        `SELECT eb.cuenta_financiera_id AS "cuentaFinancieraId"
+         FROM extracto_lineas el
+         JOIN extractos_bancarios eb
+           ON eb.id = el.extracto_id
+          AND eb.empresa_id = el.empresa_id
+         WHERE el.id = $1 AND el.empresa_id = $2`,
+        [parsed.extractoLineaId, empresaId]
+      );
+
+      if (cuentaLookupRes.rows.length === 0) {
+        throw new ConciliacionV2Error(
+          404,
+          'PARTIDA_EXTRACTO_NO_ENCONTRADA',
+          'La partida del extracto bancario no existe para esta empresa.'
+        );
+      }
+
+      await client.query(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         FOR UPDATE`,
+        [empresaId, cuentaLookupRes.rows[0].cuentaFinancieraId]
+      );
+
       const lineaRes = await client.query<{
         id: string;
         extractoId: string;
@@ -1773,6 +1946,248 @@ export const conciliacionV2Service = {
       const codigoPeriodo = linea.fecha.slice(0, 7);
       await verificarPeriodoNoCerradoEnTx(client, empresaId, linea.cuentaFinancieraId, codigoPeriodo);
 
+      const estadoAnteriorBanco = derivarEstadoEfectivoExtracto(
+        Boolean(linea.conciliada),
+        linea.estadoConciliacionRaw
+      );
+
+      // Verificar si la partida pertenece a algún grupo activo de Fase 3
+      const gruposActivosRes = await client.query<{
+        id: string;
+        periodoId: string;
+        codigoPeriodo: string;
+        tipoMatch: string;
+        reglaAplicada: string;
+        capaMatching: number;
+        score: number;
+        estado: string;
+        diferenciaMonto: string;
+        observacion: string | null;
+        totalItems: number;
+        totalBanco: number;
+        totalLibro: number;
+      }>(
+        `SELECT cg.id,
+                cg.periodo_id AS "periodoId",
+                p.codigo_periodo AS "codigoPeriodo",
+                cg.tipo_match AS "tipoMatch",
+                cg.regla_aplicada AS "reglaAplicada",
+                cg.capa_matching AS "capaMatching",
+                cg.score::float8 AS score,
+                cg.estado,
+                cg.diferencia_monto::text AS "diferenciaMonto",
+                cg.observacion,
+                (
+                  SELECT COUNT(*)::int
+                  FROM conciliacion_item ci2
+                  WHERE ci2.empresa_id = cg.empresa_id
+                    AND ci2.grupo_id = cg.id
+                ) AS "totalItems",
+                (
+                  SELECT COUNT(*)::int
+                  FROM conciliacion_item ci2
+                  WHERE ci2.empresa_id = cg.empresa_id
+                    AND ci2.grupo_id = cg.id
+                    AND ci2.lado = 'BANCO'
+                ) AS "totalBanco",
+                (
+                  SELECT COUNT(*)::int
+                  FROM conciliacion_item ci2
+                  WHERE ci2.empresa_id = cg.empresa_id
+                    AND ci2.grupo_id = cg.id
+                    AND ci2.lado = 'LIBRO'
+                ) AS "totalLibro"
+         FROM conciliacion_grupo cg
+         JOIN periodos p
+           ON p.id = cg.periodo_id
+          AND p.empresa_id = cg.empresa_id
+         WHERE cg.empresa_id = $1
+           AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')
+           AND EXISTS (
+             SELECT 1
+             FROM conciliacion_item ci
+             WHERE ci.empresa_id = cg.empresa_id
+               AND ci.grupo_id = cg.id
+               AND ci.lado = 'BANCO'
+               AND ci.extracto_linea_id = $2
+           )
+         FOR UPDATE OF cg`,
+        [empresaId, linea.id]
+      );
+
+      for (const g of gruposActivosRes.rows) {
+        if (g.totalBanco > 1 || g.totalLibro > 1 || g.totalItems > 2) {
+          throw new ConciliacionV2Error(
+            409,
+            'GRUPO_CONCILIACION_COMPUESTO',
+            'Esta partida pertenece a un grupo de conciliación compuesto (1:N / N:1). Desconcilie el grupo completo desde matching.'
+          );
+        }
+      }
+
+      const movIdsCandidatos = new Set<string>();
+      if (linea.movimientoTesoreriaId) {
+        movIdsCandidatos.add(linea.movimientoTesoreriaId);
+      }
+
+      interface Grupo1a1DesconciliadoInfo {
+        grupo: (typeof gruposActivosRes.rows)[number];
+        items: Array<{
+          id: string;
+          lado: string;
+          origenLibro: string | null;
+          extractoLineaId: string | null;
+          movimientoTesoreriaId: string | null;
+          asientoId: string | null;
+          asientoDetalleId: string | null;
+          montoImputado: string;
+        }>;
+        movimientoId: string | null;
+        asientoId: string | null;
+        estadoAnteriorLibro: string;
+        estadosPreviosBanco: Array<{ id: string; estadoConciliacion: string; conciliada: boolean }>;
+        estadosPreviosLibro: Array<{ id: string; estadoConciliacionLibro: string; conciliado: boolean }>;
+      }
+
+      const grupos1a1Info: Grupo1a1DesconciliadoInfo[] = [];
+
+      for (const g of gruposActivosRes.rows) {
+        if (g.codigoPeriodo !== codigoPeriodo) {
+          await verificarPeriodoNoCerradoEnTx(
+            client,
+            empresaId,
+            linea.cuentaFinancieraId,
+            g.codigoPeriodo
+          );
+        }
+
+        const itemsRes = await client.query<{
+          id: string;
+          lado: string;
+          origenLibro: string | null;
+          extractoLineaId: string | null;
+          movimientoTesoreriaId: string | null;
+          asientoId: string | null;
+          asientoDetalleId: string | null;
+          montoImputado: string;
+        }>(
+          `SELECT id,
+                  lado,
+                  origen_libro AS "origenLibro",
+                  extracto_linea_id AS "extractoLineaId",
+                  movimiento_tesoreria_id AS "movimientoTesoreriaId",
+                  asiento_id AS "asientoId",
+                  asiento_detalle_id AS "asientoDetalleId",
+                  monto_imputado::text AS "montoImputado"
+           FROM conciliacion_item
+           WHERE empresa_id = $1 AND grupo_id = $2`,
+          [empresaId, g.id]
+        );
+
+        const estadosPreviosBanco = [
+          {
+            id: linea.id,
+            estadoConciliacion: estadoAnteriorBanco,
+            conciliada: Boolean(linea.conciliada),
+          },
+        ];
+        const estadosPreviosLibro: Array<{
+          id: string;
+          estadoConciliacionLibro: string;
+          conciliado: boolean;
+        }> = [];
+
+        let movGrupoId: string | null = null;
+        let asientoGrupoId: string | null = null;
+        let estadoAnteriorLibro = 'CONCILIADO';
+
+        const itemLibro = itemsRes.rows.find((it) => it.lado === 'LIBRO');
+        if (itemLibro?.origenLibro === 'MOVIMIENTO_TESORERIA' && itemLibro.movimientoTesoreriaId) {
+          movGrupoId = itemLibro.movimientoTesoreriaId;
+          movIdsCandidatos.add(movGrupoId);
+
+          const movPrevRes = await client.query<{
+            id: string;
+            fecha: string;
+            conciliado: boolean;
+            estadoConciliacionLibro: string;
+          }>(
+            `SELECT id,
+                    fecha::text AS fecha,
+                    conciliado,
+                    estado_conciliacion_libro AS "estadoConciliacionLibro"
+             FROM movimientos_tesoreria
+             WHERE empresa_id = $1 AND id = $2
+             FOR UPDATE`,
+            [empresaId, movGrupoId]
+          );
+
+          if (movPrevRes.rows.length > 0) {
+            const mp = movPrevRes.rows[0];
+            estadoAnteriorLibro = mp.estadoConciliacionLibro;
+            estadosPreviosLibro.push({
+              id: mp.id,
+              estadoConciliacionLibro: mp.estadoConciliacionLibro,
+              conciliado: Boolean(mp.conciliado),
+            });
+            const perMov = mp.fecha.slice(0, 7);
+            if (perMov !== codigoPeriodo && perMov !== g.codigoPeriodo) {
+              await verificarPeriodoNoCerradoEnTx(
+                client,
+                empresaId,
+                linea.cuentaFinancieraId,
+                perMov
+              );
+            }
+          }
+        } else if (itemLibro?.origenLibro === 'ASIENTO_MANUAL' && itemLibro.asientoDetalleId) {
+          asientoGrupoId = itemLibro.asientoId ?? null;
+          const detPrevRes = await client.query<{ id: string; asientoId: string; fecha: string }>(
+            `SELECT ad.id,
+                    ad.asiento_id AS "asientoId",
+                    a.fecha::text AS fecha
+             FROM asiento_detalle ad
+             JOIN asientos a
+               ON a.id = ad.asiento_id
+              AND a.empresa_id = ad.empresa_id
+             WHERE ad.empresa_id = $1 AND ad.id = $2
+             FOR UPDATE OF ad`,
+            [empresaId, itemLibro.asientoDetalleId]
+          );
+
+          if (detPrevRes.rows.length > 0) {
+            asientoGrupoId = detPrevRes.rows[0].asientoId;
+            const perDet = detPrevRes.rows[0].fecha.slice(0, 7);
+            if (perDet !== codigoPeriodo && perDet !== g.codigoPeriodo) {
+              await verificarPeriodoNoCerradoEnTx(
+                client,
+                empresaId,
+                linea.cuentaFinancieraId,
+                perDet
+              );
+            }
+          }
+        }
+
+        await client.query(
+          `UPDATE conciliacion_grupo
+           SET estado = 'DESCONCILIADO',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE empresa_id = $1 AND id = $2`,
+          [empresaId, g.id]
+        );
+
+        grupos1a1Info.push({
+          grupo: g,
+          items: itemsRes.rows,
+          movimientoId: movGrupoId,
+          asientoId: asientoGrupoId,
+          estadoAnteriorLibro,
+          estadosPreviosBanco,
+          estadosPreviosLibro,
+        });
+      }
+
       const updRes = await client.query(
         `UPDATE extracto_lineas
          SET conciliada = false,
@@ -1804,7 +2219,7 @@ export const conciliacionV2Service = {
         [parsed.motivo ?? null, linea.id, empresaId]
       );
 
-      if (linea.movimientoTesoreriaId) {
+      for (const movId of movIdsCandidatos) {
         const otrasRefsRes = await client.query<{ total: string }>(
           `SELECT COUNT(*)::text AS total
            FROM extracto_lineas
@@ -1812,17 +2227,122 @@ export const conciliacionV2Service = {
              AND movimiento_tesoreria_id = $2
              AND conciliada = true
              AND id <> $3`,
-          [empresaId, linea.movimientoTesoreriaId, linea.id]
+          [empresaId, movId, linea.id]
         );
-        if (Number(otrasRefsRes.rows[0]?.total ?? '0') === 0) {
+        const otrosGruposRes = await client.query<{ total: string }>(
+          `SELECT COUNT(*)::text AS total
+           FROM conciliacion_item ci
+           JOIN conciliacion_grupo cg
+             ON cg.id = ci.grupo_id
+            AND cg.empresa_id = ci.empresa_id
+           WHERE ci.empresa_id = $1
+             AND ci.lado = 'LIBRO'
+             AND ci.origen_libro = 'MOVIMIENTO_TESORERIA'
+             AND ci.movimiento_tesoreria_id = $2
+             AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')`,
+          [empresaId, movId]
+        );
+
+        if (
+          Number(otrasRefsRes.rows[0]?.total ?? '0') === 0 &&
+          Number(otrosGruposRes.rows[0]?.total ?? '0') === 0
+        ) {
           await client.query(
             `UPDATE movimientos_tesoreria
              SET conciliado = false,
+                 estado_conciliacion_libro = CASE
+                   WHEN tipo = 'EGRESO' AND medio_pago = '007' THEN 'CHEQUE_NO_COBRADO'
+                   ELSE 'PENDIENTE_BANCO'
+                 END,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $1 AND empresa_id = $2`,
-            [linea.movimientoTesoreriaId, empresaId]
+            [movId, empresaId]
           );
         }
+      }
+
+      const motivoHistorial = parsed.motivo?.trim() || 'Desconciliación individual desde partida';
+      for (const info of grupos1a1Info) {
+        const snapshotGrupoJson = {
+          id: info.grupo.id,
+          cuentaFinancieraId: linea.cuentaFinancieraId,
+          periodoId: info.grupo.periodoId,
+          periodo: info.grupo.codigoPeriodo,
+          tipoMatch: info.grupo.tipoMatch,
+          reglaAplicada: info.grupo.reglaAplicada,
+          capaMatching: Number(info.grupo.capaMatching),
+          score: Number(Number(info.grupo.score).toFixed(4)),
+          estado: info.grupo.estado,
+          diferenciaMonto: Money.format(info.grupo.diferenciaMonto ?? '0'),
+          observacion: info.grupo.observacion,
+          items: info.items,
+          estadosPreviosBanco: info.estadosPreviosBanco,
+          estadosPreviosLibro: info.estadosPreviosLibro,
+        };
+
+        const histRes = await client.query<{ id: string }>(
+          `INSERT INTO conciliacion_historial_desconciliacion (
+             empresa_id,
+             grupo_id,
+             extracto_linea_id,
+             movimiento_tesoreria_id,
+             estado_anterior_banco,
+             estado_anterior_libro,
+             motivo,
+             snapshot_grupo_json,
+             usuario_id
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+           RETURNING id`,
+          [
+            empresaId,
+            info.grupo.id,
+            linea.id,
+            info.movimientoId,
+            estadoAnteriorBanco,
+            info.estadoAnteriorLibro,
+            motivoHistorial,
+            JSON.stringify(snapshotGrupoJson),
+            userId,
+          ]
+        );
+
+        const historialId = histRes.rows[0].id;
+
+        await registrarAuditoriaEnTx(client, {
+          empresaId,
+          usuarioId: userId,
+          tablaAfectada: 'conciliacion_grupo',
+          registroId: info.grupo.id,
+          accion: 'UPDATE',
+          datosAnteriores: {
+            estado: info.grupo.estado,
+            estadosPreviosBanco: info.estadosPreviosBanco,
+            estadosPreviosLibro: info.estadosPreviosLibro,
+          },
+          datosNuevos: {
+            estado: 'DESCONCILIADO',
+            motivo: motivoHistorial,
+            historialId,
+          },
+        });
+
+        await registrarAuditoriaEnTx(client, {
+          empresaId,
+          usuarioId: userId,
+          tablaAfectada: 'conciliacion_historial_desconciliacion',
+          registroId: historialId,
+          accion: 'INSERT',
+          datosNuevos: {
+            grupoId: info.grupo.id,
+            extractoLineaId: linea.id,
+            movimientoTesoreriaId: info.movimientoId,
+            asientoId: info.asientoId,
+            motivo: motivoHistorial,
+            estadoAnteriorBanco,
+            estadoAnteriorLibro: info.estadoAnteriorLibro,
+          },
+        });
       }
 
       const partidaActualizada = mapPartidaExtractoRow(updRes.rows[0]);
@@ -1880,6 +2400,14 @@ export const conciliacionV2Service = {
     }
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      await client.query(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         FOR UPDATE`,
+        [empresaId, parsed.cuentaFinancieraId]
+      );
+
       const resumen = await obtenerResumenConciliacionEnTx(
         client,
         empresaId,
@@ -2113,6 +2641,14 @@ export const conciliacionV2Service = {
     resolverRangoPeriodo(parsed.periodo);
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      await client.query(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         FOR UPDATE`,
+        [empresaId, parsed.cuentaFinancieraId]
+      );
+
       const periodoRes = await client.query<{ id: string }>(
         `SELECT id
          FROM periodos

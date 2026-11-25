@@ -26,7 +26,11 @@ import {
 } from '../../hooks/useConciliacionV2';
 import { ColumnaTablaDensa, TablaDensa } from '../ui/TablaDensa';
 import { VentanaModal } from '../ui/VentanaModal';
-import { formatearMonedaExacta } from './conciliacionUtils';
+import {
+  aCentavos,
+  formatearCentavos,
+  formatearMonedaExacta,
+} from './conciliacionUtils';
 
 export type TabHistorialReglas = 'HISTORIAL' | 'REGLAS';
 
@@ -49,13 +53,16 @@ interface SnapshotParseado {
   itemsLibroCount: number;
 }
 
-function parsearSnapshot(raw: Record<string, unknown> | null | undefined): SnapshotParseado {
+function parsearSnapshot(
+  raw: Record<string, unknown> | null | undefined,
+  moneda = 'PEN'
+): SnapshotParseado {
   if (!raw || typeof raw !== 'object') {
     return {
       tipoMatch: null,
       diferenciaMonto: null,
-      totalBanco: null,
-      totalLibro: null,
+      totalBanco: '—',
+      totalLibro: '—',
       itemsBancoCount: 0,
       itemsLibroCount: 0,
     };
@@ -78,13 +85,16 @@ function parsearSnapshot(raw: Record<string, unknown> | null | undefined): Snaps
       if (item && typeof item === 'object') {
         const rec = item as Record<string, unknown>;
         const montoRaw = rec.montoImputado ?? rec.monto ?? rec.importeConSigno;
-        if (montoRaw !== undefined && montoRaw !== null && !Number.isNaN(Number(montoRaw))) {
-          totalCentavos += Math.round(Number(montoRaw) * 100);
+        if (
+          (typeof montoRaw === 'string' && montoRaw.trim() !== '' && !Number.isNaN(Number(montoRaw))) ||
+          (typeof montoRaw === 'number' && !Number.isNaN(montoRaw))
+        ) {
+          totalCentavos += aCentavos(montoRaw);
           tuvoMonto = true;
         }
       }
     }
-    return tuvoMonto ? (totalCentavos / 100).toFixed(2) : null;
+    return tuvoMonto ? formatearCentavos(totalCentavos, moneda) : null;
   };
 
   return {
@@ -92,12 +102,12 @@ function parsearSnapshot(raw: Record<string, unknown> | null | undefined): Snaps
     diferenciaMonto,
     totalBanco:
       typeof raw.totalBanco === 'string' || typeof raw.totalBanco === 'number'
-        ? String(raw.totalBanco)
-        : sumarItems(itemsBanco),
+        ? formatearMonedaExacta(String(raw.totalBanco), moneda)
+        : (sumarItems(itemsBanco) ?? '—'),
     totalLibro:
       typeof raw.totalLibro === 'string' || typeof raw.totalLibro === 'number'
-        ? String(raw.totalLibro)
-        : sumarItems(itemsLibro),
+        ? formatearMonedaExacta(String(raw.totalLibro), moneda)
+        : (sumarItems(itemsLibro) ?? '—'),
     itemsBancoCount: itemsBanco.length,
     itemsLibroCount: itemsLibro.length,
   };
@@ -296,7 +306,7 @@ export const HistorialYReglasModal: React.FC<HistorialYReglasModalProps> = ({
         header: 'Montos del Snapshot',
         width: '230px',
         render: (r) => {
-          const snap = parsearSnapshot(r.snapshotGrupoJson);
+          const snap = parsearSnapshot(r.snapshotGrupoJson, moneda);
           return (
             <div className="text-[10px] font-mono space-y-0.5">
               <div className="flex items-center gap-1.5">
@@ -310,8 +320,8 @@ export const HistorialYReglasModal: React.FC<HistorialYReglasModalProps> = ({
                 </span>
               </div>
               <div>
-                Banco: <strong>{formatearMonedaExacta(snap.totalBanco, moneda)}</strong> · Lib:{' '}
-                <strong>{formatearMonedaExacta(snap.totalLibro, moneda)}</strong>
+                Banco: <strong>{snap.totalBanco}</strong> · Lib:{' '}
+                <strong>{snap.totalLibro}</strong>
               </div>
               {snap.diferenciaMonto !== null && (
                 <div className="text-[#4B5563]">

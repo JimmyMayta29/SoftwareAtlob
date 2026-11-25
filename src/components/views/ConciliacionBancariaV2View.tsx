@@ -886,6 +886,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
           }
           operacionesBloqueadas={operacionesBloqueadas}
           motivoBloqueo={motivoBloqueoOperaciones}
+          puedeAprenderRegla={puedeEditarPerfilesYRevertir}
           hayModalAbierto={hayModalAbierto}
           conciliandoManual={conciliarManualGrupoMutation.isPending}
           desconciliando={
@@ -940,7 +941,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         empresaId={empresaId}
         cuenta={cuentaSeleccionada}
         periodo={periodo}
-        puedeEditarReglas={puedeOperarPartidas}
+        puedeEditarReglas={puedeEditarPerfilesYRevertir}
         tabInicial={tabHistorialReglas}
       />
 

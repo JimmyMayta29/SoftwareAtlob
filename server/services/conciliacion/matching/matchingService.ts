@@ -181,6 +181,24 @@ function calcularTipoMatch(cantidadBanco: number, cantidadLibro: number): TipoMa
   return 'N:M';
 }
 
+function ordenarUuidsUnicos(ids: string[]): string[] {
+  return Array.from(new Set(ids)).sort();
+}
+
+async function bloquearCuentaFinancieraEnTx(
+  client: PoolClient,
+  empresaId: string,
+  cuentaFinancieraId: string
+): Promise<void> {
+  await client.query(
+    `SELECT id
+     FROM cuentas_financieras
+     WHERE empresa_id = $1 AND id = $2
+     FOR UPDATE`,
+    [empresaId, cuentaFinancieraId]
+  );
+}
+
 function mapReglaAprendidaRow(row: any): ReglaAprendidaV2 {
   return {
     id: row.id,
@@ -501,7 +519,8 @@ async function restaurarLineasExtractoDeSugeridosEnTx(
   empresaId: string,
   extractoLineaIds: string[]
 ): Promise<void> {
-  if (extractoLineaIds.length === 0) return;
+  const idsOrdenados = ordenarUuidsUnicos(extractoLineaIds);
+  if (idsOrdenados.length === 0) return;
 
   await client.query(
     `UPDATE extracto_lineas el
@@ -521,39 +540,49 @@ async function restaurarLineasExtractoDeSugeridosEnTx(
            AND ci.extracto_linea_id = el.id
            AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
        )`,
-    [empresaId, extractoLineaIds]
+    [empresaId, idsOrdenados]
   );
 }
 
 async function rechazarSugerenciasSuperpuestasEnTx(
   client: PoolClient,
   empresaId: string,
+  usuarioId: string,
   excluirGrupoId: string | null,
   extractoLineaIds: string[],
   movimientoTesoreriaIds: string[],
   asientoDetalleIds: string[],
   motivo: string
 ): Promise<void> {
+  const bancoIdsOrdenados = ordenarUuidsUnicos(extractoLineaIds);
+  const movIdsOrdenados = ordenarUuidsUnicos(movimientoTesoreriaIds);
+  const asientoDetIdsOrdenados = ordenarUuidsUnicos(asientoDetalleIds);
+
   const superpuestosRes = await client.query<{ id: string }>(
-    `SELECT DISTINCT cg.id
+    `SELECT cg.id
      FROM conciliacion_grupo cg
-     JOIN conciliacion_item ci
-       ON ci.grupo_id = cg.id
-      AND ci.empresa_id = cg.empresa_id
      WHERE cg.empresa_id = $1
        AND cg.estado = 'SUGERIDO'
        AND ($2::uuid IS NULL OR cg.id <> $2)
-       AND (
-         (ci.lado = 'BANCO' AND ci.extracto_linea_id = ANY($3::uuid[]))
-         OR (ci.lado = 'LIBRO' AND ci.origen_libro = 'MOVIMIENTO_TESORERIA' AND ci.movimiento_tesoreria_id = ANY($4::uuid[]))
-         OR (ci.lado = 'LIBRO' AND ci.origen_libro = 'ASIENTO_MANUAL' AND ci.asiento_detalle_id = ANY($5::uuid[]))
-       )`,
-    [empresaId, excluirGrupoId, extractoLineaIds, movimientoTesoreriaIds, asientoDetalleIds]
+       AND EXISTS (
+         SELECT 1
+         FROM conciliacion_item ci
+         WHERE ci.grupo_id = cg.id
+           AND ci.empresa_id = cg.empresa_id
+           AND (
+             (ci.lado = 'BANCO' AND ci.extracto_linea_id = ANY($3::uuid[]))
+             OR (ci.lado = 'LIBRO' AND ci.origen_libro = 'MOVIMIENTO_TESORERIA' AND ci.movimiento_tesoreria_id = ANY($4::uuid[]))
+             OR (ci.lado = 'LIBRO' AND ci.origen_libro = 'ASIENTO_MANUAL' AND ci.asiento_detalle_id = ANY($5::uuid[]))
+           )
+       )
+     ORDER BY cg.id ASC
+     FOR UPDATE OF cg`,
+    [empresaId, excluirGrupoId, bancoIdsOrdenados, movIdsOrdenados, asientoDetIdsOrdenados]
   );
 
   if (superpuestosRes.rows.length === 0) return;
 
-  const ids = superpuestosRes.rows.map((r) => r.id);
+  const ids = ordenarUuidsUnicos(superpuestosRes.rows.map((r) => r.id));
   const afectadasRes = await client.query<{ extractoLineaId: string }>(
     `SELECT DISTINCT extracto_linea_id AS "extractoLineaId"
      FROM conciliacion_item
@@ -576,8 +605,23 @@ async function rechazarSugerenciasSuperpuestasEnTx(
     [motivo, empresaId, ids]
   );
 
-  const lineasAfectadas = afectadasRes.rows.map((r) => r.extractoLineaId);
+  const lineasAfectadas = ordenarUuidsUnicos(afectadasRes.rows.map((r) => r.extractoLineaId));
   await restaurarLineasExtractoDeSugeridosEnTx(client, empresaId, lineasAfectadas);
+
+  for (const grupoRechazadoId of ids) {
+    await registrarAuditoriaEnTx(client, {
+      empresaId,
+      usuarioId,
+      tablaAfectada: 'conciliacion_grupo',
+      registroId: grupoRechazadoId,
+      accion: 'UPDATE',
+      datosAnteriores: { estado: 'SUGERIDO' },
+      datosNuevos: {
+        estado: 'RECHAZADO',
+        motivo: 'Reemplazada por conciliación confirmada',
+      },
+    });
+  }
 }
 
 async function aplicarConfirmacionConciliacionEnTx(
@@ -596,42 +640,66 @@ async function aplicarConfirmacionConciliacionEnTx(
 ): Promise<void> {
   const { empresaId, estadoDestino, diferenciaMonto, observacion, itemsBanco, itemsLibro } = params;
 
-  const movIds = itemsLibro
-    .filter((l) => l.origenLibro === 'MOVIMIENTO_TESORERIA' && l.movimientoTesoreriaId)
-    .map((l) => l.movimientoTesoreriaId as string);
+  const bancoIds = ordenarUuidsUnicos(itemsBanco.map((b) => b.extractoLineaId));
+  const movIds = ordenarUuidsUnicos(
+    itemsLibro
+      .filter((l) => l.origenLibro === 'MOVIMIENTO_TESORERIA' && l.movimientoTesoreriaId)
+      .map((l) => l.movimientoTesoreriaId as string)
+  );
   const primerMovId = movIds[0] ?? null;
+  const primeraLineaId = itemsBanco[0]?.extractoLineaId ?? bancoIds[0] ?? null;
 
-  for (let idx = 0; idx < itemsBanco.length; idx += 1) {
-    const difLinea = idx === 0 ? Money.format(diferenciaMonto) : '0.00';
-    await client.query(
+  if (bancoIds.length > 0 && primeraLineaId) {
+    const updBanco = await client.query(
       `UPDATE extracto_lineas
        SET conciliada = true,
            estado_conciliacion = $1,
            movimiento_tesoreria_id = $2,
-           diferencia_importe = $3,
+           diferencia_importe = CASE WHEN id = $7::uuid THEN $3::numeric ELSE 0.00 END,
            observacion_conciliacion = COALESCE($4, observacion_conciliacion),
            conciliado_en = CURRENT_TIMESTAMP
-       WHERE empresa_id = $5 AND id = $6`,
+       WHERE id = ANY($6::uuid[])
+         AND empresa_id = $5
+         AND conciliada = false`,
       [
         estadoDestino,
         primerMovId,
-        difLinea,
+        Money.format(diferenciaMonto),
         observacion,
         empresaId,
-        itemsBanco[idx].extractoLineaId,
+        bancoIds,
+        primeraLineaId,
       ]
     );
+
+    if (updBanco.rowCount !== bancoIds.length) {
+      throw new ConciliacionV2Error(
+        409,
+        'CONCURRENCIA_CONCILIACION',
+        'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+      );
+    }
   }
 
   if (movIds.length > 0) {
-    await client.query(
+    const updMov = await client.query(
       `UPDATE movimientos_tesoreria
        SET conciliado = true,
            estado_conciliacion_libro = 'CONCILIADO',
            updated_at = CURRENT_TIMESTAMP
-       WHERE empresa_id = $1 AND id = ANY($2::uuid[])`,
+       WHERE id = ANY($2::uuid[])
+         AND empresa_id = $1
+         AND conciliado = false`,
       [empresaId, movIds]
     );
+
+    if (updMov.rowCount !== movIds.length) {
+      throw new ConciliacionV2Error(
+        409,
+        'CONCURRENCIA_CONCILIACION',
+        'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+      );
+    }
   }
 }
 
@@ -767,16 +835,24 @@ async function persistirGrupoCandidatoEnTx(
       })),
     });
   } else {
-    const bancoIds = grupo.itemsBanco.map((ib) => ib.partida.id);
-    await client.query(
+    const bancoIds = ordenarUuidsUnicos(grupo.itemsBanco.map((ib) => ib.partida.id));
+    const updSug = await client.query(
       `UPDATE extracto_lineas
        SET estado_conciliacion = 'SUGERIDO',
            observacion_conciliacion = COALESCE($1, observacion_conciliacion)
-       WHERE empresa_id = $2
-         AND id = ANY($3::uuid[])
+       WHERE id = ANY($3::uuid[])
+         AND empresa_id = $2
          AND conciliada = false`,
       [grupo.observacion, empresaId, bancoIds]
     );
+
+    if (updSug.rowCount !== bancoIds.length) {
+      throw new ConciliacionV2Error(
+        409,
+        'CONCURRENCIA_CONCILIACION',
+        'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+      );
+    }
   }
 
   await registrarAuditoriaEnTx(client, {
@@ -822,6 +898,8 @@ export const matchingService = {
     return db.withEmpresaTransaction(empresaId, async (client) => {
       const inicioMs = Date.now();
 
+      await bloquearCuentaFinancieraEnTx(client, empresaId, parsed.cuentaFinancieraId);
+
       const cuenta = await obtenerCuentaBancariaEnTx(client, empresaId, parsed.cuentaFinancieraId);
       validarPrecondicionOperacionCuenta(cuenta.cuentaContableId);
 
@@ -843,12 +921,13 @@ export const matchingService = {
              AND cuenta_financiera_id = $2
              AND periodo_id = $3
              AND estado = 'SUGERIDO'
+           ORDER BY id ASC
            FOR UPDATE`,
           [empresaId, parsed.cuentaFinancieraId, periodoId]
         );
 
         if (prevSugRes.rows.length > 0) {
-          const prevIds = prevSugRes.rows.map((r) => r.id);
+          const prevIds = ordenarUuidsUnicos(prevSugRes.rows.map((r) => r.id));
           const prevLineasRes = await client.query<{ extractoLineaId: string }>(
             `SELECT DISTINCT extracto_linea_id AS "extractoLineaId"
              FROM conciliacion_item
@@ -874,7 +953,7 @@ export const matchingService = {
           await restaurarLineasExtractoDeSugeridosEnTx(
             client,
             empresaId,
-            prevLineasRes.rows.map((r) => r.extractoLineaId)
+            ordenarUuidsUnicos(prevLineasRes.rows.map((r) => r.extractoLineaId))
           );
 
           for (const prevId of prevIds) {
@@ -1042,9 +1121,31 @@ export const matchingService = {
     asegurarUuid(userId, 'userId');
 
     const parsed = aceptarSugerenciasSchema.parse(input);
-    const grupoIdsUnicos = Array.from(new Set(parsed.grupoIds));
+    const grupoIdsUnicos = ordenarUuidsUnicos(parsed.grupoIds);
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      const cuentasRes = await client.query<{ cuentaFinancieraId: string }>(
+        `SELECT DISTINCT cg.cuenta_financiera_id AS "cuentaFinancieraId"
+         FROM conciliacion_grupo cg
+         WHERE cg.empresa_id = $1
+           AND cg.id = ANY($2::uuid[])
+         ORDER BY cg.cuenta_financiera_id ASC`,
+        [empresaId, grupoIdsUnicos]
+      );
+
+      if (cuentasRes.rows.length > 0) {
+        const cuentaIdsOrdenadas = cuentasRes.rows.map((r) => r.cuentaFinancieraId);
+        await client.query(
+          `SELECT id
+           FROM cuentas_financieras
+           WHERE empresa_id = $1
+             AND id = ANY($2::uuid[])
+           ORDER BY id ASC
+           FOR UPDATE`,
+          [empresaId, cuentaIdsOrdenadas]
+        );
+      }
+
       const config = await obtenerConfigEnTx(client, empresaId);
       const toleranciaDec = Money.round(config.toleranciaMonto);
 
@@ -1073,6 +1174,7 @@ export const matchingService = {
           AND cf.empresa_id = cg.empresa_id
          WHERE cg.empresa_id = $1
            AND cg.id = ANY($2::uuid[])
+         ORDER BY cg.id ASC
          FOR UPDATE OF cg`,
         [empresaId, grupoIdsUnicos]
       );
@@ -1125,15 +1227,21 @@ export const matchingService = {
           [empresaId, gid]
         );
 
-        const bancoIds = itemsRes.rows
-          .filter((r) => r.lado === 'BANCO' && r.extractoLineaId)
-          .map((r) => r.extractoLineaId as string);
-        const movIds = itemsRes.rows
-          .filter((r) => r.lado === 'LIBRO' && r.origenLibro === 'MOVIMIENTO_TESORERIA' && r.movimientoTesoreriaId)
-          .map((r) => r.movimientoTesoreriaId as string);
-        const asientoDetIds = itemsRes.rows
-          .filter((r) => r.lado === 'LIBRO' && r.origenLibro === 'ASIENTO_MANUAL' && r.asientoDetalleId)
-          .map((r) => r.asientoDetalleId as string);
+        const bancoIds = ordenarUuidsUnicos(
+          itemsRes.rows
+            .filter((r) => r.lado === 'BANCO' && r.extractoLineaId)
+            .map((r) => r.extractoLineaId as string)
+        );
+        const movIds = ordenarUuidsUnicos(
+          itemsRes.rows
+            .filter((r) => r.lado === 'LIBRO' && r.origenLibro === 'MOVIMIENTO_TESORERIA' && r.movimientoTesoreriaId)
+            .map((r) => r.movimientoTesoreriaId as string)
+        );
+        const asientoDetIds = ordenarUuidsUnicos(
+          itemsRes.rows
+            .filter((r) => r.lado === 'LIBRO' && r.origenLibro === 'ASIENTO_MANUAL' && r.asientoDetalleId)
+            .map((r) => r.asientoDetalleId as string)
+        );
 
         if (bancoIds.length === 0 || movIds.length + asientoDetIds.length === 0) {
           throw new ConciliacionV2Error(
@@ -1162,6 +1270,7 @@ export const matchingService = {
              ON eb.id = el.extracto_id
             AND eb.empresa_id = el.empresa_id
            WHERE el.empresa_id = $1 AND el.id = ANY($2::uuid[])
+           ORDER BY el.id ASC
            FOR UPDATE OF el`,
           [empresaId, bancoIds]
         );
@@ -1211,6 +1320,7 @@ export const matchingService = {
                     conciliado
              FROM movimientos_tesoreria
              WHERE empresa_id = $1 AND id = ANY($2::uuid[])
+             ORDER BY id ASC
              FOR UPDATE`,
             [empresaId, movIds]
           );
@@ -1279,6 +1389,7 @@ export const matchingService = {
                ON a.id = ad.asiento_id
               AND a.empresa_id = ad.empresa_id
              WHERE ad.empresa_id = $1 AND ad.id = ANY($2::uuid[])
+             ORDER BY ad.id ASC
              FOR UPDATE OF ad`,
             [empresaId, asientoDetIds, gid]
           );
@@ -1356,6 +1467,7 @@ export const matchingService = {
         await rechazarSugerenciasSuperpuestasEnTx(
           client,
           empresaId,
+          userId,
           gid,
           bancoIds,
           movIds,
@@ -1396,6 +1508,27 @@ export const matchingService = {
     const parsed = rechazarSugerenciaSchema.parse({ motivo });
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      const grupoCuentaRes = await client.query<{ cuentaFinancieraId: string }>(
+        `SELECT cuenta_financiera_id AS "cuentaFinancieraId"
+         FROM conciliacion_grupo
+         WHERE empresa_id = $1 AND id = $2`,
+        [empresaId, grupoId]
+      );
+
+      if (grupoCuentaRes.rows.length === 0) {
+        throw new ConciliacionV2Error(
+          404,
+          'GRUPO_CONCILIACION_NO_ENCONTRADO',
+          'El grupo de conciliación indicado no existe para esta empresa.'
+        );
+      }
+
+      await bloquearCuentaFinancieraEnTx(
+        client,
+        empresaId,
+        grupoCuentaRes.rows[0].cuentaFinancieraId
+      );
+
       const grupoRes = await client.query<{
         id: string;
         cuentaFinancieraId: string;
@@ -1500,16 +1633,28 @@ export const matchingService = {
   async conciliarManualGrupo(
     empresaId: string,
     userId: string,
-    input: ConciliarManualGrupoInput
+    input: ConciliarManualGrupoInput,
+    actorRol?: string
   ): Promise<GrupoConciliacionV2> {
     asegurarPostgresDisponible();
     asegurarUuid(empresaId, 'empresaId');
     asegurarUuid(userId, 'userId');
 
     const parsed = conciliarManualGrupoSchema.parse(input);
+    if (
+      parsed.aprenderRegla &&
+      actorRol !== undefined &&
+      !['ADMINISTRADOR', 'CONTADOR_SENIOR'].includes(actorRol)
+    ) {
+      throw new ConciliacionV2Error(
+        403,
+        'PERMISO_INSUFICIENTE',
+        'Solo ADMINISTRADOR o CONTADOR_SENIOR pueden guardar reglas aprendidas.'
+      );
+    }
     resolverRangoPeriodo(parsed.periodo);
 
-    const bancoIdsUnicos = Array.from(new Set(parsed.extractoLineaIds));
+    const bancoIdsUnicos = ordenarUuidsUnicos(parsed.extractoLineaIds);
     if (bancoIdsUnicos.length !== parsed.extractoLineaIds.length) {
       throw new ConciliacionV2Error(
         400,
@@ -1532,6 +1677,8 @@ export const matchingService = {
     }
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      await bloquearCuentaFinancieraEnTx(client, empresaId, parsed.cuentaFinancieraId);
+
       const cuenta = await obtenerCuentaBancariaEnTx(client, empresaId, parsed.cuentaFinancieraId);
       validarPrecondicionOperacionCuenta(cuenta.cuentaContableId);
 
@@ -1580,6 +1727,7 @@ export const matchingService = {
            ON eb.id = el.extracto_id
           AND eb.empresa_id = el.empresa_id
          WHERE el.empresa_id = $1 AND el.id = ANY($2::uuid[])
+         ORDER BY el.id ASC
          FOR UPDATE OF el`,
         [empresaId, bancoIdsUnicos]
       );
@@ -1637,12 +1785,16 @@ export const matchingService = {
       }
 
       // 2. Validar y bloquear partidas de libro (MOVIMIENTO_TESORERIA y ASIENTO_MANUAL)
-      const movIds = parsed.libroItems
-        .filter((i) => i.origenLibro === 'MOVIMIENTO_TESORERIA')
-        .map((i) => i.id);
-      const asientoDetIds = parsed.libroItems
-        .filter((i) => i.origenLibro === 'ASIENTO_MANUAL')
-        .map((i) => i.id);
+      const movIds = ordenarUuidsUnicos(
+        parsed.libroItems
+          .filter((i) => i.origenLibro === 'MOVIMIENTO_TESORERIA')
+          .map((i) => i.id)
+      );
+      const asientoDetIds = ordenarUuidsUnicos(
+        parsed.libroItems
+          .filter((i) => i.origenLibro === 'ASIENTO_MANUAL')
+          .map((i) => i.id)
+      );
 
       const mapaMovs = new Map<
         string,
@@ -1682,6 +1834,7 @@ export const matchingService = {
                   ) AS "yaConciliadoGrupo"
            FROM movimientos_tesoreria mt
            WHERE mt.empresa_id = $1 AND mt.id = ANY($2::uuid[])
+           ORDER BY mt.id ASC
            FOR UPDATE OF mt`,
           [empresaId, movIds]
         );
@@ -1782,6 +1935,7 @@ export const matchingService = {
              ON a.id = ad.asiento_id
             AND a.empresa_id = ad.empresa_id
            WHERE ad.empresa_id = $1 AND ad.id = ANY($2::uuid[])
+           ORDER BY ad.id ASC
            FOR UPDATE OF ad`,
           [empresaId, asientoDetIds]
         );
@@ -1977,6 +2131,7 @@ export const matchingService = {
       await rechazarSugerenciasSuperpuestasEnTx(
         client,
         empresaId,
+        userId,
         grupoId,
         bancoIdsUnicos,
         movIds,
@@ -2090,6 +2245,27 @@ export const matchingService = {
     const parsed = desconciliarGrupoSchema.parse({ motivo: motivoNormalizado });
 
     return db.withEmpresaTransaction(empresaId, async (client) => {
+      const grupoCuentaRes = await client.query<{ cuentaFinancieraId: string }>(
+        `SELECT cuenta_financiera_id AS "cuentaFinancieraId"
+         FROM conciliacion_grupo
+         WHERE empresa_id = $1 AND id = $2`,
+        [empresaId, grupoId]
+      );
+
+      if (grupoCuentaRes.rows.length === 0) {
+        throw new ConciliacionV2Error(
+          404,
+          'GRUPO_CONCILIACION_NO_ENCONTRADO',
+          'El grupo de conciliación indicado no existe para esta empresa.'
+        );
+      }
+
+      await bloquearCuentaFinancieraEnTx(
+        client,
+        empresaId,
+        grupoCuentaRes.rows[0].cuentaFinancieraId
+      );
+
       const grupoRes = await client.query<{
         id: string;
         cuentaFinancieraId: string;
@@ -2143,12 +2319,21 @@ export const matchingService = {
 
       const [snapshotGrupoAntes] = await cargarGruposConItemsEnTx(client, empresaId, [grupoId]);
 
-      const bancoIds = snapshotGrupoAntes.itemsBanco
-        .map((ib) => ib.extractoLineaId)
-        .filter((id): id is string => Boolean(id));
-      const movIds = snapshotGrupoAntes.itemsLibro
-        .filter((il) => il.origenLibro === 'MOVIMIENTO_TESORERIA' && il.movimientoTesoreriaId)
-        .map((il) => il.movimientoTesoreriaId as string);
+      const bancoIds = ordenarUuidsUnicos(
+        snapshotGrupoAntes.itemsBanco
+          .map((ib) => ib.extractoLineaId)
+          .filter((id): id is string => Boolean(id))
+      );
+      const movIds = ordenarUuidsUnicos(
+        snapshotGrupoAntes.itemsLibro
+          .filter((il) => il.origenLibro === 'MOVIMIENTO_TESORERIA' && il.movimientoTesoreriaId)
+          .map((il) => il.movimientoTesoreriaId as string)
+      );
+      const asientoDetIds = ordenarUuidsUnicos(
+        snapshotGrupoAntes.itemsLibro
+          .filter((il) => il.origenLibro === 'ASIENTO_MANUAL' && il.asientoDetalleId)
+          .map((il) => il.asientoDetalleId as string)
+      );
 
       const estadosPreviosBanco: Array<{ id: string; estadoConciliacion: string; conciliada: boolean }> = [];
       if (bancoIds.length > 0) {
@@ -2164,6 +2349,7 @@ export const matchingService = {
                   estado_conciliacion AS "estadoConciliacion"
            FROM extracto_lineas
            WHERE empresa_id = $1 AND id = ANY($2::uuid[])
+           ORDER BY id ASC
            FOR UPDATE`,
           [empresaId, bancoIds]
         );
@@ -2195,6 +2381,7 @@ export const matchingService = {
                   estado_conciliacion_libro AS "estadoConciliacionLibro"
            FROM movimientos_tesoreria
            WHERE empresa_id = $1 AND id = ANY($2::uuid[])
+           ORDER BY id ASC
            FOR UPDATE`,
           [empresaId, movIds]
         );
@@ -2208,6 +2395,31 @@ export const matchingService = {
           const perMov = m.fecha.slice(0, 7);
           if (perMov !== g.codigoPeriodo) {
             await verificarPeriodoNoCerradoEnTx(client, empresaId, g.cuentaFinancieraId, perMov);
+          }
+        }
+      }
+
+      if (asientoDetIds.length > 0) {
+        const detsRes = await client.query<{
+          id: string;
+          fecha: string;
+        }>(
+          `SELECT ad.id,
+                  a.fecha::text AS fecha
+           FROM asiento_detalle ad
+           JOIN asientos a
+             ON a.id = ad.asiento_id
+            AND a.empresa_id = ad.empresa_id
+           WHERE ad.empresa_id = $1 AND ad.id = ANY($2::uuid[])
+           ORDER BY ad.id ASC
+           FOR UPDATE OF ad`,
+          [empresaId, asientoDetIds]
+        );
+
+        for (const d of detsRes.rows) {
+          const perDet = d.fecha.slice(0, 7);
+          if (perDet !== g.codigoPeriodo) {
+            await verificarPeriodoNoCerradoEnTx(client, empresaId, g.cuentaFinancieraId, perDet);
           }
         }
       }

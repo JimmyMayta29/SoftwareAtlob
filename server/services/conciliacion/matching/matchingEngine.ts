@@ -244,14 +244,18 @@ function construirClavesOperacion(valor: string | null | undefined): {
   }
 
   const sinEspacios = trimmed.replace(/\s+/g, '');
-  if (!sinEspacios || REFERENCIAS_VACIAS.has(sinEspacios)) {
+  if (!sinEspacios || REFERENCIAS_VACIAS.has(sinEspacios) || /^-?0+$/.test(sinEspacios)) {
+    return { exactas: [], normalizadas: [] };
+  }
+
+  const alfanum = sinEspacios.replace(/[^A-Z0-9]/g, '');
+  if (alfanum.length > 0 && /^0+$/.test(alfanum)) {
     return { exactas: [], normalizadas: [] };
   }
 
   const exactas = new Set<string>([sinEspacios]);
   const normalizadas = new Set<string>([sinEspacios]);
 
-  const alfanum = sinEspacios.replace(/[^A-Z0-9]/g, '');
   if (alfanum.length >= 2 && !REFERENCIAS_VACIAS.has(alfanum)) {
     normalizadas.add(alfanum);
     exactas.add(alfanum);
@@ -279,12 +283,15 @@ function construirClavesOperacion(valor: string | null | undefined): {
 
 function construirClavesDocumento(valor: string | null | undefined): string[] {
   const trimmed = (valor ?? '').trim().toUpperCase().replace(/\s+/g, '');
-  if (!trimmed || REFERENCIAS_VACIAS.has(trimmed)) {
+  if (!trimmed || REFERENCIAS_VACIAS.has(trimmed) || /^-?0+$/.test(trimmed)) {
     return [];
   }
 
   const claves = new Set<string>();
   const alfanum = trimmed.replace(/[^A-Z0-9]/g, '');
+  if (alfanum.length > 0 && /^0+$/.test(alfanum)) {
+    return [];
+  }
   if (alfanum.length >= 3) {
     claves.add(alfanum);
   }
@@ -423,6 +430,96 @@ interface SubconjuntoResultado<T> {
   avgDifDias: number;
   hasCounterparty: boolean;
   score: number;
+}
+
+function compararCandidatosCapa3<T extends { magCent: bigint }>(
+  a: { item: T; difDias: number; tieKey: string },
+  b: { item: T; difDias: number; tieKey: string }
+): number {
+  if (a.difDias !== b.difDias) return a.difDias - b.difDias;
+  if (a.item.magCent !== b.item.magCent) return a.item.magCent > b.item.magCent ? -1 : 1;
+  return a.tieKey < b.tieKey ? -1 : a.tieKey > b.tieKey ? 1 : 0;
+}
+
+function seleccionarCandidatosCapa3<T extends {
+  magCent: bigint;
+  fechaDias: number;
+  sign: 1 | -1;
+}>(params: {
+  items: T[];
+  loIdx: number;
+  hiIdx: number;
+  anchorFechaDias: number;
+  anchorSign: 1 | -1;
+  maxMagCent: bigint;
+  maxCandidatosVentana: number;
+  isUsed: (item: T) => boolean;
+  getTieKey: (item: T) => string;
+}): T[] {
+  const {
+    items,
+    loIdx,
+    hiIdx,
+    anchorFechaDias,
+    anchorSign,
+    maxMagCent,
+    maxCandidatosVentana,
+    isUsed,
+    getTieKey,
+  } = params;
+
+  type Entrada = { item: T; difDias: number; tieKey: string };
+  const top: Entrada[] = [];
+  let ordenado = false;
+
+  for (let i = loIdx; i < hiIdx; i += 1) {
+    const item = items[i];
+    if (ordenado && item.fechaDias > anchorFechaDias) {
+      const worst = top[top.length - 1];
+      if (item.fechaDias - anchorFechaDias > worst.difDias) {
+        break;
+      }
+    }
+    if (isUsed(item)) continue;
+    if (item.sign !== anchorSign) continue;
+    if (item.magCent >= maxMagCent) continue;
+
+    const difDias = Math.abs(item.fechaDias - anchorFechaDias);
+    const entry: Entrada = { item, difDias, tieKey: getTieKey(item) };
+
+    if (top.length < maxCandidatosVentana) {
+      top.push(entry);
+      if (top.length === maxCandidatosVentana) {
+        top.sort(compararCandidatosCapa3);
+        ordenado = true;
+      }
+      continue;
+    }
+
+    const worst = top[top.length - 1];
+    if (compararCandidatosCapa3(entry, worst) >= 0) {
+      continue;
+    }
+
+    let lo = 0;
+    let hi = top.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (compararCandidatosCapa3(entry, top[mid]) < 0) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    top.splice(lo, 0, entry);
+    top.pop();
+  }
+
+  if (!ordenado && top.length > 1) {
+    top.sort(compararCandidatosCapa3);
+  }
+
+  return top.map((e) => e.item);
 }
 
 function buscarSubconjuntosAcotados<T extends {
@@ -825,7 +922,9 @@ export function ejecutarMotorMatching(input: EjecutarMatchingEngineInput): Resul
     const reglasBanco = buscarReglasCoincidentesBanco(b, reglasNorm);
     const matches: EvaluacionCapa2[] = [];
 
-    for (let i = loIdx; i < hiIdx; i += 1) {
+    // Limita evaluaciones por ancla si hay miles de montos idénticos en la banda
+    let evaluadosBanda = 0;
+    for (let i = loIdx; i < hiIdx && evaluadosBanda < 150; i += 1) {
       const l = librosRestantesCapa2[i];
       if (l.sign !== b.sign) continue;
       const difDias = Math.abs(b.fechaDias - l.fechaDias);
@@ -833,6 +932,7 @@ export function ejecutarMotorMatching(input: EjecutarMatchingEngineInput): Resul
 
       const absDifCent = absBigInt(b.cent - l.cent);
       if (absDifCent > toleranciaCent) continue;
+      evaluadosBanda += 1;
 
       const rucMatch = Boolean(b.ruc && l.ruc && b.ruc === l.ruc);
       const reglaVinculada = reglasBanco.find((r) => reglaVinculaLibro(r, l)) ?? null;
@@ -973,22 +1073,17 @@ export function ejecutarMotorMatching(input: EjecutarMatchingEngineInput): Resul
     const hiIdx = upperBoundByFecha(librosRestantesFecha, b.fechaDias + toleranciaDias);
     if (hiIdx - loIdx < 2) continue;
 
-    const candidatos = librosRestantesFecha
-      .slice(loIdx, hiIdx)
-      .filter(
-        (l) =>
-          !usedLibro.has(l.uniqueKey) &&
-          l.sign === b.sign &&
-          l.magCent < b.magCent + toleranciaCent
-      )
-      .sort((x, y) => {
-        const dx = Math.abs(x.fechaDias - b.fechaDias);
-        const dy = Math.abs(y.fechaDias - b.fechaDias);
-        if (dx !== dy) return dx - dy;
-        if (x.magCent !== y.magCent) return x.magCent > y.magCent ? -1 : 1;
-        return x.uniqueKey.localeCompare(y.uniqueKey);
-      })
-      .slice(0, maxCandidatosVentana);
+    const candidatos = seleccionarCandidatosCapa3({
+      items: librosRestantesFecha,
+      loIdx,
+      hiIdx,
+      anchorFechaDias: b.fechaDias,
+      anchorSign: b.sign,
+      maxMagCent: b.magCent + toleranciaCent,
+      maxCandidatosVentana,
+      isUsed: (l) => usedLibro.has(l.uniqueKey),
+      getTieKey: (l) => l.uniqueKey,
+    });
 
     if (candidatos.length < 2) continue;
 
@@ -1051,22 +1146,17 @@ export function ejecutarMotorMatching(input: EjecutarMatchingEngineInput): Resul
     const hiIdx = upperBoundByFecha(bancosRestantesFecha, l.fechaDias + toleranciaDias);
     if (hiIdx - loIdx < 2) continue;
 
-    const candidatos = bancosRestantesFecha
-      .slice(loIdx, hiIdx)
-      .filter(
-        (b) =>
-          !usedBanco.has(b.raw.id) &&
-          b.sign === l.sign &&
-          b.magCent < l.magCent + toleranciaCent
-      )
-      .sort((x, y) => {
-        const dx = Math.abs(x.fechaDias - l.fechaDias);
-        const dy = Math.abs(y.fechaDias - l.fechaDias);
-        if (dx !== dy) return dx - dy;
-        if (x.magCent !== y.magCent) return x.magCent > y.magCent ? -1 : 1;
-        return x.raw.id.localeCompare(y.raw.id);
-      })
-      .slice(0, maxCandidatosVentana);
+    const candidatos = seleccionarCandidatosCapa3({
+      items: bancosRestantesFecha,
+      loIdx,
+      hiIdx,
+      anchorFechaDias: l.fechaDias,
+      anchorSign: l.sign,
+      maxMagCent: l.magCent + toleranciaCent,
+      maxCandidatosVentana,
+      isUsed: (b) => usedBanco.has(b.raw.id),
+      getTieKey: (b) => b.raw.id,
+    });
 
     if (candidatos.length < 2) continue;
 

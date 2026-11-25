@@ -139,7 +139,10 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   conciliacion_grupo: [
     'grupoId', 'cuentaFinancieraId', 'tipoMatch', 'reglaAplicada',
     'capaMatching', 'score', 'diferenciaMonto', 'observacion',
-    'usuarioId', 'confirmadoPor', 'confirmadoEn', 'itemsBanco', 'itemsLibro'
+    'usuarioId', 'confirmadoPor', 'confirmadoEn', 'itemsBanco', 'itemsLibro',
+    'monto', 'origenLibro', 'extractoLineaIds', 'libroItems',
+    'estadosPreviosBanco', 'estadosPreviosLibro', 'historialId',
+    'gruposRechazadosIds', 'asientoId'
   ],
   conciliacion_item: [
     'grupoId', 'lado', 'origenLibro', 'extractoLineaId',
@@ -147,12 +150,18 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   ],
   conciliacion_reglas_aprendidas: [
     'patronContraparte', 'rucContraparte', 'anexoId', 'cuentaContableId',
-    'tipoClasificacion', 'usosConfirmados', 'activo', 'createdBy', 'updatedBy'
+    'tipoClasificacion', 'usosConfirmados', 'activo', 'createdBy', 'updatedBy',
+    'monto', 'origenLibro', 'extractoLineaIds', 'libroItems',
+    'estadosPreviosBanco', 'estadosPreviosLibro', 'historialId',
+    'gruposRechazadosIds', 'asientoId'
   ],
   conciliacion_historial_desconciliacion: [
     'grupoId', 'extractoLineaId', 'movimientoTesoreriaId',
     'estadoAnteriorBanco', 'estadoAnteriorLibro', 'snapshotGrupo',
-    'snapshotGrupoJson', 'usuarioId'
+    'snapshotGrupoJson', 'usuarioId',
+    'monto', 'origenLibro', 'extractoLineaIds', 'libroItems',
+    'estadosPreviosBanco', 'estadosPreviosLibro', 'historialId',
+    'gruposRechazadosIds', 'asientoId'
   ],
   movimientos_tesoreria: [
     'cuentaFinancieraId', 'tipo', 'medioPago', 'numeroOperacion', 'anexoId',
