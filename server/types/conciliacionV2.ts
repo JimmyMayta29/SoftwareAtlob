@@ -654,3 +654,300 @@ export interface HistorialDesconciliacionV2 {
   usuarioEmail?: string | null;
   createdAt: string;
 }
+
+// ============================================================================
+// CONTRATOS DTO FASE 4 — CARTERA (CXC/CXP), PLANTILLAS, ASIENTOS Y CHEQUES
+// ============================================================================
+
+export const TIPOS_DOCUMENTO_CARTERA_V2 = ['CXC', 'CXP'] as const;
+
+export type TipoDocumentoCarteraV2 = (typeof TIPOS_DOCUMENTO_CARTERA_V2)[number];
+
+export const TIPOS_OPERACION_CARTERA_ESPECIAL_V2 = [
+  'ESTANDAR',
+  'RETENCION_IGV',
+  'DETRACCION_SPOT',
+  'COMISION_POS',
+  'TRIBUTO_SUNAT',
+  'AFP_ONP_ESSALUD',
+  'LOTE_PLANILLA',
+] as const;
+
+export type TipoOperacionCarteraEspecialV2 = (typeof TIPOS_OPERACION_CARTERA_ESPECIAL_V2)[number];
+
+export interface SugerenciaDocumentoCarteraV2 {
+  documentoId: string;
+  tipoCartera: TipoDocumentoCarteraV2;
+  comprobanteId: string;
+  anexoId: string;
+  anexoRuc: string | null;
+  anexoNombre: string | null;
+  tipoComprobante: string;
+  serie: string;
+  numero: string;
+  moneda: string;
+  fechaEmision: string;
+  fechaVencimiento: string;
+  importeOriginal: string;
+  saldoPendiente: string;
+  estado: string;
+  score: number;
+  motivos: string[];
+}
+
+export interface AplicarLineaCarteraInput {
+  cuentaFinancieraId: string;
+  periodo: string;
+  extractoLineaId: string;
+  tipoCartera: TipoDocumentoCarteraV2 | 'OTRO_PERUANO';
+  tipoOperacionEspecial?: TipoOperacionCarteraEspecialV2;
+  aplicaciones?: Array<{ documentoId: string; importeAplicado: string | number }>;
+  medioPago?: string;
+  tipoCambio?: number;
+  anexoId?: string | null;
+  cuentaContrapartidaCodigo?: string | null;
+  detraccionId?: string | null;
+  esAnticipo?: boolean;
+  tieneRetencion?: boolean;
+  montoRetencion?: string | number | null;
+  porcentajeRetencion?: number | null;
+  comisionPosMonto?: string | number | null;
+  cuentaComisionPosCodigo?: string | null;
+  generarAsientoComisionPos?: boolean;
+  esCheque?: boolean;
+  esDepositoCheque?: boolean;
+  numeroCheque?: string | null;
+  diferenciaCambio?: string | number | null;
+  tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
+  montoOriginalDoc?: string | number | null;
+  glosa?: string | null;
+}
+
+export interface ResultadoAplicarCarteraV2 {
+  grupo: GrupoConciliacionV2;
+  movimientoTesoreriaId: string;
+  asientoId: string;
+  documentosActualizados: Array<{
+    documentoId: string;
+    saldoAnterior: string;
+    saldoNuevo: string;
+    estadoNuevo: string;
+  }>;
+  saldoSinAplicar: string;
+  asientoComisionPosId?: string | null;
+  alertaBancarizacion?: string | null;
+}
+
+export const TIPOS_OPERACION_PLANTILLA_V2 = [
+  'ITF',
+  'COMISION',
+  'MANTENIMIENTO',
+  'INTERES_GASTO',
+  'INTERES_INGRESO',
+  'DIFERENCIA_CAMBIO_GANANCIA',
+  'DIFERENCIA_CAMBIO_PERDIDA',
+  'OTRO',
+] as const;
+
+export type TipoOperacionPlantillaV2 = (typeof TIPOS_OPERACION_PLANTILLA_V2)[number];
+
+export interface PlantillaAsientoV2 {
+  id: string;
+  empresaId: string;
+  codigo: string;
+  nombre: string;
+  tipoOperacion: TipoOperacionPlantillaV2;
+  cuentaContrapartidaCodigo: string | null;
+  subdiarioCodigo: string;
+  glosaPlantilla: string;
+  esSistema: boolean;
+  activo: boolean;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrearPlantillaAsientoInput {
+  codigo: string;
+  nombre: string;
+  tipoOperacion: TipoOperacionPlantillaV2;
+  cuentaContrapartidaCodigo?: string | null;
+  subdiarioCodigo?: string;
+  glosaPlantilla: string;
+  activo?: boolean;
+}
+
+export interface ActualizarPlantillaAsientoInput {
+  nombre?: string;
+  tipoOperacion?: TipoOperacionPlantillaV2;
+  cuentaContrapartidaCodigo?: string | null;
+  subdiarioCodigo?: string;
+  glosaPlantilla?: string;
+  activo?: boolean;
+}
+
+export interface PrevisualizarAsientoLineaInput {
+  cuentaFinancieraId: string;
+  periodo: string;
+  extractoLineaId: string;
+  plantillaId?: string | null;
+  tipoOperacion?: TipoOperacionPlantillaV2;
+  cuentaContrapartidaCodigo?: string | null;
+  subdiarioCodigo?: string | null;
+  centroCostoId?: string | null;
+  anexoId?: string | null;
+  glosa?: string | null;
+  tipoCambio?: number;
+}
+
+export interface LineaAsientoPreviewV2 {
+  linea: number;
+  cuentaId: string;
+  cuentaCodigo: string;
+  cuentaNombre: string;
+  anexoId: string | null;
+  centroCostoId: string | null;
+  debe: string;
+  haber: string;
+  glosaLinea: string;
+}
+
+export interface PreviewAsientoConciliacionV2 {
+  hashVistaPrevia: string;
+  extractoLineaId: string;
+  tipoOperacion: TipoOperacionPlantillaV2;
+  fecha: string;
+  periodo: string;
+  subdiarioCodigo: string;
+  moneda: 'PEN' | 'USD';
+  tipoCambio: string;
+  glosa: string;
+  totalDebe: string;
+  totalHaber: string;
+  cuadrado: boolean;
+  lineas: LineaAsientoPreviewV2[];
+}
+
+export interface GenerarAsientoLineaInput extends PrevisualizarAsientoLineaInput {
+  confirmadoVistaPrevia: boolean;
+  hashVistaPrevia: string;
+}
+
+export interface ResultadoGenerarAsientoLineaV2 {
+  grupo: GrupoConciliacionV2;
+  movimientoTesoreriaId: string;
+  asientoId: string;
+  asientoNumero: string | null;
+  cuo: string | null;
+  previewHashUsado: string;
+}
+
+export const ESTADOS_CHEQUE_BANCARIO_V2 = [
+  'GIRADO',
+  'ENTREGADO',
+  'COBRADO',
+  'VENCIDO',
+  'ANULADO',
+] as const;
+
+export type EstadoChequeBancarioV2 = (typeof ESTADOS_CHEQUE_BANCARIO_V2)[number];
+
+export interface ChequeBancarioV2 {
+  id: string;
+  empresaId: string;
+  cuentaFinancieraId: string;
+  movimientoTesoreriaId: string | null;
+  extractoLineaId: string | null;
+  anexoId: string | null;
+  numeroCheque: string;
+  beneficiario: string;
+  moneda: 'PEN' | 'USD';
+  monto: string;
+  fechaGiro: string;
+  fechaEntrega: string | null;
+  fechaCobro: string | null;
+  fechaVencimiento: string | null;
+  estado: EstadoChequeBancarioV2;
+  esNoNegociable: boolean;
+  observacion: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrearChequeBancarioInput {
+  cuentaFinancieraId: string;
+  movimientoTesoreriaId?: string | null;
+  extractoLineaId?: string | null;
+  anexoId?: string | null;
+  numeroCheque: string;
+  beneficiario: string;
+  moneda?: 'PEN' | 'USD';
+  monto: string | number;
+  fechaGiro: string;
+  fechaEntrega?: string | null;
+  fechaVencimiento?: string | null;
+  esNoNegociable?: boolean;
+  observacion?: string | null;
+}
+
+export interface ActualizarEstadoChequeInput {
+  estado: EstadoChequeBancarioV2;
+  fechaEntrega?: string | null;
+  fechaCobro?: string | null;
+  extractoLineaId?: string | null;
+  observacion?: string | null;
+}
+
+export interface AlertaItfV2 {
+  extractoLineaId: string;
+  fecha: string;
+  descripcion: string;
+  monto: string;
+  estadoConciliacion: EstadoConciliacionV2;
+  cuentaItfCodigo: string;
+  contabilizado: boolean;
+}
+
+export interface AlertaBancarizacionV2 {
+  origen: 'EXTRACTO' | 'LIBRO';
+  referenciaId: string;
+  fecha: string;
+  moneda: 'PEN' | 'USD';
+  monto: string;
+  umbralLegal: string;
+  medioPago: string | null;
+  descripcion: string;
+  motivo: string;
+  severidad: 'ADVERTENCIA' | 'CRITICA';
+}
+
+export interface AlertaChequeAntiguedadV2 {
+  chequeId: string | null;
+  movimientoTesoreriaId: string | null;
+  numeroCheque: string | null;
+  beneficiario: string | null;
+  fechaGiro: string;
+  diasTranscurridos: number;
+  monto: string;
+  moneda: 'PEN' | 'USD';
+  estadoCheque: EstadoChequeBancarioV2 | 'PENDIENTE';
+  vencidoPlazoLegal: boolean;
+  motivo: string;
+}
+
+export interface ResumenAlertasControlV2 {
+  empresaId: string;
+  cuentaFinancieraId: string;
+  periodo: string;
+  fechaCorte: string;
+  itfPendientes: AlertaItfV2[];
+  totalItfPendiente: string;
+  alertasBancarizacion: AlertaBancarizacionV2[];
+  chequesAntiguedad: AlertaChequeAntiguedadV2[];
+  totalChequesNoCobradosAlerta: string;
+  totalAlertas: number;
+}
+

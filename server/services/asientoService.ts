@@ -202,7 +202,12 @@ export const asientoService = {
     }
 
     if (input.origen === 'AUTOMATICO' || input.origen === 'CONSOLIDACION') {
-      const emp = await empresaRepository.obtenerPorId(empresaId);
+      const emp = conexion && typeof (conexion as any).query === 'function'
+        ? (await conexion.query(
+            `SELECT metodo_inventario as "metodoInventario" FROM empresas WHERE id = $1 LIMIT 1`,
+            [empresaId]
+          )).rows[0]
+        : await empresaRepository.obtenerPorId(empresaId);
       if (!emp?.metodoInventario) {
         throw new Error('METODO_INVENTARIO_REQUERIDO: La empresa no tiene definido un método de inventario (PERIODICO o PERMANENTE). Debe ser configurado por un Administrador del estudio antes de generar asientos automáticos.');
       }
@@ -214,14 +219,36 @@ export const asientoService = {
 
     // Bloque A: Si el asiento es manual o voucher libre, validar que el subdiario admita asiento manual
     if (input.origen === 'VOUCHER_LIBRE' || (input as any).validarSubdiarioManual) {
-      const sub = await subdiarioService.obtenerPorId(empresaId, input.subdiarioId) ||
-        await subdiarioService.obtenerPorCodigo(empresaId, input.subdiarioId);
+      let sub: { codigo?: string; nombre?: string; permiteAsientoManual?: boolean } | null = null;
+      if (conexion && typeof (conexion as any).query === 'function') {
+        const UUID_REGEX_SUB = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (UUID_REGEX_SUB.test(input.subdiarioId)) {
+          const r = await conexion.query(
+            `SELECT codigo, COALESCE(nombre, descripcion) as nombre, permite_asiento_manual as "permiteAsientoManual"
+             FROM subdiarios WHERE empresa_id = $1 AND id = $2 LIMIT 1`,
+            [empresaId, input.subdiarioId]
+          );
+          sub = r.rows[0] || null;
+        }
+        if (!sub) {
+          const codNorm = String(input.subdiarioId).padStart(2, '0');
+          const r = await conexion.query(
+            `SELECT codigo, COALESCE(nombre, descripcion) as nombre, permite_asiento_manual as "permiteAsientoManual"
+             FROM subdiarios WHERE empresa_id = $1 AND codigo = $2 LIMIT 1`,
+            [empresaId, codNorm]
+          );
+          sub = r.rows[0] || null;
+        }
+      } else {
+        sub = await subdiarioService.obtenerPorId(empresaId, input.subdiarioId) ||
+          await subdiarioService.obtenerPorCodigo(empresaId, input.subdiarioId);
+      }
       if (sub && !sub.permiteAsientoManual) {
         throw new Error(`SUBDIARIO_NO_PERMITE_ASIENTO_MANUAL: El subdiario ${sub.codigo} - ${sub.nombre} no admite asientos manuales libres.`);
       }
     }
 
-    if (db.isPostgresConnected()) {
+    if (db.isPostgresConnected() || (conexion && typeof (conexion as any).query === 'function')) {
       const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const persistir = async (client: PoolClient) => {
         // Validación preventiva de idempotencia
@@ -231,7 +258,7 @@ export const asientoService = {
             [empresaId, input.idempotencyKey]
           );
           if (idempCheck.rows.length > 0) {
-            const asientoExistente = await asientoService.obtenerPorId(idempCheck.rows[0].id);
+            const asientoExistente = await asientoService.obtenerPorId(idempCheck.rows[0].id, client);
             if (asientoExistente) return asientoExistente;
           }
         }
@@ -250,7 +277,7 @@ export const asientoService = {
 
         // Verificar período abierto
         const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [resolvedPeriodoId]);
-        if (pRes.rows[0]?.estado === 'CERRADO') {
+        if (pRes.rows[0]?.estado === 'CERRADO' || pRes.rows[0]?.estado === 'BLOQUEADO_AUDITORIA') {
           throw new Error('PERIODO_CERRADO: No se puede crear asientos en un período contable cerrado.');
         }
 
@@ -714,7 +741,7 @@ export const asientoService = {
    * Contabiliza un asiento: valida estricta partida doble, asigna correlativo atómico y sella el registro.
    */
   async contabilizar(asientoId: string, empresaId: string, userId: string, options?: { enforceSegregacion?: boolean }, conexion?: PoolClient) {
-    if (db.isPostgresConnected()) {
+    if (db.isPostgresConnected() || (conexion && typeof (conexion as any).query === 'function')) {
       const persistir = async (client: PoolClient) => {
         const aRes = await client.query(`
           SELECT a.*, p.codigo_periodo, p.estado as periodo_estado, s.codigo as subdiario_codigo
@@ -727,7 +754,7 @@ export const asientoService = {
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');
         const asiento = aRes.rows[0];
 
-        if (asiento.periodo_estado === 'CERRADO') {
+        if (asiento.periodo_estado === 'CERRADO' || asiento.periodo_estado === 'BLOQUEADO_AUDITORIA') {
           throw new Error('PERIODO_CERRADO: No se puede contabilizar en un período contable cerrado.');
         }
 
@@ -1019,18 +1046,19 @@ export const asientoService = {
   /**
    * Obtiene un asiento con sus líneas de detalle.
    */
-  async obtenerPorId(asientoId: string) {
-    if (db.isPostgresConnected()) {
-      const aRes = await db.query(`
+  async obtenerPorId(asientoId: string, conexion?: PoolClient) {
+    if (db.isPostgresConnected() || (conexion && typeof (conexion as any).query === 'function')) {
+      const sqlAsiento = `
         SELECT a.*, p.codigo_periodo as "periodoCodigo", s.codigo as "subdiarioCodigo", s.descripcion as "subdiarioNombre"
         FROM asientos a
         LEFT JOIN periodos p ON p.id = a.periodo_id
         LEFT JOIN subdiarios s ON s.id = a.subdiario_id
         WHERE a.id = $1
-      `, [asientoId]);
+      `;
+      const aRes = conexion ? await conexion.query(sqlAsiento, [asientoId]) : await db.query(sqlAsiento, [asientoId]);
       if (aRes.rows.length === 0) return null;
 
-      const dRes = await db.query(`
+      const sqlDetalle = `
         SELECT d.*, c.codigo as "cuentaCodigo", c.nombre as "cuentaNombre",
                an.numero_documento as "anexoNumero", an.razon_social as "anexoRazonSocial"
         FROM asiento_detalle d
@@ -1038,7 +1066,8 @@ export const asientoService = {
         LEFT JOIN anexos an ON an.id = d.anexo_id
         WHERE d.asiento_id = $1
         ORDER BY d.linea ASC
-      `, [asientoId]);
+      `;
+      const dRes = conexion ? await conexion.query(sqlDetalle, [asientoId]) : await db.query(sqlDetalle, [asientoId]);
 
       return {
         ...aRes.rows[0],
@@ -1195,9 +1224,10 @@ export const asientoService = {
   /**
    * Crea y contabiliza un asiento en un solo paso atómico
    */
-  async crearAsiento(empresaId: string, datos: any, userId: string) {
+  async crearAsiento(empresaId: string, datos: any, userId: string, conexion?: PoolClient) {
     const subdiarioId = datos.subdiario || datos.subdiarioId || '05';
     const borrador = await this.crearBorrador(empresaId, {
+      idempotencyKey: datos.idempotencyKey,
       periodoId: datos.periodoId,
       subdiarioId,
       fecha: datos.fecha,
@@ -1205,19 +1235,27 @@ export const asientoService = {
       moneda: datos.moneda || 'PEN',
       tipoCambio: datos.tipoCambio || 1.0,
       origen: datos.origenModulo || datos.origen || 'SISTEMA',
+      origenId: datos.origenId,
+      cuo: datos.cuo,
       detalles: (datos.lineas || datos.detalles || []).map((l: any, idx: number) => ({
         linea: l.linea || (idx + 1),
         cuentaId: l.cuentaId || `cta-${l.codigoCuenta}`,
+        ...(l.cuentaCodigo || l.codigoCuenta ? { cuentaCodigo: l.cuentaCodigo || l.codigoCuenta } : {}),
         anexoId: l.anexoId || null,
+        ...(l.centroCostoId ? { centroCostoId: l.centroCostoId } : {}),
+        ...(l.docTipo ? { docTipo: l.docTipo } : {}),
+        ...(l.docSerie ? { docSerie: l.docSerie } : {}),
+        ...(l.docNumero ? { docNumero: l.docNumero } : {}),
+        ...(l.fechaVencimiento ? { fechaVencimiento: l.fechaVencimiento } : {}),
         debe: l.debe || 0,
         haber: l.haber || 0,
         debeMe: l.debeMe || 0,
         haberMe: l.haberMe || 0,
         glosaLinea: l.glosa || l.glosaLinea || datos.glosa
       }))
-    }, userId);
+    }, userId, conexion);
 
-    return await this.contabilizar(borrador.id, empresaId, userId);
+    return await this.contabilizar(borrador.id, empresaId, userId, undefined, conexion);
   },
 
   /**

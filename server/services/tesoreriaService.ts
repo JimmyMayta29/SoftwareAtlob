@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
 import { contabilizacionService } from './contabilizacionService';
@@ -369,8 +370,13 @@ export const tesoreriaService = {
         importeAplicado: number;
       }>;
     },
-    userId: string
+    userId: string,
+    conexion?: PoolClient
   ): Promise<MovimientoTesoreriaModel> {
+    if (conexion) {
+      return this.registrarMovimientoEnConexion(empresaId, datos, userId, conexion);
+    }
+
     // 1. Validar Período Contable Abierto
     const mesPeriodo = datos.fecha.substring(0, 7);
     const estadoPeriodo = await periodoService.obtenerEstadoPeriodo(empresaId, mesPeriodo);
@@ -699,6 +705,400 @@ export const tesoreriaService = {
       registroId: nuevoMovimiento.id,
       valoresNuevos: nuevoMovimiento
     });
+
+    return nuevoMovimiento;
+  },
+
+  async registrarMovimientoEnConexion(
+    empresaId: string,
+    datos: {
+      periodoId: string;
+      cuentaFinancieraId: string;
+      fecha: string;
+      tipo: 'INGRESO' | 'EGRESO' | 'COMISION' | 'ITF' | 'DEPOSITO_DETRACCION';
+      medioPago: string;
+      numeroOperacion?: string;
+      anexoId?: string;
+      moneda?: 'PEN' | 'USD';
+      tipoCambio?: number;
+      importe: number;
+      glosa: string;
+      detraccionId?: string;
+      subdiario?: string;
+      cuentaContrapartidaCodigo?: string;
+      tieneRetencion?: boolean;
+      montoRetencion?: number;
+      porcentajeRetencion?: number;
+      esCheque?: boolean;
+      esDepositoCheque?: boolean;
+      esAnticipo?: boolean;
+      diferenciaCambio?: number;
+      tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
+      montoOriginalDoc?: number;
+      aplicaciones?: Array<{
+        documentoId: string;
+        importeAplicado: number;
+      }>;
+    },
+    userId: string,
+    conexion: PoolClient
+  ): Promise<MovimientoTesoreriaModel> {
+    // 1. Validar Período Contable Abierto directamente sobre conexion
+    const mesPeriodo = datos.fecha.substring(0, 7);
+    const perByIdRes = UUID_REGEX.test(datos.periodoId || '')
+      ? await conexion.query<{ id: string; codigo_periodo: string; estado: string }>(
+          `SELECT id, codigo_periodo, estado FROM periodos WHERE empresa_id = $1 AND id = $2 LIMIT 1`,
+          [empresaId, datos.periodoId]
+        )
+      : { rows: [] as Array<{ id: string; codigo_periodo: string; estado: string }> };
+
+    const perByCodigoRes = await conexion.query<{ id: string; codigo_periodo: string; estado: string }>(
+      `SELECT id, codigo_periodo, estado FROM periodos WHERE empresa_id = $1 AND codigo_periodo = $2 LIMIT 1`,
+      [empresaId, mesPeriodo]
+    );
+
+    const periodoRow = perByCodigoRes.rows[0] || perByIdRes.rows[0];
+    if (!periodoRow) {
+      throw new Error(`PERIODO_NO_ENCONTRADO: No existe el período contable ${mesPeriodo} en la empresa.`);
+    }
+    const estadosBloqueo = new Set(['CERRADO', 'BLOQUEADO', 'BLOQUEADO_AUDITORIA']);
+    if (
+      estadosBloqueo.has(periodoRow.estado) ||
+      (perByIdRes.rows[0] && estadosBloqueo.has(perByIdRes.rows[0].estado))
+    ) {
+      const estadoBloqueo = estadosBloqueo.has(periodoRow.estado)
+        ? periodoRow.estado
+        : perByIdRes.rows[0].estado;
+      throw new Error(
+        `PERIODO_CERRADO: El período contable ${mesPeriodo} se encuentra ${estadoBloqueo}. No se permiten movimientos de tesorería.`
+      );
+    }
+    const resolvedPeriodoId = perByIdRes.rows[0]?.id || periodoRow.id;
+
+    // 2. Validar y bloquear Cuenta Financiera directamente sobre conexion
+    const ctaRes = await conexion.query<{
+      id: string;
+      empresaId: string;
+      tipo: 'CAJA' | 'BANCO' | 'DETRACCIONES_BN';
+      banco: string;
+      numero: string;
+      moneda: 'PEN' | 'USD';
+      cuentaContableCodigo: string;
+      saldoInicial: string;
+      saldoActual: string;
+      activa: boolean;
+    }>(
+      `SELECT id, empresa_id as "empresaId", tipo, banco, numero, moneda,
+              cuenta_contable_codigo as "cuentaContableCodigo",
+              saldo_inicial::text as "saldoInicial", saldo_actual::text as "saldoActual", activa
+       FROM cuentas_financieras
+       WHERE id::text = $1 AND empresa_id = $2
+       FOR UPDATE`,
+      [datos.cuentaFinancieraId, empresaId]
+    );
+    if (ctaRes.rows.length === 0) {
+      throw new Error('CUENTA_FINANCIERA_NO_EXISTE: La cuenta financiera especificada no existe.');
+    }
+    const ctaRow = ctaRes.rows[0];
+    if (!ctaRow.activa) {
+      throw new Error('CUENTA_FINANCIERA_INACTIVA: La cuenta financiera especificada se encuentra inactiva.');
+    }
+
+    const moneda = datos.moneda || ctaRow.moneda || 'PEN';
+    const tipoCambio = datos.tipoCambio && datos.tipoCambio > 0 ? datos.tipoCambio : 1.0;
+    const importeTotal = Money.round(datos.importe);
+    if (importeTotal.lessThanOrEqualTo(0)) {
+      throw new Error('IMPORTE_INVALIDO: El importe del movimiento debe ser mayor a 0.00.');
+    }
+    let totalAplicado = Money.create(0);
+
+    // 3. Procesar Aplicaciones a Cartera (CxC o CxP) con bloqueo FOR UPDATE
+    const aplicacionesProcesadas: Array<{ documentoId: string; importeAplicado: number }> = [];
+
+    if (datos.tipo === 'INGRESO' && datos.aplicaciones && datos.aplicaciones.length > 0) {
+      for (const app of datos.aplicaciones) {
+        const res = await conexion.query<{
+          id: string;
+          comprobante_id: string;
+          cliente_id: string;
+          moneda: string;
+          importe_original: string;
+          saldo: string;
+          estado: string;
+        }>(
+          `SELECT id, comprobante_id, cliente_id, moneda, importe_original::text as importe_original, saldo::text as saldo, estado
+           FROM cuentas_por_cobrar
+           WHERE empresa_id = $1 AND (id::text = $2 OR comprobante_id::text = $2)
+           LIMIT 1
+           FOR UPDATE`,
+          [empresaId, app.documentoId]
+        );
+        if (res.rows.length === 0) {
+          throw new Error(`DOCUMENTO_NO_ENCONTRADO: El documento por cobrar ${app.documentoId} no existe en la empresa.`);
+        }
+        const docRow = res.rows[0];
+        const saldoActualDoc = Money.create(docRow.saldo);
+        if (docRow.estado === 'CANCELADO' || saldoActualDoc.lessThanOrEqualTo(0)) {
+          throw new Error(`DOCUMENTO_YA_CANCELADO: El comprobante ${docRow.comprobante_id} ya se encuentra totalmente cancelado.`);
+        }
+
+        const montoApp = Money.round(app.importeAplicado);
+        if (montoApp.lessThanOrEqualTo(0)) {
+          throw new Error('IMPORTE_APLICACION_INVALIDO: El importe aplicado debe ser mayor a 0.00.');
+        }
+        if (montoApp.greaterThan(saldoActualDoc)) {
+          throw new Error(
+            `SALDO_INSUFICIENTE_APLICACION: El monto aplicado (${Money.format(montoApp)}) excede el saldo pendiente (${Money.format(saldoActualDoc)}).`
+          );
+        }
+
+        const nuevoSaldo = Money.sub(saldoActualDoc, montoApp);
+        const nuevoEstado = nuevoSaldo.isZero() ? 'CANCELADO' : 'PARCIAL';
+
+        await conexion.query(
+          `UPDATE cuentas_por_cobrar SET saldo = $1, estado = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND empresa_id = $4`,
+          [Money.toNumber(nuevoSaldo), nuevoEstado, docRow.id, empresaId]
+        );
+
+        totalAplicado = Money.add(totalAplicado, montoApp);
+        aplicacionesProcesadas.push({ documentoId: String(docRow.id), importeAplicado: Money.toNumber(montoApp) });
+      }
+    } else if (datos.tipo === 'EGRESO' && datos.aplicaciones && datos.aplicaciones.length > 0) {
+      for (const app of datos.aplicaciones) {
+        const res = await conexion.query<{
+          id: string;
+          comprobante_id: string;
+          proveedor_id: string;
+          moneda: string;
+          importe_original: string;
+          saldo: string;
+          estado: string;
+        }>(
+          `SELECT id, comprobante_id, proveedor_id, moneda, importe_original::text as importe_original, saldo::text as saldo, estado
+           FROM cuentas_por_pagar
+           WHERE empresa_id = $1 AND (id::text = $2 OR comprobante_id::text = $2)
+           LIMIT 1
+           FOR UPDATE`,
+          [empresaId, app.documentoId]
+        );
+        if (res.rows.length === 0) {
+          throw new Error(`DOCUMENTO_NO_ENCONTRADO: El documento por pagar ${app.documentoId} no existe en la empresa.`);
+        }
+        const docRow = res.rows[0];
+        const saldoActualDoc = Money.create(docRow.saldo);
+        if (docRow.estado === 'CANCELADO' || saldoActualDoc.lessThanOrEqualTo(0)) {
+          throw new Error(`DOCUMENTO_YA_CANCELADO: El comprobante ${docRow.comprobante_id} ya se encuentra totalmente cancelado.`);
+        }
+
+        const montoApp = Money.round(app.importeAplicado);
+        if (montoApp.lessThanOrEqualTo(0)) {
+          throw new Error('IMPORTE_APLICACION_INVALIDO: El importe aplicado debe ser mayor a 0.00.');
+        }
+        if (montoApp.greaterThan(saldoActualDoc)) {
+          throw new Error(
+            `SALDO_INSUFICIENTE_APLICACION: El monto aplicado (${Money.format(montoApp)}) excede el saldo pendiente (${Money.format(saldoActualDoc)}).`
+          );
+        }
+
+        const nuevoSaldo = Money.sub(saldoActualDoc, montoApp);
+        const nuevoEstado = nuevoSaldo.isZero() ? 'CANCELADO' : 'PARCIAL';
+
+        await conexion.query(
+          `UPDATE cuentas_por_pagar SET saldo = $1, estado = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND empresa_id = $4`,
+          [Money.toNumber(nuevoSaldo), nuevoEstado, docRow.id, empresaId]
+        );
+
+        totalAplicado = Money.add(totalAplicado, montoApp);
+        aplicacionesProcesadas.push({ documentoId: String(docRow.id), importeAplicado: Money.toNumber(montoApp) });
+      }
+    }
+
+    const saldoSinAplicar = Money.sub(importeTotal, totalAplicado);
+    if (saldoSinAplicar.isNegative()) {
+      throw new Error(
+        `IMPORTE_INSUFICIENTE: La suma de aplicaciones (${Money.format(totalAplicado)}) supera el importe del movimiento (${Money.format(importeTotal)}).`
+      );
+    }
+
+    // 4. Si es Depósito de Detracción SPOT, actualizar estado en BD dentro de la misma TX
+    if (datos.tipo === 'DEPOSITO_DETRACCION' && datos.detraccionId && UUID_REGEX.test(datos.detraccionId)) {
+      const detRes = await conexion.query<{ id: string }>(
+        `SELECT id FROM detracciones WHERE empresa_id = $1 AND (id = $2 OR comprobante_id = $2) LIMIT 1 FOR UPDATE`,
+        [empresaId, datos.detraccionId]
+      );
+      if (detRes.rows.length > 0) {
+        const constancia = datos.numeroOperacion || `CONST-${Date.now()}`;
+        await conexion.query(
+          `UPDATE detracciones
+           SET estado = 'DEPOSITADA',
+               numero_constancia = $1,
+               fecha_deposito = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3 AND empresa_id = $4`,
+          [constancia, datos.fecha, detRes.rows[0].id, empresaId]
+        );
+      }
+    }
+
+    // 5. Generar Asiento Contable dentro de la misma TX
+    let tipoOpContable: any = 'PAGO';
+    const subdiario: any = datos.subdiario || (datos.tipo === 'INGRESO' ? '03' : (datos.tipo === 'DEPOSITO_DETRACCION' ? '05' : '04'));
+
+    if (datos.tipo === 'INGRESO') {
+      tipoOpContable = 'COBRANZA';
+    } else if (datos.tipo === 'EGRESO') {
+      tipoOpContable = 'PAGO';
+    } else if (datos.tipo === 'DEPOSITO_DETRACCION') {
+      tipoOpContable = 'DETRACCION_DEPOSITO';
+    }
+
+    const propuestaAsiento = await contabilizacionService.generar(empresaId, tipoOpContable, {
+      total: Money.toNumber(importeTotal),
+      glosa: datos.glosa || `${datos.tipo} en ${ctaRow.banco} ${ctaRow.numero}`,
+      cuentaFinancieraCodigo: ctaRow.cuentaContableCodigo,
+      cuentaContrapartidaCodigo: datos.cuentaContrapartidaCodigo,
+      anexoId: datos.anexoId,
+      moneda,
+      tipoCambio,
+      tieneRetencion: datos.tieneRetencion,
+      montoRetencion: datos.montoRetencion,
+      porcentajeRetencion: datos.porcentajeRetencion,
+      esCheque: datos.esCheque,
+      esDepositoCheque: datos.esDepositoCheque,
+      esAnticipo: datos.esAnticipo,
+      diferenciaCambio: datos.diferenciaCambio,
+      tipoDiferencia: datos.tipoDiferencia,
+      montoOriginalDoc: datos.montoOriginalDoc
+    } as any);
+
+    const asientoCreado = await asientoService.crearAsiento(empresaId, {
+      periodoId: resolvedPeriodoId,
+      subdiario,
+      fecha: datos.fecha,
+      moneda,
+      tipoCambio,
+      glosa: datos.glosa || `${datos.tipo} ${ctaRow.banco} ${ctaRow.numero}`,
+      origenModulo: 'TESORERIA',
+      lineas: propuestaAsiento.lineas.map(l => ({
+        codigoCuenta: l.codigoCuenta,
+        debe: l.debe,
+        haber: l.haber,
+        debeMe: l.debeMe,
+        haberMe: l.haberMe,
+        glosa: l.glosaLinea,
+        anexoId: l.anexoId
+      }))
+    }, userId, conexion);
+
+    // 6. Calcular nuevo saldo de cuenta financiera con Money
+    const saldoActualCuenta = Money.create(ctaRow.saldoActual);
+    const nuevoSaldoCuenta = datos.tipo === 'INGRESO'
+      ? Money.add(saldoActualCuenta, importeTotal)
+      : Money.sub(saldoActualCuenta, importeTotal);
+
+    // 7. Persistir Movimiento, saldo de cuenta y aplicaciones en la misma TX (sin tragar errores)
+    const id = randomUUID();
+    const nuevoMovimiento: MovimientoTesoreriaModel = {
+      id,
+      empresaId,
+      periodoId: resolvedPeriodoId,
+      cuentaFinancieraId: ctaRow.id,
+      fecha: datos.fecha,
+      tipo: datos.tipo,
+      medioPago: datos.medioPago || '003',
+      numeroOperacion: datos.numeroOperacion,
+      anexoId: datos.anexoId,
+      moneda,
+      tipoCambio,
+      importe: Money.toNumber(importeTotal),
+      importeMe: moneda === 'USD' ? Money.toNumber(importeTotal) : 0,
+      saldoSinAplicar: Money.toNumber(saldoSinAplicar),
+      glosa: datos.glosa,
+      estado: 'REGISTRADO',
+      conciliado: false,
+      asientoId: asientoCreado.id,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      aplicaciones: aplicacionesProcesadas
+    };
+
+    await conexion.query(`
+      INSERT INTO movimientos_tesoreria (
+        id, empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo,
+        medio_pago, numero_operacion, anexo_id, moneda, tipo_cambio,
+        importe, importe_me, saldo_sin_aplicar, glosa, estado, conciliado,
+        asiento_id, version, created_by
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10, $11,
+        $12, $13, $14, $15, 'REGISTRADO', false,
+        $16, 1, $17
+      )
+    `, [
+      nuevoMovimiento.id, empresaId, nuevoMovimiento.periodoId, nuevoMovimiento.cuentaFinancieraId,
+      nuevoMovimiento.fecha, nuevoMovimiento.tipo, nuevoMovimiento.medioPago,
+      nuevoMovimiento.numeroOperacion || null,
+      UUID_REGEX.test(nuevoMovimiento.anexoId || '') ? nuevoMovimiento.anexoId : null,
+      nuevoMovimiento.moneda, nuevoMovimiento.tipoCambio, nuevoMovimiento.importe,
+      nuevoMovimiento.importeMe || 0, nuevoMovimiento.saldoSinAplicar, nuevoMovimiento.glosa,
+      UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+      UUID_REGEX.test(userId) ? userId : null
+    ]);
+
+    await conexion.query(`
+      UPDATE cuentas_financieras
+      SET saldo_actual = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND empresa_id = $3
+    `, [Money.toNumber(nuevoSaldoCuenta), ctaRow.id, empresaId]);
+
+    if (datos.tipo === 'EGRESO') {
+      for (const app of aplicacionesProcesadas) {
+        await conexion.query(`
+          INSERT INTO aplicaciones_pago (
+            empresa_id, cuenta_por_pagar_id, asiento_id, fecha_pago, importe_aplicado,
+            moneda, tipo_cambio, referencia_banco, movimiento_tesoreria_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          empresaId,
+          app.documentoId,
+          UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+          nuevoMovimiento.fecha,
+          app.importeAplicado,
+          moneda,
+          tipoCambio,
+          nuevoMovimiento.numeroOperacion || null,
+          nuevoMovimiento.id
+        ]);
+      }
+    } else if (datos.tipo === 'INGRESO') {
+      for (const app of aplicacionesProcesadas) {
+        await conexion.query(`
+          INSERT INTO aplicaciones_cobranza (
+            empresa_id, cuenta_por_cobrar_id, asiento_id, fecha_cobranza, importe_aplicado,
+            moneda, tipo_cambio, referencia_banco, movimiento_tesoreria_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          empresaId,
+          app.documentoId,
+          UUID_REGEX.test(asientoCreado.id) ? asientoCreado.id : null,
+          nuevoMovimiento.fecha,
+          app.importeAplicado,
+          moneda,
+          tipoCambio,
+          nuevoMovimiento.numeroOperacion || null,
+          nuevoMovimiento.id
+        ]);
+      }
+    }
+
+    await auditoriaRepository.registrar({
+      empresaId,
+      usuarioId: userId,
+      accion: 'REGISTRAR_MOVIMIENTO_TESORERIA',
+      tabla: 'movimientos_tesoreria',
+      registroId: nuevoMovimiento.id,
+      valoresNuevos: nuevoMovimiento
+    }, conexion);
 
     return nuevoMovimiento;
   },
