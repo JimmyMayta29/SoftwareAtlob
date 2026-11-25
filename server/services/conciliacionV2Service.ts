@@ -33,6 +33,7 @@ const FECHA_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const ESTADOS_CONCILIACION_SET = new Set<string>(ESTADOS_CONCILIACION_V2);
 
 const SUGERENCIA_INTERES_INGRESO = '7793';
+const DEFAULT_UMBRAL_AUTO_MATCH = 0.90;
 
 export class ConciliacionV2Error extends Error {
   public readonly statusCode: number;
@@ -62,6 +63,7 @@ const actualizarConfigSchema = z.object({
       },
       { message: 'toleranciaMonto debe ser un decimal entre 0.00 y 999999999999.99.' }
     ),
+  umbralAutoMatch: z.number().min(0.6).max(1).optional(),
   cuentaItfCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaComisionCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaInteresGastoCodigo: z.string().trim().min(2).max(20).optional(),
@@ -102,7 +104,7 @@ const reabrirConciliacionSchema = z.object({
   motivo: z.string().trim().min(5, 'El motivo de reapertura debe tener al menos 5 caracteres.').max(500),
 });
 
-function asegurarPostgresDisponible(): void {
+export function asegurarPostgresDisponible(): void {
   if (!db.isPostgresConnected()) {
     throw new ConciliacionV2Error(
       503,
@@ -112,18 +114,29 @@ function asegurarPostgresDisponible(): void {
   }
 }
 
-function asegurarUuid(valor: string, nombreCampo: string): void {
+export function asegurarUuid(valor: string, nombreCampo: string): void {
   if (!valor || !UUID_REGEX.test(valor)) {
     throw new ConciliacionV2Error(400, 'IDENTIFICADOR_INVALIDO', `${nombreCampo} debe ser un UUID válido.`);
   }
 }
 
-function resolverRangoPeriodo(periodo: string) {
+export function resolverRangoPeriodo(periodo: string) {
   try {
     return obtenerRangoMesPeriodo(periodo);
   } catch (err) {
     throw new ConciliacionV2Error(400, 'PERIODO_INVALIDO', (err as Error).message);
   }
+}
+
+function parsearUmbralAutoMatch(raw: unknown): number {
+  if (raw === null || raw === undefined) {
+    return DEFAULT_UMBRAL_AUTO_MATCH;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0.6 || parsed > 1) {
+    return DEFAULT_UMBRAL_AUTO_MATCH;
+  }
+  return Number(parsed.toFixed(4));
 }
 
 function flagGlobalConciliacionV2(): boolean {
@@ -136,6 +149,7 @@ function buildDefaultConfig(empresaId: string): ConfigConciliacionV2 {
     conciliacionV2Habilitada: flagGlobalConciliacionV2(),
     toleranciaDias: 3,
     toleranciaMonto: '0.00',
+    umbralAutoMatch: DEFAULT_UMBRAL_AUTO_MATCH,
     cuentaItfCodigo: '6412',
     cuentaComisionCodigo: '6391',
     cuentaInteresGastoCodigo: '67311',
@@ -348,12 +362,16 @@ export async function registrarAuditoriaEnTx(
 // HELPERS INTERNOS DE LECTURA/MAPEO EN TRANSACCIÓN
 // ============================================================================
 
-async function obtenerConfigEnTx(client: PoolClient, empresaId: string): Promise<ConfigConciliacionV2> {
+export async function obtenerConfigEnTx(
+  client: PoolClient,
+  empresaId: string
+): Promise<ConfigConciliacionV2> {
   const res = await client.query(
     `SELECT empresa_id AS "empresaId",
             conciliacion_v2_habilitada AS "conciliacionV2Habilitada",
             tolerancia_dias AS "toleranciaDias",
             tolerancia_monto::text AS "toleranciaMonto",
+            umbral_auto_match::float8 AS "umbralAutoMatch",
             cuenta_itf_codigo AS "cuentaItfCodigo",
             cuenta_comision_codigo AS "cuentaComisionCodigo",
             cuenta_interes_gasto_codigo AS "cuentaInteresGastoCodigo",
@@ -375,6 +393,7 @@ async function obtenerConfigEnTx(client: PoolClient, empresaId: string): Promise
     conciliacionV2Habilitada: Boolean(row.conciliacionV2Habilitada),
     toleranciaDias: Number(row.toleranciaDias),
     toleranciaMonto: Money.format(row.toleranciaMonto ?? '0'),
+    umbralAutoMatch: parsearUmbralAutoMatch(row.umbralAutoMatch),
     cuentaItfCodigo: row.cuentaItfCodigo,
     cuentaComisionCodigo: row.cuentaComisionCodigo,
     cuentaInteresGastoCodigo: row.cuentaInteresGastoCodigo,
@@ -407,7 +426,7 @@ function mapCuentaBancariaRow(row: any): CuentaBancariaV2 {
   };
 }
 
-async function obtenerCuentaBancariaEnTx(
+export async function obtenerCuentaBancariaEnTx(
   client: PoolClient,
   empresaId: string,
   cuentaFinancieraId: string
@@ -468,6 +487,7 @@ function mapPartidaExtractoRow(row: any): PartidaExtractoV2 {
     rucExtraido: row.rucExtraido ?? null,
     contraparteExtraida: row.contraparteExtraida ?? null,
     docExtraido: row.docExtraido ?? null,
+    grupoConciliacionId: row.grupoConciliacionId ?? null,
   };
 }
 
@@ -508,7 +528,7 @@ function mapResultadoCierreRow(row: any, periodo: string): ResultadoCierreV2 {
   };
 }
 
-async function verificarPeriodoNoCerradoEnTx(
+export async function verificarPeriodoNoCerradoEnTx(
   client: PoolClient,
   empresaId: string,
   cuentaFinancieraId: string,
@@ -536,7 +556,7 @@ async function verificarPeriodoNoCerradoEnTx(
   }
 }
 
-async function obtenerResumenConciliacionEnTx(
+export async function obtenerResumenConciliacionEnTx(
   client: PoolClient,
   empresaId: string,
   cuentaFinancieraId: string,
@@ -605,7 +625,20 @@ async function obtenerResumenConciliacionEnTx(
             el.tipo_clasificacion AS "tipoClasificacion",
             el.ruc_extraido AS "rucExtraido",
             el.contraparte_extraida AS "contraparteExtraida",
-            el.doc_extraido AS "docExtraido"
+            el.doc_extraido AS "docExtraido",
+            (
+              SELECT ci.grupo_id
+              FROM conciliacion_item ci
+              JOIN conciliacion_grupo cg
+                ON cg.id = ci.grupo_id
+               AND cg.empresa_id = ci.empresa_id
+              WHERE ci.empresa_id = el.empresa_id
+                AND ci.lado = 'BANCO'
+                AND ci.extracto_linea_id = el.id
+                AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+              ORDER BY cg.created_at DESC
+              LIMIT 1
+            ) AS "grupoConciliacionId"
      FROM extracto_lineas el
      JOIN extractos_bancarios eb
        ON eb.id = el.extracto_id
@@ -660,29 +693,50 @@ async function obtenerResumenConciliacionEnTx(
 
   // 4. Movimientos de libros del periodo + pendientes en tránsito anteriores a fechaInicio
   const movsRes = await client.query(
-    `SELECT id,
-            periodo_id AS "periodoId",
-            cuenta_financiera_id AS "cuentaFinancieraId",
-            fecha::text AS fecha,
-            tipo,
-            medio_pago AS "medioPago",
-            numero_operacion AS "numeroOperacion",
-            moneda,
-            tipo_cambio::text AS "tipoCambio",
-            importe::text AS importe,
-            glosa,
-            estado,
-            conciliado,
-            asiento_id AS "asientoId"
-     FROM movimientos_tesoreria
-     WHERE empresa_id = $1
-       AND cuenta_financiera_id = $2
-       AND estado = 'REGISTRADO'
+    `SELECT mt.id,
+            mt.periodo_id AS "periodoId",
+            mt.cuenta_financiera_id AS "cuentaFinancieraId",
+            mt.fecha::text AS fecha,
+            mt.tipo,
+            mt.medio_pago AS "medioPago",
+            mt.numero_operacion AS "numeroOperacion",
+            mt.moneda,
+            mt.tipo_cambio::text AS "tipoCambio",
+            mt.importe::text AS importe,
+            mt.glosa,
+            mt.estado,
+            mt.conciliado,
+            mt.estado_conciliacion_libro AS "estadoConciliacionLibroRaw",
+            mt.asiento_id AS "asientoId",
+            mt.anexo_id AS "anexoId",
+            ax.razon_social AS "anexoNombre",
+            ax.numero_documento AS "anexoRuc",
+            (
+              SELECT ci.grupo_id
+              FROM conciliacion_item ci
+              JOIN conciliacion_grupo cg
+                ON cg.id = ci.grupo_id
+               AND cg.empresa_id = ci.empresa_id
+              WHERE ci.empresa_id = mt.empresa_id
+                AND ci.lado = 'LIBRO'
+                AND ci.origen_libro = 'MOVIMIENTO_TESORERIA'
+                AND ci.movimiento_tesoreria_id = mt.id
+                AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+              ORDER BY cg.created_at DESC
+              LIMIT 1
+            ) AS "grupoConciliacionId"
+     FROM movimientos_tesoreria mt
+     LEFT JOIN anexos ax
+       ON ax.empresa_id = mt.empresa_id
+      AND ax.id = mt.anexo_id
+     WHERE mt.empresa_id = $1
+       AND mt.cuenta_financiera_id = $2
+       AND mt.estado = 'REGISTRADO'
        AND (
-         fecha BETWEEN $3 AND $4
-         OR (fecha < $3 AND conciliado = false)
+         mt.fecha BETWEEN $3 AND $4
+         OR (mt.fecha < $3 AND mt.conciliado = false)
        )
-     ORDER BY fecha ASC, created_at ASC`,
+     ORDER BY mt.fecha ASC, mt.created_at ASC`,
     [empresaId, cuentaFinancieraId, fechaInicio, fechaFin]
   );
 
@@ -694,11 +748,15 @@ async function obtenerResumenConciliacionEnTx(
 
   const movimientosLibros: PartidaLibroV2[] = movsRes.rows.map((r) => {
     const conciliado = Boolean(r.conciliado);
-    const estadoLibroV2 = derivarEstadoLibroV2({
+    const estadoDerivado = derivarEstadoLibroV2({
       conciliado,
       tipo: r.tipo,
       medioPago: r.medioPago,
     });
+    const estadoLibroV2: EstadoLibroV2 =
+      !conciliado && r.estadoConciliacionLibroRaw === 'CHEQUE_NO_COBRADO'
+        ? 'CHEQUE_NO_COBRADO'
+        : estadoDerivado;
     const importeDec = Money.round(r.importe ?? '0');
     const importeConSignoDec = r.tipo === 'INGRESO' ? importeDec : importeDec.negated();
 
@@ -735,8 +793,145 @@ async function obtenerResumenConciliacionEnTx(
       conciliado,
       estadoLibroV2,
       asientoId: r.asientoId ?? null,
+      origen: 'MOVIMIENTO_TESORERIA',
+      asientoDetalleId: null,
+      docRef: r.numeroOperacion ?? null,
+      anexoId: r.anexoId ?? null,
+      anexoNombre: r.anexoNombre ?? null,
+      anexoRuc: r.anexoRuc ?? null,
+      grupoConciliacionId: r.grupoConciliacionId ?? null,
     };
   });
+
+  // 4b. Asientos manuales directos a la cuenta contable 104x sin movimiento de tesorería asociado
+  //     (se devuelven en `asientosManualesLibros` sin alterar `movimientosLibros`, `conteos`, `saldoLibrosDec`
+  //      ni `depositosEnTransito`/`chequesNoCobrados` para preservar 100% compatibilidad con Fase 1)
+  const asientosManualesLibros: PartidaLibroV2[] = [];
+  if (cuenta.cuentaContableId) {
+    const manualesRes = await client.query(
+      `SELECT ad.id,
+              a.periodo_id AS "periodoId",
+              a.fecha::text AS fecha,
+              a.moneda,
+              a.tipo_cambio::text AS "tipoCambio",
+              ad.debe::text AS debe,
+              ad.haber::text AS haber,
+              ad.glosa_linea AS "glosaLinea",
+              a.glosa AS "glosaAsiento",
+              a.numero AS "numeroAsiento",
+              a.estado,
+              ad.asiento_id AS "asientoId",
+              ad.doc_tipo AS "docTipo",
+              ad.doc_serie AS "docSerie",
+              ad.doc_numero AS "docNumero",
+              ad.anexo_id AS "anexoId",
+              ax.razon_social AS "anexoNombre",
+              ax.numero_documento AS "anexoRuc",
+              (
+                SELECT cg.id
+                FROM conciliacion_item ci
+                JOIN conciliacion_grupo cg
+                  ON cg.id = ci.grupo_id
+                 AND cg.empresa_id = ci.empresa_id
+                WHERE ci.empresa_id = ad.empresa_id
+                  AND ci.lado = 'LIBRO'
+                  AND ci.origen_libro = 'ASIENTO_MANUAL'
+                  AND ci.asiento_detalle_id = ad.id
+                  AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')
+                ORDER BY cg.created_at DESC
+                LIMIT 1
+              ) AS "conciliadoGrupoId",
+              (
+                SELECT cg.id
+                FROM conciliacion_item ci
+                JOIN conciliacion_grupo cg
+                  ON cg.id = ci.grupo_id
+                 AND cg.empresa_id = ci.empresa_id
+                WHERE ci.empresa_id = ad.empresa_id
+                  AND ci.lado = 'LIBRO'
+                  AND ci.origen_libro = 'ASIENTO_MANUAL'
+                  AND ci.asiento_detalle_id = ad.id
+                  AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+                ORDER BY cg.created_at DESC
+                LIMIT 1
+              ) AS "grupoConciliacionId"
+       FROM asiento_detalle ad
+       JOIN asientos a
+         ON a.id = ad.asiento_id
+        AND a.empresa_id = ad.empresa_id
+       LEFT JOIN anexos ax
+         ON ax.empresa_id = ad.empresa_id
+        AND ax.id = ad.anexo_id
+       WHERE ad.empresa_id = $1
+         AND ad.cuenta_id = $2
+         AND a.estado = 'CONTABILIZADO'
+         AND (ad.debe > 0 OR ad.haber > 0)
+         AND NOT EXISTS (
+           SELECT 1
+           FROM movimientos_tesoreria mt
+           WHERE mt.empresa_id = a.empresa_id
+             AND mt.asiento_id = a.id
+             AND mt.estado <> 'ANULADO'
+         )
+         AND (
+           a.fecha BETWEEN $3 AND $4
+           OR (
+             a.fecha < $3
+             AND NOT EXISTS (
+               SELECT 1
+               FROM conciliacion_item ci
+               JOIN conciliacion_grupo cg
+                 ON cg.id = ci.grupo_id
+                AND cg.empresa_id = ci.empresa_id
+               WHERE ci.empresa_id = ad.empresa_id
+                 AND ci.lado = 'LIBRO'
+                 AND ci.origen_libro = 'ASIENTO_MANUAL'
+                 AND ci.asiento_detalle_id = ad.id
+                 AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')
+             )
+           )
+         )
+       ORDER BY a.fecha ASC, a.created_at ASC, ad.linea ASC`,
+      [empresaId, cuenta.cuentaContableId, fechaInicio, fechaFin]
+    );
+
+    for (const r of manualesRes.rows) {
+      const debeDec = Money.round(r.debe ?? '0');
+      const haberDec = Money.round(r.haber ?? '0');
+      const esIngreso = debeDec.gt(0);
+      const importeDec = esIngreso ? debeDec : haberDec;
+      const importeConSignoDec = esIngreso ? importeDec : importeDec.negated();
+      const conciliado = Boolean(r.conciliadoGrupoId);
+      const docRef = [r.docTipo, r.docSerie, r.docNumero].filter(Boolean).join('-') || null;
+      const glosaLinea = typeof r.glosaLinea === 'string' ? r.glosaLinea.trim() : '';
+
+      asientosManualesLibros.push({
+        id: r.id,
+        periodoId: r.periodoId,
+        cuentaFinancieraId,
+        fecha: r.fecha,
+        tipo: esIngreso ? 'INGRESO' : 'EGRESO',
+        medioPago: 'MANUAL',
+        numeroOperacion: docRef ?? r.numeroAsiento ?? null,
+        moneda: r.moneda,
+        tipoCambio: Money.create(r.tipoCambio ?? '1').toFixed(4),
+        importe: Money.format(importeDec),
+        importeConSigno: Money.format(importeConSignoDec),
+        glosa: glosaLinea.length > 0 ? glosaLinea : r.glosaAsiento,
+        estado: r.estado,
+        conciliado,
+        estadoLibroV2: conciliado ? 'CONCILIADO' : 'PENDIENTE_BANCO',
+        asientoId: r.asientoId,
+        origen: 'ASIENTO_MANUAL',
+        asientoDetalleId: r.id,
+        docRef,
+        anexoId: r.anexoId ?? null,
+        anexoNombre: r.anexoNombre ?? null,
+        anexoRuc: r.anexoRuc ?? null,
+        grupoConciliacionId: r.grupoConciliacionId ?? null,
+      });
+    }
+  }
 
   // 5. Cálculo numérico puro con Money
   const numerico = calcularResumenNumericoConciliacionV2({
@@ -865,6 +1060,7 @@ async function obtenerResumenConciliacionEnTx(
     },
     extractoLineas,
     movimientosLibros,
+    asientosManualesLibros,
   };
 }
 
@@ -903,6 +1099,10 @@ export const conciliacionV2Service = {
         parsed.toleranciaMonto !== undefined
           ? Money.format(parsed.toleranciaMonto)
           : actual.toleranciaMonto;
+      const siguienteUmbralAutoMatch =
+        parsed.umbralAutoMatch !== undefined
+          ? Number(parsed.umbralAutoMatch.toFixed(4))
+          : parsearUmbralAutoMatch(actual.umbralAutoMatch);
       const siguienteItf = parsed.cuentaItfCodigo ?? actual.cuentaItfCodigo;
       const siguienteComision = parsed.cuentaComisionCodigo ?? actual.cuentaComisionCodigo;
       const siguienteInteresGasto =
@@ -963,17 +1163,19 @@ export const conciliacionV2Service = {
           conciliacion_v2_habilitada,
           tolerancia_dias,
           tolerancia_monto,
+          umbral_auto_match,
           cuenta_itf_codigo,
           cuenta_comision_codigo,
           cuenta_interes_gasto_codigo,
           cuenta_interes_ingreso_codigo,
           updated_by,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
         ON CONFLICT (empresa_id) DO UPDATE SET
           conciliacion_v2_habilitada = EXCLUDED.conciliacion_v2_habilitada,
           tolerancia_dias = EXCLUDED.tolerancia_dias,
           tolerancia_monto = EXCLUDED.tolerancia_monto,
+          umbral_auto_match = EXCLUDED.umbral_auto_match,
           cuenta_itf_codigo = EXCLUDED.cuenta_itf_codigo,
           cuenta_comision_codigo = EXCLUDED.cuenta_comision_codigo,
           cuenta_interes_gasto_codigo = EXCLUDED.cuenta_interes_gasto_codigo,
@@ -984,6 +1186,7 @@ export const conciliacionV2Service = {
                   conciliacion_v2_habilitada AS "conciliacionV2Habilitada",
                   tolerancia_dias AS "toleranciaDias",
                   tolerancia_monto::text AS "toleranciaMonto",
+                  umbral_auto_match::float8 AS "umbralAutoMatch",
                   cuenta_itf_codigo AS "cuentaItfCodigo",
                   cuenta_comision_codigo AS "cuentaComisionCodigo",
                   cuenta_interes_gasto_codigo AS "cuentaInteresGastoCodigo",
@@ -995,6 +1198,7 @@ export const conciliacionV2Service = {
           siguienteHabilitada,
           siguienteToleranciaDias,
           siguienteToleranciaMonto,
+          siguienteUmbralAutoMatch,
           siguienteItf,
           siguienteComision,
           siguienteInteresGasto,
@@ -1009,6 +1213,7 @@ export const conciliacionV2Service = {
         conciliacionV2Habilitada: Boolean(saved.conciliacionV2Habilitada),
         toleranciaDias: Number(saved.toleranciaDias),
         toleranciaMonto: Money.format(saved.toleranciaMonto ?? '0'),
+        umbralAutoMatch: parsearUmbralAutoMatch(saved.umbralAutoMatch),
         cuentaItfCodigo: saved.cuentaItfCodigo,
         cuentaComisionCodigo: saved.cuentaComisionCodigo,
         cuentaInteresGastoCodigo: saved.cuentaInteresGastoCodigo,
@@ -1030,6 +1235,7 @@ export const conciliacionV2Service = {
               conciliacionV2Habilitada: actual.conciliacionV2Habilitada,
               toleranciaDias: actual.toleranciaDias,
               toleranciaMonto: actual.toleranciaMonto,
+              umbralAutoMatch: parsearUmbralAutoMatch(actual.umbralAutoMatch),
               cuentaItfCodigo: actual.cuentaItfCodigo,
               cuentaComisionCodigo: actual.cuentaComisionCodigo,
               cuentaInteresGastoCodigo: actual.cuentaInteresGastoCodigo,
@@ -1041,6 +1247,7 @@ export const conciliacionV2Service = {
           conciliacionV2Habilitada: resultado.conciliacionV2Habilitada,
           toleranciaDias: resultado.toleranciaDias,
           toleranciaMonto: resultado.toleranciaMonto,
+          umbralAutoMatch: resultado.umbralAutoMatch,
           cuentaItfCodigo: resultado.cuentaItfCodigo,
           cuentaComisionCodigo: resultado.cuentaComisionCodigo,
           cuentaInteresGastoCodigo: resultado.cuentaInteresGastoCodigo,

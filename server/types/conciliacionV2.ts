@@ -26,6 +26,17 @@ export type SemaforoConciliacion = 'VERDE' | 'AMARILLO' | 'ROJO' | 'SIN_EXTRACTO
 
 export type EstadoLibroV2 = 'CONCILIADO' | 'PENDIENTE_BANCO' | 'CHEQUE_NO_COBRADO';
 
+export type OrigenPartidaLibroV2 = 'MOVIMIENTO_TESORERIA' | 'ASIENTO_MANUAL';
+
+export type TipoMatchV2 = '1:1' | '1:N' | 'N:1' | 'N:M';
+
+export type EstadoGrupoConciliacionV2 =
+  | 'SUGERIDO'
+  | 'CONCILIADO'
+  | 'CONCILIADO_MANUAL'
+  | 'RECHAZADO'
+  | 'DESCONCILIADO';
+
 export const FORMATOS_EXTRACTO_V2 = ['XLSX', 'CSV', 'TXT', 'PDF'] as const;
 
 export type FormatoExtractoV2 = (typeof FORMATOS_EXTRACTO_V2)[number];
@@ -60,6 +71,8 @@ export interface ConfigConciliacionV2 {
   conciliacionV2Habilitada: boolean;
   toleranciaDias: number;
   toleranciaMonto: string;
+  /** Umbral mínimo de score [0.6, 1.0] para auto-conciliación (default 0.90) */
+  umbralAutoMatch?: number;
   cuentaItfCodigo: string;
   cuentaComisionCodigo: string;
   cuentaInteresGastoCodigo: string;
@@ -74,6 +87,7 @@ export interface ActualizarConfigConciliacionV2Input {
   conciliacionV2Habilitada?: boolean;
   toleranciaDias?: number;
   toleranciaMonto?: string | number;
+  umbralAutoMatch?: number;
   cuentaItfCodigo?: string;
   cuentaComisionCodigo?: string;
   cuentaInteresGastoCodigo?: string;
@@ -134,6 +148,7 @@ export interface PartidaExtractoV2 {
   rucExtraido?: string | null;
   contraparteExtraida?: string | null;
   docExtraido?: string | null;
+  grupoConciliacionId?: string | null;
 }
 
 export interface PartidaLibroV2 {
@@ -154,6 +169,13 @@ export interface PartidaLibroV2 {
   conciliado: boolean;
   estadoLibroV2: EstadoLibroV2;
   asientoId: string | null;
+  origen?: OrigenPartidaLibroV2;
+  asientoDetalleId?: string | null;
+  docRef?: string | null;
+  anexoId?: string | null;
+  anexoNombre?: string | null;
+  anexoRuc?: string | null;
+  grupoConciliacionId?: string | null;
 }
 
 export interface IntegridadMayor104x {
@@ -208,6 +230,7 @@ export interface ResumenConciliacionV2 {
   };
   extractoLineas: PartidaExtractoV2[];
   movimientosLibros: PartidaLibroV2[];
+  asientosManualesLibros?: PartidaLibroV2[];
 }
 
 export interface ConciliarPartidaV2Input {
@@ -493,4 +516,141 @@ export interface ResultadoReversionImportacionV2 {
   extractoAnulado: boolean;
   motivo: string;
   revertidoEn: string;
+}
+
+// ============================================================================
+// CONTRATOS DTO FASE 3 — MOTOR DE MATCHING, REGLAS APRENDIDAS Y TRAZABILIDAD
+// ============================================================================
+
+export interface ItemConciliacionV2 {
+  id: string;
+  grupoId: string;
+  lado: 'BANCO' | 'LIBRO';
+  origenLibro: OrigenPartidaLibroV2 | null;
+  extractoLineaId: string | null;
+  movimientoTesoreriaId: string | null;
+  asientoId: string | null;
+  asientoDetalleId: string | null;
+  montoImputado: string;
+  fecha?: string | null;
+  descripcion?: string | null;
+  referencia?: string | null;
+}
+
+export interface GrupoConciliacionV2 {
+  id: string;
+  empresaId: string;
+  cuentaFinancieraId: string;
+  periodoId: string;
+  tipoMatch: TipoMatchV2;
+  reglaAplicada: string;
+  capaMatching: number;
+  score: number;
+  estado: EstadoGrupoConciliacionV2;
+  diferenciaMonto: string;
+  observacion: string | null;
+  usuarioId: string | null;
+  confirmadoPor: string | null;
+  confirmadoEn: string | null;
+  createdAt: string;
+  updatedAt: string;
+  itemsBanco: ItemConciliacionV2[];
+  itemsLibro: ItemConciliacionV2[];
+}
+
+export interface EjecutarMatchingInput {
+  cuentaFinancieraId: string;
+  periodo: string;
+  umbralAutoMatch?: number;
+  toleranciaDias?: number;
+  toleranciaMonto?: string | number;
+  limpiarSugerenciasPrevias?: boolean;
+}
+
+export interface ResultadoEjecucionMatchingV2 {
+  cuentaFinancieraId: string;
+  periodo: string;
+  autoConciliados: number;
+  sugeridos: number;
+  diferenciaPendiente: string;
+  gruposCreados: GrupoConciliacionV2[];
+  duracionMs: number;
+}
+
+export interface ConciliarManualGrupoInput {
+  cuentaFinancieraId: string;
+  periodo: string;
+  extractoLineaIds: string[];
+  libroItems: Array<{ origenLibro: OrigenPartidaLibroV2; id: string }>;
+  observacion?: string | null;
+  aprenderRegla?: {
+    patronContraparte: string;
+    rucContraparte?: string | null;
+    anexoId?: string | null;
+    cuentaContableId?: string | null;
+    tipoClasificacion?: TipoClasificacionExtracto | null;
+  } | null;
+}
+
+export interface AceptarSugerenciasInput {
+  grupoIds: string[];
+}
+
+export interface RechazarSugerenciaInput {
+  motivo?: string | null;
+}
+
+export interface DesconciliarGrupoInput {
+  motivo: string;
+}
+
+export interface ReglaAprendidaV2 {
+  id: string;
+  empresaId: string;
+  patronContraparte: string;
+  rucContraparte: string | null;
+  anexoId: string | null;
+  anexoNombre?: string | null;
+  cuentaContableId: string | null;
+  cuentaContableCodigo?: string | null;
+  tipoClasificacion: TipoClasificacionExtracto | null;
+  usosConfirmados: number;
+  activo: boolean;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrearReglaAprendidaInput {
+  patronContraparte: string;
+  rucContraparte?: string | null;
+  anexoId?: string | null;
+  cuentaContableId?: string | null;
+  tipoClasificacion?: TipoClasificacionExtracto | null;
+  activo?: boolean;
+}
+
+export interface ActualizarReglaAprendidaInput {
+  patronContraparte?: string;
+  rucContraparte?: string | null;
+  anexoId?: string | null;
+  cuentaContableId?: string | null;
+  tipoClasificacion?: TipoClasificacionExtracto | null;
+  activo?: boolean;
+}
+
+export interface HistorialDesconciliacionV2 {
+  id: string;
+  empresaId: string;
+  grupoId: string | null;
+  extractoLineaId: string | null;
+  movimientoTesoreriaId: string | null;
+  estadoAnteriorBanco: string | null;
+  estadoAnteriorLibro: string | null;
+  motivo: string;
+  snapshotGrupoJson: Record<string, unknown>;
+  usuarioId: string | null;
+  usuarioEmail?: string | null;
+  createdAt: string;
 }
