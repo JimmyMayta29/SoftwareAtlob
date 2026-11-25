@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Decimal from 'decimal.js';
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   History,
   Link2,
@@ -9,67 +10,48 @@ import {
   Settings,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Unlock,
-  Unlink,
   Upload,
+  Wand2,
 } from 'lucide-react';
-import {
-  ESTADOS_CONCILIACION_V2,
-  type EstadoConciliacionV2,
-  type EstadoLibroV2,
-  type PartidaExtractoV2,
-  type PartidaLibroV2,
-  type SemaforoConciliacion,
-  type TipoClasificacionExtracto,
+import type {
+  ConciliarManualGrupoInput,
+  SemaforoConciliacion,
 } from '../../api/conciliacionV2Api';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
 import {
   extraerMensajeErrorConciliacion,
+  useAceptarSugerencias,
   useCerrarConciliacionV2,
   useConciliacionV2Config,
-  useConciliarPartidaV2,
+  useConciliarManualGrupo,
   useCuentasBancariasV2,
   useCuentasContablesDisponiblesV2,
+  useDesconciliarGrupo,
   useDesconciliarPartidaV2,
+  useEjecutarMatching,
+  useGruposMatching,
   useReabrirConciliacionV2,
+  useRechazarSugerencia,
   useResumenConciliacionV2,
   useVincularCuentaContableV2,
 } from '../../hooks/useConciliacionV2';
 import { AsistenteImportacionModal } from '../conciliacion/AsistenteImportacionModal';
 import { ConfigConciliacionV2Modal } from '../conciliacion/ConfigConciliacionV2Modal';
+import { formatearMonedaExacta } from '../conciliacion/conciliacionUtils';
 import { HistorialImportacionesModal } from '../conciliacion/HistorialImportacionesModal';
+import {
+  HistorialYReglasModal,
+  type TabHistorialReglas,
+} from '../conciliacion/HistorialYReglasModal';
+import { PanelDualConciliacion } from '../conciliacion/PanelDualConciliacion';
 import { PerfilesYReglasModal } from '../conciliacion/PerfilesYReglasModal';
+import { SugerenciasMatchingBanner } from '../conciliacion/SugerenciasMatchingBanner';
 import { BarraHerramientasLocal } from '../ui/BarraHerramientasLocal';
 import { SelectorPeriodo } from '../ui/SelectorPeriodo';
-import { ColumnaTablaDensa, TablaDensa } from '../ui/TablaDensa';
 import { VentanaModal } from '../ui/VentanaModal';
-
-type TabPartidas = 'EXTRACTO' | 'LIBROS';
-
-const ETIQUETAS_ESTADO_V2: Record<EstadoConciliacionV2, string> = {
-  CONCILIADO: 'CONCILIADO',
-  CONCILIADO_MANUAL: 'CONCILIADO_MANUAL',
-  SUGERIDO: 'SUGERIDO',
-  PENDIENTE_LIBROS: 'PENDIENTE_LIBROS',
-  PENDIENTE_BANCO: 'PENDIENTE_BANCO',
-  CHEQUE_NO_COBRADO: 'CHEQUE_NO_COBRADO',
-  CARGO_BANCARIO_ITF: 'CARGO_BANCARIO_ITF',
-  DIFERENCIA_IMPORTE: 'DIFERENCIA_IMPORTE',
-  DUPLICADO: 'DUPLICADO',
-};
-
-function formatearMoneda(valor: string | null | undefined, moneda = 'PEN'): string {
-  if (valor === null || valor === undefined || valor === '') return '—';
-  const dec = new Decimal(valor);
-  const fijo = dec.toFixed(2);
-  const negativo = fijo.startsWith('-');
-  const absoluto = negativo ? fijo.slice(1) : fijo;
-  const [entero, decimales] = absoluto.split('.');
-  const enteroFormateado = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const simbolo = moneda === 'USD' ? 'US$' : 'S/';
-  return `${negativo ? '-' : ''}${simbolo} ${enteroFormateado}.${decimales}`;
-}
 
 function esCeroExacto(valor: string | null | undefined): boolean {
   if (valor === null || valor === undefined || valor === '') return false;
@@ -77,58 +59,6 @@ function esCeroExacto(valor: string | null | undefined): boolean {
     return new Decimal(valor).eq(0);
   } catch {
     return false;
-  }
-}
-
-function claseBadgeEstadoExtracto(estado: EstadoConciliacionV2): string {
-  switch (estado) {
-    case 'CONCILIADO':
-    case 'CONCILIADO_MANUAL':
-      return 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]';
-    case 'SUGERIDO':
-      return 'bg-[#EFF6FF] text-[#1E3A5F] border-[#1E3A5F]';
-    case 'DIFERENCIA_IMPORTE':
-    case 'DUPLICADO':
-      return 'bg-[#FEF2F2] text-[#B91C1C] border-[#B91C1C]';
-    case 'CARGO_BANCARIO_ITF':
-    case 'CHEQUE_NO_COBRADO':
-    case 'PENDIENTE_LIBROS':
-    case 'PENDIENTE_BANCO':
-    default:
-      return 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]';
-  }
-}
-
-function claseBadgeEstadoLibro(estado: EstadoLibroV2): string {
-  switch (estado) {
-    case 'CONCILIADO':
-      return 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]';
-    case 'CHEQUE_NO_COBRADO':
-    case 'PENDIENTE_BANCO':
-    default:
-      return 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]';
-  }
-}
-
-function claseBadgeClasificacion(tipo: TipoClasificacionExtracto): string {
-  switch (tipo) {
-    case 'ITF':
-    case 'COMISION_BANCARIA':
-    case 'MANTENIMIENTO':
-    case 'INTERES_GASTO':
-      return 'bg-[#FEF3C7] text-[#B45309] border-[#B45309]';
-    case 'INTERES_INGRESO':
-    case 'TRANSFERENCIA':
-      return 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]';
-    case 'DETRACCION':
-    case 'TRIBUTO_SUNAT':
-    case 'AFP_ONP_ESSALUD':
-    case 'PLANILLA':
-      return 'bg-[#EFF6FF] text-[#1E3A5F] border-[#1E3A5F]';
-    case 'CHEQUE':
-    case 'OTRO':
-    default:
-      return 'bg-[#F3F4F6] text-[#374151] border-[#9CA3AF]';
   }
 }
 
@@ -181,9 +111,6 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const puedeReabrir = verificarPermiso(['ADMINISTRADOR']);
 
   const [cuentaSeleccionadaId, setCuentaSeleccionadaId] = useState<string>('');
-  const [tabActiva, setTabActiva] = useState<TabPartidas>('EXTRACTO');
-  const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
-  const [textoBusqueda, setTextoBusqueda] = useState<string>('');
 
   // Estado para vinculación contable obligatoria
   const [cuentaContableSelectId, setCuentaContableSelectId] = useState<string>('');
@@ -194,15 +121,14 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const [modalImportarAbierto, setModalImportarAbierto] = useState(false);
   const [modalPerfilesAbierto, setModalPerfilesAbierto] = useState(false);
   const [modalHistorialAbierto, setModalHistorialAbierto] = useState(false);
-  const [partidaParaConciliar, setPartidaParaConciliar] = useState<PartidaExtractoV2 | null>(null);
-  const [movimientoVinculoId, setMovimientoVinculoId] = useState<string>('');
-  const [observacionConciliacion, setObservacionConciliacion] = useState<string>('');
-  const [partidaParaDesconciliar, setPartidaParaDesconciliar] = useState<PartidaExtractoV2 | null>(
-    null
-  );
-  const [motivoDesconciliar, setMotivoDesconciliar] = useState<string>('');
+  const [modalHistorialReglasAbierto, setModalHistorialReglasAbierto] = useState(false);
+  const [tabHistorialReglas, setTabHistorialReglas] = useState<TabHistorialReglas>('HISTORIAL');
   const [modalReabrirAbierto, setModalReabrirAbierto] = useState(false);
   const [motivoReapertura, setMotivoReapertura] = useState<string>('');
+
+  // Bandeja de sugerencias
+  const [sugerenciasAbierto, setSugerenciasAbierto] = useState(true);
+  const [rechazandoGrupoId, setRechazandoGrupoId] = useState<string | null>(null);
 
   // Queries
   const configQuery = useConciliacionV2Config(empresaId);
@@ -239,6 +165,23 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const resumenQuery = useResumenConciliacionV2(empresaId, cuentaSeleccionadaId || null, periodo);
   const resumen = resumenQuery.data ?? null;
 
+  const gruposQuery = useGruposMatching(empresaId, cuentaSeleccionadaId || null, periodo);
+  const grupos = gruposQuery.data ?? [];
+
+  const gruposSugeridos = useMemo(
+    () => grupos.filter((g) => g.estado === 'SUGERIDO'),
+    [grupos]
+  );
+
+  // Abrir automáticamente bandeja cuando aparecen sugerencias nuevas
+  const cantidadSugerenciasPrevRef = useRef(0);
+  useEffect(() => {
+    if (gruposSugeridos.length > 0 && cantidadSugerenciasPrevRef.current === 0) {
+      setSugerenciasAbierto(true);
+    }
+    cantidadSugerenciasPrevRef.current = gruposSugeridos.length;
+  }, [gruposSugeridos.length]);
+
   // Sincronizar campos de vinculación al cambiar de cuenta
   useEffect(() => {
     setCuentaContableSelectId('');
@@ -248,7 +191,11 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   // Notificar errores reales de queries sin duplicar por el mismo mensaje
   const ultimoErrorReportadoRef = useRef<string | null>(null);
   useEffect(() => {
-    const err = cuentasQuery.error || resumenQuery.error || cuentasContablesQuery.error;
+    const err =
+      cuentasQuery.error ||
+      resumenQuery.error ||
+      cuentasContablesQuery.error ||
+      gruposQuery.error;
     if (!err) {
       ultimoErrorReportadoRef.current = null;
       return;
@@ -258,14 +205,26 @@ export const ConciliacionBancariaV2View: React.FC = () => {
       ultimoErrorReportadoRef.current = msg;
       toast.error(msg, 'Conciliación Bancaria V2');
     }
-  }, [cuentasQuery.error, resumenQuery.error, cuentasContablesQuery.error, toast]);
+  }, [
+    cuentasQuery.error,
+    resumenQuery.error,
+    cuentasContablesQuery.error,
+    gruposQuery.error,
+    toast,
+  ]);
 
   // Mutaciones
   const vincularMutation = useVincularCuentaContableV2(empresaId);
-  const conciliarMutation = useConciliarPartidaV2(empresaId);
-  const desconciliarMutation = useDesconciliarPartidaV2(empresaId);
+  const desconciliarLegacyMutation = useDesconciliarPartidaV2(empresaId);
   const cerrarMutation = useCerrarConciliacionV2(empresaId);
   const reabrirMutation = useReabrirConciliacionV2(empresaId);
+
+  // Mutaciones Fase 3
+  const ejecutarMatchingMutation = useEjecutarMatching(empresaId);
+  const aceptarSugerenciasMutation = useAceptarSugerencias(empresaId);
+  const rechazarSugerenciaMutation = useRechazarSugerencia(empresaId);
+  const conciliarManualGrupoMutation = useConciliarManualGrupo(empresaId);
+  const desconciliarGrupoMutation = useDesconciliarGrupo(empresaId);
 
   const periodoEstado = resumen?.conciliacionPeriodo.estado ?? 'ABIERTA';
   const conciliacionCerrada = periodoEstado === 'CERRADA';
@@ -274,52 +233,40 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const operacionesBloqueadas =
     requiereVinculacion || conciliacionCerrada || !puedeOperarPartidas;
 
-  // Movimientos de libros disponibles para vincular manualmente
-  const movimientosLibrosDisponibles = useMemo(() => {
-    if (!resumen) return [];
-    return resumen.movimientosLibros.filter((m) => !m.conciliado && m.estado !== 'ANULADO');
-  }, [resumen]);
+  const motivoBloqueoOperaciones = requiereVinculacion
+    ? 'Bloqueado: la cuenta bancaria debe vincularse primero a una cuenta del Plan Contable (PCGE)'
+    : conciliacionCerrada
+    ? 'Bloqueado: la conciliación del período está CERRADA'
+    : !puedeOperarPartidas
+    ? 'Solo lectura para su rol actual'
+    : undefined;
 
-  // Filtrado por los 9 estados + búsqueda
-  const extractoFiltrado = useMemo(() => {
-    const lineas = resumen?.extractoLineas ?? [];
-    const q = textoBusqueda.trim().toLowerCase();
-    return lineas.filter((l) => {
-      if (filtroEstado !== 'TODOS' && l.estadoConciliacion !== filtroEstado) return false;
-      if (!q) return true;
-      return (
-        l.descripcion.toLowerCase().includes(q) ||
-        (l.referencia ?? '').toLowerCase().includes(q) ||
-        (l.rucExtraido ?? '').toLowerCase().includes(q) ||
-        (l.docExtraido ?? '').toLowerCase().includes(q) ||
-        (l.contraparteExtraida ?? '').toLowerCase().includes(q) ||
-        (l.tipoClasificacion ?? '').toLowerCase().includes(q) ||
-        l.fecha.includes(q) ||
-        l.monto.includes(q)
-      );
-    });
-  }, [resumen?.extractoLineas, filtroEstado, textoBusqueda]);
+  const puedeEjecutarMatching = Boolean(
+    cuentaSeleccionada &&
+      !requiereVinculacion &&
+      !conciliacionCerrada &&
+      puedeOperarPartidas &&
+      resumen?.tieneExtracto
+  );
 
-  const librosFiltrado = useMemo(() => {
-    const movs = resumen?.movimientosLibros ?? [];
-    const q = textoBusqueda.trim().toLowerCase();
-    return movs.filter((m) => {
-      if (filtroEstado !== 'TODOS' && m.estadoLibroV2 !== filtroEstado) return false;
-      if (!q) return true;
-      return (
-        m.glosa.toLowerCase().includes(q) ||
-        (m.numeroOperacion ?? '').toLowerCase().includes(q) ||
-        m.fecha.includes(q) ||
-        m.importe.includes(q)
-      );
-    });
-  }, [resumen?.movimientosLibros, filtroEstado, textoBusqueda]);
+  const tooltipEjecutarMatching = !cuentaSeleccionada
+    ? 'Seleccione una cuenta bancaria primero'
+    : requiereVinculacion
+    ? 'Bloqueado: vincule una cuenta contable del Plan de Cuentas (cuentaContableId requerida)'
+    : conciliacionCerrada
+    ? 'Bloqueado: el período se encuentra CERRADO'
+    : !puedeOperarPartidas
+    ? 'Solo lectura para rol AUDITOR'
+    : !resumen?.tieneExtracto
+    ? 'Importe un extracto bancario en este período antes de ejecutar matching'
+    : 'Ejecutar motor de matching automático (Capas 1 a 4)';
 
   const handleRefrescar = () => {
     void configQuery.refetch();
     void cuentasQuery.refetch();
     if (cuentaSeleccionadaId) {
       void resumenQuery.refetch();
+      void gruposQuery.refetch();
     }
   };
 
@@ -339,38 +286,82 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     }
   };
 
-  const abrirModalConciliar = (partida: PartidaExtractoV2) => {
-    setPartidaParaConciliar(partida);
-    setMovimientoVinculoId(partida.movimientoTesoreriaId ?? '');
-    setObservacionConciliacion(partida.observacionConciliacion ?? '');
-  };
-
-  const handleConfirmarConciliar = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!partidaParaConciliar) return;
+  const handleEjecutarMatching = async () => {
+    if (!cuentaSeleccionada || !puedeEjecutarMatching || ejecutarMatchingMutation.isPending) return;
     try {
-      await conciliarMutation.mutateAsync({
-        extractoLineaId: partidaParaConciliar.id,
-        movimientoTesoreriaId: movimientoVinculoId || null,
-        estadoConciliacion: 'CONCILIADO_MANUAL',
-        observacion: observacionConciliacion.trim() ? observacionConciliacion.trim() : null,
+      const resultado = await ejecutarMatchingMutation.mutateAsync({
+        cuentaFinancieraId: cuentaSeleccionada.id,
+        periodo,
+        umbralAutoMatch: configQuery.data?.umbralAutoMatch,
+        toleranciaDias: configQuery.data?.toleranciaDias,
+        toleranciaMonto: configQuery.data?.toleranciaMonto,
       });
-      setPartidaParaConciliar(null);
+      if (resultado.sugeridos > 0) {
+        setSugerenciasAbierto(true);
+      }
     } catch {
       // Notificado por toast en el hook
     }
   };
 
-  const handleConfirmarDesconciliar = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!partidaParaDesconciliar) return;
+  const handleAceptarSugerencias = async (grupoIds: string[]) => {
+    if (grupoIds.length === 0 || operacionesBloqueadas) return;
     try {
-      await desconciliarMutation.mutateAsync({
-        extractoLineaId: partidaParaDesconciliar.id,
-        motivo: motivoDesconciliar.trim() ? motivoDesconciliar.trim() : null,
+      await aceptarSugerenciasMutation.mutateAsync({ grupoIds });
+    } catch {
+      // Notificado por toast en el hook
+    }
+  };
+
+  const handleRechazarSugerencia = async (grupoId: string, motivo?: string | null) => {
+    if (operacionesBloqueadas) return;
+    setRechazandoGrupoId(grupoId);
+    try {
+      await rechazarSugerenciaMutation.mutateAsync({
+        grupoId,
+        payload: { motivo: motivo ?? null },
       });
-      setPartidaParaDesconciliar(null);
-      setMotivoDesconciliar('');
+    } catch {
+      // Notificado por toast en el hook
+    } finally {
+      setRechazandoGrupoId(null);
+    }
+  };
+
+  const handleConciliarManualGrupo = async (
+    payload: Omit<ConciliarManualGrupoInput, 'cuentaFinancieraId' | 'periodo'>
+  ) => {
+    if (!cuentaSeleccionada || operacionesBloqueadas) return;
+    try {
+      await conciliarManualGrupoMutation.mutateAsync({
+        ...payload,
+        cuentaFinancieraId: cuentaSeleccionada.id,
+        periodo,
+      });
+    } catch {
+      // Notificado por toast en el hook
+    }
+  };
+
+  const handleDesconciliarGrupo = async (grupoId: string, motivo: string) => {
+    if (operacionesBloqueadas) return;
+    try {
+      await desconciliarGrupoMutation.mutateAsync({
+        grupoId,
+        payload: { motivo },
+      });
+    } catch {
+      // Notificado por toast en el hook
+    }
+  };
+
+  const handleDesconciliarPartidaLegacy = async (extractoLineaId: string, motivo: string) => {
+    if (operacionesBloqueadas) return;
+    try {
+      await desconciliarLegacyMutation.mutateAsync({
+        extractoLineaId,
+        motivo,
+      });
     } catch {
       // Notificado por toast en el hook
     }
@@ -418,216 +409,6 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     }
   };
 
-  const columnasExtracto: ColumnaTablaDensa<PartidaExtractoV2>[] = [
-    {
-      key: 'fecha',
-      header: 'Fecha',
-      width: '90px',
-      render: (r) => <span className="font-mono">{r.fecha}</span>,
-    },
-    {
-      key: 'referencia',
-      header: 'Referencia',
-      width: '120px',
-      render: (r) => <span className="font-mono text-[#1E3A5F]">{r.referencia || '—'}</span>,
-    },
-    {
-      key: 'descripcion',
-      header: 'Descripción Extracto Bancario',
-      render: (r) => (
-        <div className="min-w-0">
-          <div className="truncate">{r.descripcion}</div>
-          {(r.tipoClasificacion ||
-            r.rucExtraido ||
-            r.docExtraido ||
-            r.contraparteExtraida ||
-            r.observacionConciliacion) && (
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px]">
-              {r.tipoClasificacion && (
-                <span
-                  className={`inline-block px-1 py-0 text-[9px] font-bold border ${claseBadgeClasificacion(
-                    r.tipoClasificacion
-                  )}`}
-                >
-                  {r.tipoClasificacion}
-                </span>
-              )}
-              {r.rucExtraido && (
-                <span className="font-mono text-[#1E3A5F]">RUC {r.rucExtraido}</span>
-              )}
-              {r.docExtraido && (
-                <span className="font-mono text-[#374151]">Doc {r.docExtraido}</span>
-              )}
-              {r.contraparteExtraida && (
-                <span className="text-[#4B5563] truncate max-w-[220px]">
-                  · {r.contraparteExtraida}
-                </span>
-              )}
-              {r.observacionConciliacion && (
-                <span className="text-[#4B5563] truncate">
-                  · Obs: {r.observacionConciliacion}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'estadoConciliacion',
-      header: 'Estado V2',
-      width: '165px',
-      render: (r) => (
-        <span
-          className={`inline-block px-1.5 py-0.5 text-[10px] font-bold border ${claseBadgeEstadoExtracto(
-            r.estadoConciliacion
-          )}`}
-        >
-          {ETIQUETAS_ESTADO_V2[r.estadoConciliacion]}
-        </span>
-      ),
-    },
-    {
-      key: 'monto',
-      header: `Monto (${monedaCuenta})`,
-      width: '120px',
-      align: 'right',
-      numeric: true,
-      render: (r) => {
-        const neg = new Decimal(r.monto).lt(0);
-        return (
-          <span className={`font-mono font-bold ${neg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'}`}>
-            {formatearMoneda(r.monto, monedaCuenta)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'diferenciaImporte',
-      header: 'Dif. Importe',
-      width: '100px',
-      align: 'right',
-      numeric: true,
-      render: (r) => (
-        <span className="font-mono text-[#4B5563]">
-          {formatearMoneda(r.diferenciaImporte, monedaCuenta)}
-        </span>
-      ),
-    },
-    {
-      key: 'acciones',
-      header: 'Acción',
-      width: '130px',
-      align: 'center',
-      render: (r) =>
-        r.conciliada ? (
-          <button
-            type="button"
-            disabled={operacionesBloqueadas || desconciliarMutation.isPending}
-            onClick={(e) => {
-              e.stopPropagation();
-              setPartidaParaDesconciliar(r);
-              setMotivoDesconciliar('');
-            }}
-            title={
-              requiereVinculacion
-                ? 'Vincule una cuenta contable del Plan de Cuentas primero'
-                : conciliacionCerrada
-                ? 'Conciliación cerrada'
-                : !puedeOperarPartidas
-                ? 'Solo lectura para rol AUDITOR'
-                : 'Desconciliar partida'
-            }
-            className="h-6 px-2 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#D1D5DB] text-[11px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none"
-          >
-            <Unlink className="w-3 h-3" />
-            <span>Desconciliar</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={operacionesBloqueadas || conciliarMutation.isPending}
-            onClick={(e) => {
-              e.stopPropagation();
-              abrirModalConciliar(r);
-            }}
-            title={
-              requiereVinculacion
-                ? 'Vincule una cuenta contable del Plan de Cuentas primero'
-                : conciliacionCerrada
-                ? 'Conciliación cerrada'
-                : !puedeOperarPartidas
-                ? 'Solo lectura para rol AUDITOR'
-                : 'Conciliar manualmente'
-            }
-            className="h-6 px-2 bg-[#1E3A5F] hover:bg-[#162C49] text-[#FFFFFF] border border-[#1E3A5F] text-[11px] inline-flex items-center gap-1 cursor-pointer disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] disabled:border-[#D1D5DB] disabled:cursor-not-allowed rounded-none"
-          >
-            <Link2 className="w-3 h-3" />
-            <span>Conciliar manual</span>
-          </button>
-        ),
-    },
-  ];
-
-  const columnasLibros: ColumnaTablaDensa<PartidaLibroV2>[] = [
-    {
-      key: 'fecha',
-      header: 'Fecha',
-      width: '90px',
-      render: (r) => <span className="font-mono">{r.fecha}</span>,
-    },
-    {
-      key: 'tipo',
-      header: 'Tipo / Medio',
-      width: '140px',
-      render: (r) => (
-        <span className="font-mono text-[11px]">
-          {r.tipo} · {r.medioPago}
-        </span>
-      ),
-    },
-    {
-      key: 'numeroOperacion',
-      header: 'N° Operación',
-      width: '120px',
-      render: (r) => <span className="font-mono text-[#1E3A5F]">{r.numeroOperacion || '—'}</span>,
-    },
-    {
-      key: 'glosa',
-      header: 'Glosa / Movimiento Tesorería',
-      render: (r) => r.glosa,
-    },
-    {
-      key: 'estadoLibroV2',
-      header: 'Estado Libro V2',
-      width: '165px',
-      render: (r) => (
-        <span
-          className={`inline-block px-1.5 py-0.5 text-[10px] font-bold border ${claseBadgeEstadoLibro(
-            r.estadoLibroV2
-          )}`}
-        >
-          {r.estadoLibroV2}
-        </span>
-      ),
-    },
-    {
-      key: 'importeConSigno',
-      header: `Importe (${monedaCuenta})`,
-      width: '125px',
-      align: 'right',
-      numeric: true,
-      render: (r) => {
-        const neg = new Decimal(r.importeConSigno).lt(0);
-        return (
-          <span className={`font-mono font-bold ${neg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'}`}>
-            {formatearMoneda(r.importeConSigno, monedaCuenta)}
-          </span>
-        );
-      },
-    },
-  ];
-
   if (!empresaId) {
     return (
       <div className="p-4 bg-[#FFFFFF] border border-[#D1D5DB] text-[#4B5563] text-[12px]">
@@ -640,11 +421,19 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     ? infoSemaforo(resumen.semaforo, resumen.toleranciaMonto)
     : null;
 
+  const hayModalAbierto =
+    modalConfigAbierto ||
+    modalImportarAbierto ||
+    modalPerfilesAbierto ||
+    modalHistorialAbierto ||
+    modalHistorialReglasAbierto ||
+    modalReabrirAbierto;
+
   return (
     <div className="flex flex-col h-full bg-[#FFFFFF] text-[#111827]">
       <BarraHerramientasLocal
         titulo="Conciliación Bancaria V2"
-        subtitulo="Cruce de Extracto Bancario, Tesorería y Control de Integridad Mayor 104x"
+        subtitulo="Panel Dual Extracto vs. Libros, Motor de Matching y Trazabilidad Mayor 104x"
         onRefrescar={handleRefrescar}
         acciones={[
           {
@@ -711,8 +500,8 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         }
       />
 
-      {/* Barra selectora de cuenta bancaria + estado del periodo */}
-      <div className="px-3 py-2 bg-[#F5F7FA] border-b border-[#D1D5DB] flex flex-wrap items-center justify-between gap-3 text-[12px]">
+      {/* Barra selectora de cuenta bancaria + acciones Fase 3 + estado del periodo */}
+      <div className="px-3 py-2 bg-[#F5F7FA] border-b border-[#D1D5DB] flex flex-wrap items-center justify-between gap-2.5 text-[12px]">
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <label htmlFor="select-cuenta-v2" className="font-bold text-[#1E3A5F] shrink-0">
             Cuenta Bancaria:
@@ -722,7 +511,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
             value={cuentaSeleccionadaId}
             onChange={(e) => setCuentaSeleccionadaId(e.target.value)}
             disabled={cuentasQuery.isLoading || cuentas.length === 0}
-            className="h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] min-w-[320px] max-w-full focus:outline-none focus:border-[#1E3A5F] rounded-none"
+            className="h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] min-w-[300px] max-w-full focus:outline-none focus:border-[#1E3A5F] rounded-none"
           >
             {cuentas.length === 0 ? (
               <option value="">
@@ -743,14 +532,6 @@ export const ConciliacionBancariaV2View: React.FC = () => {
 
           {cuentaSeleccionada && (
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="px-1.5 py-0.5 bg-[#FFFFFF] border border-[#D1D5DB] font-mono">
-                {cuentaSeleccionada.moneda} · N° {cuentaSeleccionada.numero}
-              </span>
-              {cuentaSeleccionada.cci && (
-                <span className="px-1.5 py-0.5 bg-[#FFFFFF] border border-[#D1D5DB] font-mono">
-                  CCI: {cuentaSeleccionada.cci}
-                </span>
-              )}
               {requiereVinculacion ? (
                 <span className="px-1.5 py-0.5 bg-[#FEF2F2] text-[#B91C1C] border border-[#B91C1C] font-bold">
                   Falta vinculación contable
@@ -763,22 +544,76 @@ export const ConciliacionBancariaV2View: React.FC = () => {
                     : ''}
                 </span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold border ${
+                  conciliacionCerrada
+                    ? 'bg-[#FEF2F2] text-[#B91C1C] border-[#B91C1C]'
+                    : 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]'
+                }`}
+              >
+                {conciliacionCerrada ? (
+                  <Lock className="w-3 h-3" />
+                ) : (
+                  <CheckCircle2 className="w-3 h-3" />
+                )}
+                {periodoEstado}
+              </span>
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] text-[#4B5563]">Estado Conciliación:</span>
-          <span
-            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold border ${
-              conciliacionCerrada
-                ? 'bg-[#FEF2F2] text-[#B91C1C] border-[#B91C1C]'
-                : 'bg-[#ECFDF5] text-[#1E6F42] border-[#1E6F42]'
+        {/* Acciones principales Fase 3 */}
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          <span title={tooltipEjecutarMatching} className="inline-flex">
+            <button
+              type="button"
+              disabled={!puedeEjecutarMatching || ejecutarMatchingMutation.isPending}
+              onClick={() => void handleEjecutarMatching()}
+              title={tooltipEjecutarMatching}
+              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] text-[#FFFFFF] border border-[#1E3A5F] disabled:border-[#D1D5DB] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed rounded-none"
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>
+                {ejecutarMatchingMutation.isPending
+                  ? 'Ejecutando Matching...'
+                  : 'Ejecutar Matching Automático'}
+              </span>
+            </button>
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setSugerenciasAbierto((prev) => !prev)}
+            className={`h-7 px-2.5 text-[12px] border inline-flex items-center gap-1.5 cursor-pointer rounded-none ${
+              gruposSugeridos.length > 0
+                ? 'bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E3A5F] border-[#1E3A5F] font-bold'
+                : 'bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border-[#D1D5DB]'
             }`}
           >
-            {conciliacionCerrada ? <Lock className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-            {periodoEstado}
-          </span>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Sugerencias</span>
+            <span
+              className={`px-1.5 py-0 text-[10px] font-mono font-bold ${
+                gruposSugeridos.length > 0
+                  ? 'bg-[#1E3A5F] text-[#FFFFFF]'
+                  : 'bg-[#E5E7EB] text-[#4B5563]'
+              }`}
+            >
+              {gruposSugeridos.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTabHistorialReglas('HISTORIAL');
+              setModalHistorialReglasAbierto(true);
+            }}
+            className="h-7 px-2.5 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border border-[#D1D5DB] text-[12px] inline-flex items-center gap-1.5 cursor-pointer rounded-none"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-[#1E3A5F]" />
+            <span>Historial y Reglas Aprendidas</span>
+          </button>
         </div>
       </div>
 
@@ -809,8 +644,8 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               <div className="text-[11px] text-[#7C2D12]">
                 Esta cuenta bancaria aún no está vinculada a una cuenta real del Plan de Cuentas (
                 <code className="font-mono">plan_cuentas</code>). Las acciones de conciliar,
-                desconciliar, cerrar y generar asientos permanecerán deshabilitadas hasta completar la
-                vinculación.
+                desconciliar, matching automático y cerrar permanecerán deshabilitadas hasta
+                completar la vinculación.
               </div>
             </div>
           </div>
@@ -833,7 +668,11 @@ export const ConciliacionBancariaV2View: React.FC = () => {
                 required
                 value={cuentaContableSelectId}
                 onChange={(e) => setCuentaContableSelectId(e.target.value)}
-                disabled={!puedeVincularContable || cuentasContablesQuery.isLoading || vincularMutation.isPending}
+                disabled={
+                  !puedeVincularContable ||
+                  cuentasContablesQuery.isLoading ||
+                  vincularMutation.isPending
+                }
                 className="w-full h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] text-[#111827] focus:outline-none focus:border-[#1E3A5F] disabled:bg-[#F3F4F6] rounded-none"
               >
                 <option value="">
@@ -893,7 +732,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               <div className="text-[11px] text-[#4B5563]">Saldo Inicial Extracto</div>
               <div className="font-mono font-bold text-[#111827] mt-0.5">
                 {resumen.saldoInicialExtracto !== null
-                  ? formatearMoneda(resumen.saldoInicialExtracto, monedaCuenta)
+                  ? formatearMonedaExacta(resumen.saldoInicialExtracto, monedaCuenta)
                   : 'Sin extracto'}
               </div>
             </div>
@@ -902,7 +741,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               <div className="text-[11px] text-[#4B5563]">Saldo Final Extracto</div>
               <div className="font-mono font-bold text-[#111827] mt-0.5">
                 {resumen.saldoFinalExtracto !== null
-                  ? formatearMoneda(resumen.saldoFinalExtracto, monedaCuenta)
+                  ? formatearMonedaExacta(resumen.saldoFinalExtracto, monedaCuenta)
                   : 'Sin extracto'}
               </div>
             </div>
@@ -910,7 +749,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
             <div className="p-2 bg-[#FFFFFF] border border-[#D1D5DB]">
               <div className="text-[11px] text-[#4B5563]">Saldo Libros (Tesorería)</div>
               <div className="font-mono font-bold text-[#1E3A5F] mt-0.5">
-                {formatearMoneda(resumen.saldoLibros, monedaCuenta)}
+                {formatearMonedaExacta(resumen.saldoLibros, monedaCuenta)}
               </div>
             </div>
 
@@ -931,7 +770,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               </div>
               <div className="font-mono font-bold text-[#111827] mt-0.5">
                 {resumen.integridadMayor.saldoMayor104x !== null
-                  ? formatearMoneda(resumen.integridadMayor.saldoMayor104x, monedaCuenta)
+                  ? formatearMonedaExacta(resumen.integridadMayor.saldoMayor104x, monedaCuenta)
                   : 'Sin vincular'}
               </div>
               {resumen.integridadMayor.alertaIntegridad && (
@@ -939,11 +778,14 @@ export const ConciliacionBancariaV2View: React.FC = () => {
                   <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
                   <span>
                     Alerta integridad (Dif:{' '}
-                    {formatearMoneda(
+                    {formatearMonedaExacta(
                       resumen.integridadMayor.diferenciaIntegridadMayor,
                       monedaCuenta
                     )}
-                    ){resumen.integridadMayor.motivoAlerta ? ` — ${resumen.integridadMayor.motivoAlerta}` : ''}
+                    )
+                    {resumen.integridadMayor.motivoAlerta
+                      ? ` — ${resumen.integridadMayor.motivoAlerta}`
+                      : ''}
                   </span>
                 </div>
               )}
@@ -955,7 +797,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               </div>
               <div className="font-mono font-bold text-[#1E3A5F] mt-0.5">
                 {resumen.diferencia !== null
-                  ? formatearMoneda(resumen.diferencia, monedaCuenta)
+                  ? formatearMonedaExacta(resumen.diferencia, monedaCuenta)
                   : 'Sin extracto'}
               </div>
               {semaforoInfo && (
@@ -976,131 +818,83 @@ export const ConciliacionBancariaV2View: React.FC = () => {
                 Extracto ({resumen.saldoFinalExtracto ?? 'Sin extracto'})
               </span>
               <span className="text-[#1E6F42] font-mono">
-                (+ Depósitos en tránsito: {formatearMoneda(resumen.depositosEnTransito, monedaCuenta)})
+                (+ Depósitos en tránsito:{' '}
+                {formatearMonedaExacta(resumen.depositosEnTransito, monedaCuenta)})
               </span>
               <span className="text-[#B91C1C] font-mono">
-                (− Cheques no cobrados: {formatearMoneda(resumen.chequesNoCobrados, monedaCuenta)})
+                (− Cheques no cobrados:{' '}
+                {formatearMonedaExacta(resumen.chequesNoCobrados, monedaCuenta)})
               </span>
               <span className="font-bold text-[#111827]">
-                = {resumen.saldoAjustadoBanco !== null ? formatearMoneda(resumen.saldoAjustadoBanco, monedaCuenta) : '—'}
+                ={' '}
+                {resumen.saldoAjustadoBanco !== null
+                  ? formatearMonedaExacta(resumen.saldoAjustadoBanco, monedaCuenta)
+                  : '—'}
               </span>
               <span className="px-1 font-bold text-[#1E3A5F]">vs</span>
               <span className="font-mono">
-                Libros ({formatearMoneda(resumen.saldoLibros, monedaCuenta)})
+                Libros ({formatearMonedaExacta(resumen.saldoLibros, monedaCuenta)})
               </span>
               <span className="text-[#1E6F42] font-mono">
-                (+ Abonos no registrados: {formatearMoneda(resumen.abonosNoRegistrados, monedaCuenta)})
+                (+ Abonos no registrados:{' '}
+                {formatearMonedaExacta(resumen.abonosNoRegistrados, monedaCuenta)})
               </span>
               <span className="text-[#B91C1C] font-mono">
-                (− Cargos no registrados: {formatearMoneda(resumen.cargosNoRegistrados, monedaCuenta)})
+                (− Cargos no registrados:{' '}
+                {formatearMonedaExacta(resumen.cargosNoRegistrados, monedaCuenta)})
               </span>
               <span className="font-bold text-[#111827]">
-                = {formatearMoneda(resumen.saldoAjustadoLibros, monedaCuenta)}
+                = {formatearMonedaExacta(resumen.saldoAjustadoLibros, monedaCuenta)}
               </span>
             </div>
 
             <div className="text-[10px] text-[#4B5563] font-mono">
-              Extracto: {resumen.conteos.conciliadasExtracto}/{resumen.conteos.totalExtracto} conc. · Libros:{' '}
-              {resumen.conteos.conciliadosLibros}/{resumen.conteos.totalLibros} conc.
+              Extracto: {resumen.conteos.conciliadasExtracto}/{resumen.conteos.totalExtracto} conc. ·
+              Libros: {resumen.conteos.conciliadosLibros}/{resumen.conteos.totalLibros} conc.
             </div>
           </div>
         </div>
       )}
 
-      {/* Barra de tabs y filtro por los 9 estados ampliados */}
-      <div className="px-3 pt-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setTabActiva('EXTRACTO')}
-            className={`h-7 px-3 text-[12px] border cursor-pointer rounded-none ${
-              tabActiva === 'EXTRACTO'
-                ? 'bg-[#1E3A5F] text-[#FFFFFF] border-[#1E3A5F] font-bold'
-                : 'bg-[#F5F7FA] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1]'
-            }`}
-          >
-            Partidas del Extracto ({resumen?.conteos.totalExtracto ?? 0})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTabActiva('LIBROS')}
-            className={`h-7 px-3 text-[12px] border cursor-pointer rounded-none ${
-              tabActiva === 'LIBROS'
-                ? 'bg-[#1E3A5F] text-[#FFFFFF] border-[#1E3A5F] font-bold'
-                : 'bg-[#F5F7FA] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1]'
-            }`}
-          >
-            Partidas del Libro ({resumen?.conteos.totalLibros ?? 0})
-          </button>
-        </div>
+      {/* Bandeja de Sugerencias de Matching (Fase 3) */}
+      <SugerenciasMatchingBanner
+        sugerencias={gruposSugeridos}
+        moneda={monedaCuenta}
+        abierto={sugerenciasAbierto}
+        onToggleAbierto={() => setSugerenciasAbierto((prev) => !prev)}
+        operacionesBloqueadas={operacionesBloqueadas}
+        motivoBloqueo={motivoBloqueoOperaciones}
+        aceptando={aceptarSugerenciasMutation.isPending}
+        rechazandoId={rechazandoGrupoId}
+        onAceptarGrupos={handleAceptarSugerencias}
+        onRechazarGrupo={handleRechazarSugerencia}
+      />
 
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
-          <label htmlFor="filtro-estado-v2" className="text-[11px] font-bold text-[#4B5563]">
-            Estado:
-          </label>
-          <select
-            id="filtro-estado-v2"
-            value={filtroEstado}
-            onChange={(e) => setFiltroEstado(e.target.value)}
-            className="h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
-          >
-            <option value="TODOS">Todos los estados (9)</option>
-            {ESTADOS_CONCILIACION_V2.map((est) => (
-              <option key={est} value={est}>
-                {ETIQUETAS_ESTADO_V2[est]}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="text"
-            value={textoBusqueda}
-            onChange={(e) => setTextoBusqueda(e.target.value)}
-            placeholder="Buscar glosa, referencia o monto..."
-            className="h-7 px-2 w-56 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
-          />
-        </div>
-      </div>
-
-      {/* Tabla principal */}
-      <div className="flex-1 p-3 overflow-auto flex flex-col">
-        {tabActiva === 'EXTRACTO' ? (
-          <TablaDensa
-            columnas={columnasExtracto}
-            datos={extractoFiltrado}
-            rowKey={(r) => r.id}
-            cargando={resumenQuery.isLoading}
-            mensajeError={
-              resumenQuery.error
-                ? extraerMensajeErrorConciliacion(
-                    resumenQuery.error,
-                    'No se pudo cargar el extracto.'
-                  )
-                : null
-            }
-            mensajeVacio={
-              resumen && !resumen.tieneExtracto
-                ? 'No existe extracto bancario importado para esta cuenta en el periodo seleccionado.'
-                : 'Sin partidas del extracto para el filtro seleccionado.'
-            }
-          />
-        ) : (
-          <TablaDensa
-            columnas={columnasLibros}
-            datos={librosFiltrado}
-            rowKey={(r) => r.id}
-            cargando={resumenQuery.isLoading}
-            mensajeError={
-              resumenQuery.error
-                ? extraerMensajeErrorConciliacion(
-                    resumenQuery.error,
-                    'No se pudieron cargar los movimientos de libros.'
-                  )
-                : null
-            }
-            mensajeVacio="Sin movimientos en libros de tesorería para el filtro seleccionado."
-          />
-        )}
+      {/* Panel Dual de Conciliación (Extracto Bancario | Libros Contables) */}
+      <div className="flex-1 min-h-0 pt-2 flex flex-col overflow-hidden">
+        <PanelDualConciliacion
+          resumen={resumen}
+          grupos={grupos}
+          cargando={resumenQuery.isLoading || gruposQuery.isLoading}
+          mensajeError={
+            resumenQuery.error
+              ? extraerMensajeErrorConciliacion(
+                  resumenQuery.error,
+                  'No se pudo cargar el resumen de conciliación.'
+                )
+              : null
+          }
+          operacionesBloqueadas={operacionesBloqueadas}
+          motivoBloqueo={motivoBloqueoOperaciones}
+          hayModalAbierto={hayModalAbierto}
+          conciliandoManual={conciliarManualGrupoMutation.isPending}
+          desconciliando={
+            desconciliarGrupoMutation.isPending || desconciliarLegacyMutation.isPending
+          }
+          onConciliarManualGrupo={handleConciliarManualGrupo}
+          onDesconciliarGrupo={handleDesconciliarGrupo}
+          onDesconciliarPartidaLegacy={handleDesconciliarPartidaLegacy}
+        />
       </div>
 
       {/* Modal Configuración V2 (solo ADMINISTRADOR) */}
@@ -1139,133 +933,16 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         puedeRevertir={puedeEditarPerfilesYRevertir}
       />
 
-      {/* Modal Conciliar Manual */}
-      <VentanaModal
-        abierto={Boolean(partidaParaConciliar)}
-        onCerrar={() => setPartidaParaConciliar(null)}
-        titulo="Conciliar Partida del Extracto (Manual)"
-        subtitulo={partidaParaConciliar?.referencia || partidaParaConciliar?.fecha}
-        ancho="md"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setPartidaParaConciliar(null)}
-              className="h-7 px-3 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border border-[#D1D5DB] text-[12px] cursor-pointer rounded-none"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              form="form-conciliar-manual-v2"
-              disabled={conciliarMutation.isPending || operacionesBloqueadas}
-              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] text-[#FFFFFF] border border-[#1E3A5F] text-[12px] cursor-pointer rounded-none"
-            >
-              {conciliarMutation.isPending ? 'Conciliando...' : 'Confirmar Conciliación'}
-            </button>
-          </>
-        }
-      >
-        {partidaParaConciliar && (
-          <form id="form-conciliar-manual-v2" onSubmit={handleConfirmarConciliar} className="space-y-3">
-            <div className="p-2 bg-[#F5F7FA] border border-[#D1D5DB] text-[11px] space-y-1">
-              <div>
-                <strong>Fecha:</strong> <span className="font-mono">{partidaParaConciliar.fecha}</span> ·{' '}
-                <strong>Monto:</strong>{' '}
-                <span className="font-mono font-bold">
-                  {formatearMoneda(partidaParaConciliar.monto, monedaCuenta)}
-                </span>
-              </div>
-              <div>
-                <strong>Descripción:</strong> {partidaParaConciliar.descripcion}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-[#374151] mb-1">
-                Vincular con Movimiento de Tesorería (Opcional)
-              </label>
-              <select
-                value={movimientoVinculoId}
-                onChange={(e) => setMovimientoVinculoId(e.target.value)}
-                className="w-full h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
-              >
-                <option value="">-- Conciliar manualmente sin asociar movimiento específico --</option>
-                {movimientosLibrosDisponibles.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.fecha} · {m.tipo} · {formatearMoneda(m.importeConSigno, monedaCuenta)} ·{' '}
-                    {m.glosa}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-[#374151] mb-1">
-                Observación (Opcional)
-              </label>
-              <textarea
-                rows={2}
-                maxLength={500}
-                value={observacionConciliacion}
-                onChange={(e) => setObservacionConciliacion(e.target.value)}
-                placeholder="Detalle o sustento de la conciliación manual..."
-                className="w-full p-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
-              />
-            </div>
-          </form>
-        )}
-      </VentanaModal>
-
-      {/* Modal Desconciliar */}
-      <VentanaModal
-        abierto={Boolean(partidaParaDesconciliar)}
-        onCerrar={() => setPartidaParaDesconciliar(null)}
-        titulo="Desconciliar Partida"
-        subtitulo={partidaParaDesconciliar?.fecha}
-        ancho="sm"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setPartidaParaDesconciliar(null)}
-              className="h-7 px-3 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border border-[#D1D5DB] text-[12px] cursor-pointer rounded-none"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              form="form-desconciliar-v2"
-              disabled={desconciliarMutation.isPending || operacionesBloqueadas}
-              className="h-7 px-3 bg-[#B91C1C] hover:bg-[#991B1B] text-[#FFFFFF] border border-[#B91C1C] text-[12px] cursor-pointer rounded-none"
-            >
-              {desconciliarMutation.isPending ? 'Procesando...' : 'Confirmar Desconciliación'}
-            </button>
-          </>
-        }
-      >
-        {partidaParaDesconciliar && (
-          <form id="form-desconciliar-v2" onSubmit={handleConfirmarDesconciliar} className="space-y-2.5">
-            <p className="text-[12px] text-[#374151]">
-              La partida volverá a estado <strong>PENDIENTE_LIBROS</strong> y se liberará el
-              movimiento de tesorería asociado, si existiera.
-            </p>
-            <div>
-              <label className="block text-[11px] font-bold text-[#374151] mb-1">
-                Motivo (Opcional)
-              </label>
-              <input
-                type="text"
-                maxLength={500}
-                value={motivoDesconciliar}
-                onChange={(e) => setMotivoDesconciliar(e.target.value)}
-                placeholder="Motivo de desconciliación..."
-                className="w-full h-7 px-2 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
-              />
-            </div>
-          </form>
-        )}
-      </VentanaModal>
+      {/* Modal Historial de Desconciliaciones y Reglas Aprendidas (Fase 3) */}
+      <HistorialYReglasModal
+        abierto={modalHistorialReglasAbierto}
+        onCerrar={() => setModalHistorialReglasAbierto(false)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
+        puedeEditarReglas={puedeOperarPartidas}
+        tabInicial={tabHistorialReglas}
+      />
 
       {/* Modal Reabrir Conciliación (solo ADMINISTRADOR) */}
       <VentanaModal

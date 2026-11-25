@@ -5,35 +5,49 @@ import {
   SENTIDOS_MONTO_REGLA,
   TIPOS_CLASIFICACION_EXTRACTO,
   TIPOS_COINCIDENCIA_REGLA,
+  type AceptarSugerenciasInput,
   type ActualizarConfigConciliacionV2Input,
   type ActualizarPerfilBancoInput,
+  type ActualizarReglaAprendidaInput,
   type ActualizarReglaClasificacionInput,
   type AdvertenciaImportacion,
   type CerrarConciliacionV2Input,
+  type ConciliarManualGrupoInput,
   type ConciliarPartidaV2Input,
   type ConfigConciliacionV2,
   type ConfirmarImportacionInput,
   type CrearPerfilBancoInput,
+  type CrearReglaAprendidaInput,
   type CrearReglaClasificacionInput,
   type CuentaBancariaV2,
   type CuentaContableDisponibleV2,
+  type DesconciliarGrupoInput,
   type DesconciliarPartidaV2Input,
+  type EjecutarMatchingInput,
   type ErrorFilaImportacion,
   type EstadoConciliacionV2,
+  type EstadoGrupoConciliacionV2,
   type EstadoLibroV2,
   type FormatoExtractoV2,
+  type GrupoConciliacionV2,
+  type HistorialDesconciliacionV2,
   type ImportacionExtractoResumenV2,
   type IntegridadMayor104x,
+  type ItemConciliacionV2,
   type LineaPrevisualizadaV2,
   type MapeoColumnasPerfil,
+  type OrigenPartidaLibroV2,
   type PartidaExtractoV2,
   type PartidaLibroV2,
   type PerfilBancoV2,
   type PrevisualizarImportacionInput,
   type ReabrirConciliacionV2Input,
+  type RechazarSugerenciaInput,
+  type ReglaAprendidaV2,
   type ReglaClasificacionV2,
   type ResultadoCierreV2,
   type ResultadoConfirmacionImportacionV2,
+  type ResultadoEjecucionMatchingV2,
   type ResultadoPrevisualizacionImportacionV2,
   type ResultadoReversionImportacionV2,
   type ResumenConciliacionV2,
@@ -42,6 +56,7 @@ import {
   type SentidoMontoRegla,
   type TipoClasificacionExtracto,
   type TipoCoincidenciaRegla,
+  type TipoMatchV2,
   type VincularCuentaContableInput,
 } from '../../server/types/conciliacionV2';
 
@@ -54,35 +69,49 @@ export {
 };
 
 export type {
+  AceptarSugerenciasInput,
   ActualizarConfigConciliacionV2Input,
   ActualizarPerfilBancoInput,
+  ActualizarReglaAprendidaInput,
   ActualizarReglaClasificacionInput,
   AdvertenciaImportacion,
   CerrarConciliacionV2Input,
+  ConciliarManualGrupoInput,
   ConciliarPartidaV2Input,
   ConfigConciliacionV2,
   ConfirmarImportacionInput,
   CrearPerfilBancoInput,
+  CrearReglaAprendidaInput,
   CrearReglaClasificacionInput,
   CuentaBancariaV2,
   CuentaContableDisponibleV2,
+  DesconciliarGrupoInput,
   DesconciliarPartidaV2Input,
+  EjecutarMatchingInput,
   ErrorFilaImportacion,
   EstadoConciliacionV2,
+  EstadoGrupoConciliacionV2,
   EstadoLibroV2,
   FormatoExtractoV2,
+  GrupoConciliacionV2,
+  HistorialDesconciliacionV2,
   ImportacionExtractoResumenV2,
   IntegridadMayor104x,
+  ItemConciliacionV2,
   LineaPrevisualizadaV2,
   MapeoColumnasPerfil,
+  OrigenPartidaLibroV2,
   PartidaExtractoV2,
   PartidaLibroV2,
   PerfilBancoV2,
   PrevisualizarImportacionInput,
   ReabrirConciliacionV2Input,
+  RechazarSugerenciaInput,
+  ReglaAprendidaV2,
   ReglaClasificacionV2,
   ResultadoCierreV2,
   ResultadoConfirmacionImportacionV2,
+  ResultadoEjecucionMatchingV2,
   ResultadoPrevisualizacionImportacionV2,
   ResultadoReversionImportacionV2,
   ResumenConciliacionV2,
@@ -91,6 +120,7 @@ export type {
   SentidoMontoRegla,
   TipoClasificacionExtracto,
   TipoCoincidenciaRegla,
+  TipoMatchV2,
   VincularCuentaContableInput,
 };
 
@@ -361,5 +391,130 @@ export const conciliacionV2Api = {
       payload
     );
     return extraerData<ResultadoReversionImportacionV2>(res);
+  },
+
+  // --- Fase 3: Motor de matching, grupos, historial y reglas aprendidas ---
+
+  async ejecutarMatching(
+    empresaId: string,
+    payload: EjecutarMatchingInput
+  ): Promise<ResultadoEjecucionMatchingV2> {
+    const res = await apiClient.post<RespuestaApi<ResultadoEjecucionMatchingV2>>(
+      `${baseUrl(empresaId)}/matching/ejecutar`,
+      payload
+    );
+    return extraerData<ResultadoEjecucionMatchingV2>(res);
+  },
+
+  async listarGruposMatching(
+    empresaId: string,
+    params: {
+      cuentaFinancieraId: string;
+      periodo: string;
+      estado?: EstadoGrupoConciliacionV2;
+    }
+  ): Promise<GrupoConciliacionV2[]> {
+    const res = await apiClient.get<RespuestaApi<GrupoConciliacionV2[]>>(
+      `${baseUrl(empresaId)}/matching/grupos`,
+      { params }
+    );
+    return extraerData<GrupoConciliacionV2[]>(res);
+  },
+
+  async aceptarSugerencias(
+    empresaId: string,
+    payload: AceptarSugerenciasInput
+  ): Promise<GrupoConciliacionV2[]> {
+    const res = await apiClient.post<RespuestaApi<GrupoConciliacionV2[]>>(
+      `${baseUrl(empresaId)}/matching/sugerencias/aceptar`,
+      payload
+    );
+    return extraerData<GrupoConciliacionV2[]>(res);
+  },
+
+  async rechazarSugerencia(
+    empresaId: string,
+    grupoId: string,
+    payload?: RechazarSugerenciaInput
+  ): Promise<GrupoConciliacionV2> {
+    const res = await apiClient.post<RespuestaApi<GrupoConciliacionV2>>(
+      `${baseUrl(empresaId)}/matching/sugerencias/${grupoId}/rechazar`,
+      payload ?? {}
+    );
+    return extraerData<GrupoConciliacionV2>(res);
+  },
+
+  async conciliarManualGrupo(
+    empresaId: string,
+    payload: ConciliarManualGrupoInput
+  ): Promise<GrupoConciliacionV2> {
+    const res = await apiClient.post<RespuestaApi<GrupoConciliacionV2>>(
+      `${baseUrl(empresaId)}/matching/manual`,
+      payload
+    );
+    return extraerData<GrupoConciliacionV2>(res);
+  },
+
+  async desconciliarGrupo(
+    empresaId: string,
+    grupoId: string,
+    payload: DesconciliarGrupoInput
+  ): Promise<GrupoConciliacionV2> {
+    const res = await apiClient.post<RespuestaApi<GrupoConciliacionV2>>(
+      `${baseUrl(empresaId)}/matching/grupos/${grupoId}/desconciliar`,
+      payload
+    );
+    return extraerData<GrupoConciliacionV2>(res);
+  },
+
+  async listarHistorialDesconciliacion(
+    empresaId: string,
+    params?: { cuentaFinancieraId?: string; periodo?: string }
+  ): Promise<HistorialDesconciliacionV2[]> {
+    const res = await apiClient.get<RespuestaApi<HistorialDesconciliacionV2[]>>(
+      `${baseUrl(empresaId)}/matching/historial-desconciliacion`,
+      { params }
+    );
+    return extraerData<HistorialDesconciliacionV2[]>(res);
+  },
+
+  async listarReglasAprendidas(empresaId: string): Promise<ReglaAprendidaV2[]> {
+    const res = await apiClient.get<RespuestaApi<ReglaAprendidaV2[]>>(
+      `${baseUrl(empresaId)}/reglas-aprendidas`
+    );
+    return extraerData<ReglaAprendidaV2[]>(res);
+  },
+
+  async crearReglaAprendida(
+    empresaId: string,
+    payload: CrearReglaAprendidaInput
+  ): Promise<ReglaAprendidaV2> {
+    const res = await apiClient.post<RespuestaApi<ReglaAprendidaV2>>(
+      `${baseUrl(empresaId)}/reglas-aprendidas`,
+      payload
+    );
+    return extraerData<ReglaAprendidaV2>(res);
+  },
+
+  async actualizarReglaAprendida(
+    empresaId: string,
+    reglaId: string,
+    payload: ActualizarReglaAprendidaInput
+  ): Promise<ReglaAprendidaV2> {
+    const res = await apiClient.put<RespuestaApi<ReglaAprendidaV2>>(
+      `${baseUrl(empresaId)}/reglas-aprendidas/${reglaId}`,
+      payload
+    );
+    return extraerData<ReglaAprendidaV2>(res);
+  },
+
+  async eliminarReglaAprendida(
+    empresaId: string,
+    reglaId: string
+  ): Promise<{ eliminado: boolean; id: string } | void> {
+    const res = await apiClient.delete<RespuestaApi<{ eliminado: boolean; id: string }>>(
+      `${baseUrl(empresaId)}/reglas-aprendidas/${reglaId}`
+    );
+    return extraerDataOpcional<{ eliminado: boolean; id: string }>(res);
   },
 };

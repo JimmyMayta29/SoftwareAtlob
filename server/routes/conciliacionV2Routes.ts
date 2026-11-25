@@ -106,4 +106,63 @@ router.post(
   conciliacionV2Controller.revertirImportacion
 );
 
+// Motor de matching, grupos y trazabilidad (Fase 3)
+router.post(
+  '/matching/ejecutar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.ejecutarMatching
+);
+router.get(
+  '/matching/grupos',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarGruposMatching
+);
+router.post(
+  '/matching/sugerencias/aceptar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.aceptarSugerencias
+);
+router.post(
+  '/matching/sugerencias/:grupoId/rechazar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.rechazarSugerencia
+);
+router.post(
+  '/matching/manual',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.conciliarManualGrupo
+);
+router.post(
+  '/matching/grupos/:grupoId/desconciliar',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR', 'ASISTENTE_CONTABLE']),
+  conciliacionV2Controller.desconciliarGrupo
+);
+router.get(
+  '/matching/historial-desconciliacion',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarHistorialDesconciliacion
+);
+
+// Reglas aprendidas de conciliación (Fase 3)
+router.get(
+  '/reglas-aprendidas',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarReglasAprendidas
+);
+router.post(
+  '/reglas-aprendidas',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.crearReglaAprendida
+);
+router.put(
+  '/reglas-aprendidas/:reglaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.actualizarReglaAprendida
+);
+router.delete(
+  '/reglas-aprendidas/:reglaId',
+  requireEmpresaMembership(['ADMINISTRADOR', 'CONTADOR_SENIOR']),
+  conciliacionV2Controller.eliminarReglaAprendida
+);
+
 export const conciliacionV2Routes = router;

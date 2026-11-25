@@ -25,6 +25,7 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
   const [conciliacionV2Habilitada, setConciliacionV2Habilitada] = useState(false);
   const [toleranciaDias, setToleranciaDias] = useState('3');
   const [toleranciaMonto, setToleranciaMonto] = useState('0.00');
+  const [umbralAutoMatchPct, setUmbralAutoMatchPct] = useState('90');
   const [cuentaItfCodigo, setCuentaItfCodigo] = useState('6412');
   const [cuentaComisionCodigo, setCuentaComisionCodigo] = useState('6391');
   const [cuentaInteresGastoCodigo, setCuentaInteresGastoCodigo] = useState('67311');
@@ -38,6 +39,11 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
     setConciliacionV2Habilitada(Boolean(config?.conciliacionV2Habilitada));
     setToleranciaDias(String(config?.toleranciaDias ?? 3));
     setToleranciaMonto(config?.toleranciaMonto ?? '0.00');
+    const umbralVal =
+      typeof config?.umbralAutoMatch === 'number' && !Number.isNaN(config.umbralAutoMatch)
+        ? Math.round(config.umbralAutoMatch * 10000) / 100
+        : 90;
+    setUmbralAutoMatchPct(String(umbralVal));
     setCuentaItfCodigo(config?.cuentaItfCodigo || '6412');
     setCuentaComisionCodigo(config?.cuentaComisionCodigo || '6391');
     setCuentaInteresGastoCodigo(config?.cuentaInteresGastoCodigo || '67311');
@@ -73,6 +79,13 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
       return;
     }
 
+    const umbralNum = Number(umbralAutoMatchPct.trim());
+    if (!Number.isFinite(umbralNum) || umbralNum < 60 || umbralNum > 100) {
+      setErrorValidacion('El umbral de auto-conciliación debe estar entre 60% y 100%.');
+      return;
+    }
+    const umbralAutoMatch = Number((umbralNum / 100).toFixed(4));
+
     const itfTrim = cuentaItfCodigo.trim();
     const comisionTrim = cuentaComisionCodigo.trim();
     const interesGastoTrim = cuentaInteresGastoCodigo.trim();
@@ -94,6 +107,7 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
         conciliacionV2Habilitada,
         toleranciaDias: diasInt,
         toleranciaMonto: montoFormateado,
+        umbralAutoMatch,
         cuentaItfCodigo: itfTrim,
         cuentaComisionCodigo: comisionTrim,
         cuentaInteresGastoCodigo: interesGastoTrim,
@@ -171,7 +185,7 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
           </label>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-[#374151] mb-1">
               Tolerancia en Días (0 - 30)
@@ -190,7 +204,7 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
 
           <div>
             <label className="block text-[11px] font-bold text-[#374151] mb-1">
-              Tolerancia de Monto (para Semáforo AMARILLO)
+              Tolerancia de Monto (Semáforo)
             </label>
             <input
               type="text"
@@ -201,6 +215,27 @@ export const ConfigConciliacionV2Modal: React.FC<ConfigConciliacionV2ModalProps>
               placeholder="0.00"
               className="w-full h-7 px-2 border border-[#D1D5DB] bg-[#FFFFFF] text-[12px] font-mono text-right focus:outline-none focus:border-[#1E3A5F] disabled:bg-[#F3F4F6] rounded-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-[#374151] mb-1">
+              Umbral Auto-Match (60% - 100%)
+            </label>
+            <div className="flex items-center">
+              <input
+                type="number"
+                min={60}
+                max={100}
+                step={1}
+                value={umbralAutoMatchPct}
+                onChange={(e) => setUmbralAutoMatchPct(e.target.value)}
+                disabled={!esAdministrador || isPending}
+                className="w-full h-7 px-2 border border-[#D1D5DB] bg-[#FFFFFF] text-[12px] font-mono text-right focus:outline-none focus:border-[#1E3A5F] disabled:bg-[#F3F4F6] rounded-none"
+              />
+              <span className="h-7 px-2 bg-[#F5F7FA] border border-l-0 border-[#D1D5DB] text-[12px] font-mono text-[#4B5563] inline-flex items-center">
+                %
+              </span>
+            </div>
           </div>
         </div>
 

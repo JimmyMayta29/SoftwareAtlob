@@ -11,6 +11,7 @@ import {
   importacionExtractoService,
 } from '../services/conciliacion/importacion/importacionExtractoService';
 import { perfilesBancoService } from '../services/conciliacion/perfilesBanco/perfilesBancoService';
+import { matchingService } from '../services/conciliacion/matching/matchingService';
 import {
   FORMATOS_EXTRACTO_V2,
   SENTIDOS_MONTO_REGLA,
@@ -22,28 +23,38 @@ import { successResponse, errorResponse } from '../utils/response';
 import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 const uuidSchema = z.string().uuid('Identificador UUID inválido.');
+const periodoSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'periodo debe tener formato YYYY-MM.');
+
+const ESTADOS_GRUPO_CONCILIACION_V2 = [
+  'SUGERIDO',
+  'CONCILIADO',
+  'CONCILIADO_MANUAL',
+  'RECHAZADO',
+  'DESCONCILIADO',
+] as const;
+
+const toleranciaMontoSchema = z
+  .union([z.string(), z.number()])
+  .refine(
+    (val) => {
+      const text = String(val).trim();
+      if (!/^-?\d+(\.\d+)?$/.test(text)) return false;
+      const dec = Money.create(text);
+      return dec.gte(0) && Money.round(dec).lte('999999999999.99');
+    },
+    { message: 'toleranciaMonto debe ser un decimal entre 0.00 y 999999999999.99.' }
+  );
 
 const resumenQuerySchema = z.object({
   cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.'),
-  periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'periodo debe tener formato YYYY-MM.'),
+  periodo: periodoSchema,
 });
 
 const actualizarConfigBodySchema = z.object({
   conciliacionV2Habilitada: z.boolean().optional(),
   toleranciaDias: z.number().int().min(0).max(30).optional(),
-  toleranciaMonto: z
-    .union([z.string(), z.number()])
-    .optional()
-    .refine(
-      (val) => {
-        if (val === undefined) return true;
-        const text = String(val).trim();
-        if (!/^-?\d+(\.\d+)?$/.test(text)) return false;
-        const dec = Money.create(text);
-        return dec.gte(0) && Money.round(dec).lte('999999999999.99');
-      },
-      { message: 'toleranciaMonto debe ser un decimal entre 0.00 y 999999999999.99.' }
-    ),
+  toleranciaMonto: toleranciaMontoSchema.optional(),
+  umbralAutoMatch: z.number().min(0.6).max(1).optional(),
   cuentaItfCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaComisionCodigo: z.string().trim().min(2).max(20).optional(),
   cuentaInteresGastoCodigo: z.string().trim().min(2).max(20).optional(),
@@ -200,6 +211,119 @@ const importacionBodySchema = z.object({
 const revertirImportacionBodySchema = z.object({
   motivo: z.string().trim().min(5, 'El motivo debe tener al menos 5 caracteres.').max(500),
 });
+
+const ejecutarMatchingBodySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.'),
+  periodo: periodoSchema,
+  umbralAutoMatch: z.number().min(0.6).max(1).optional(),
+  toleranciaDias: z.number().int().min(0).max(30).optional(),
+  toleranciaMonto: toleranciaMontoSchema.optional(),
+  limpiarSugerenciasPrevias: z.boolean().optional(),
+});
+
+const listarGruposQuerySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.'),
+  periodo: periodoSchema,
+  estado: z.enum(ESTADOS_GRUPO_CONCILIACION_V2).optional(),
+});
+
+const aceptarSugerenciasBodySchema = z.object({
+  grupoIds: z
+    .array(z.string().uuid('Cada grupoId debe ser un UUID válido.'))
+    .min(1, 'Debe indicar al menos un grupo sugerido para aceptar.')
+    .max(200, 'No se pueden aceptar más de 200 grupos en una sola operación.'),
+});
+
+const rechazarSugerenciaBodySchema = z.object({
+  motivo: z.string().trim().max(500).nullable().optional(),
+});
+
+const conciliarManualGrupoBodySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.'),
+  periodo: periodoSchema,
+  extractoLineaIds: z
+    .array(z.string().uuid('Cada extractoLineaId debe ser un UUID válido.'))
+    .min(1, 'Debe seleccionar al menos una línea de extracto bancario.')
+    .max(50, 'No se pueden agrupar más de 50 líneas bancarias por grupo.'),
+  libroItems: z
+    .array(
+      z.object({
+        origenLibro: z.enum(['MOVIMIENTO_TESORERIA', 'ASIENTO_MANUAL']),
+        id: z.string().uuid('Cada id de partida libro debe ser un UUID válido.'),
+      })
+    )
+    .min(1, 'Debe seleccionar al menos una partida de libro.')
+    .max(50, 'No se pueden agrupar más de 50 partidas de libro por grupo.'),
+  observacion: z.string().trim().max(500).nullable().optional(),
+  aprenderRegla: z
+    .object({
+      patronContraparte: z
+        .string()
+        .trim()
+        .min(2, 'El patrón de contraparte debe tener al menos 2 caracteres.')
+        .max(200),
+      rucContraparte: z
+        .string()
+        .trim()
+        .regex(/^\d{8,15}$/, 'rucContraparte debe tener entre 8 y 15 dígitos.')
+        .nullable()
+        .optional(),
+      anexoId: z.string().uuid('anexoId debe ser un UUID válido.').nullable().optional(),
+      cuentaContableId: z
+        .string()
+        .uuid('cuentaContableId debe ser un UUID válido.')
+        .nullable()
+        .optional(),
+      tipoClasificacion: z.enum(TIPOS_CLASIFICACION_EXTRACTO).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+});
+
+const desconciliarGrupoBodySchema = z.object({
+  motivo: z
+    .string()
+    .trim()
+    .min(5, 'El motivo de desconciliación debe tener al menos 5 caracteres.')
+    .max(500, 'El motivo de desconciliación no puede superar 500 caracteres.'),
+});
+
+const historialDesconciliacionQuerySchema = z.object({
+  cuentaFinancieraId: z.string().uuid('cuentaFinancieraId debe ser un UUID válido.').optional(),
+  periodo: periodoSchema.optional(),
+});
+
+const listarReglasAprendidasQuerySchema = z.object({
+  soloActivas: z.enum(['true', 'false']).optional(),
+});
+
+const crearReglaAprendidaBodySchema = z.object({
+  patronContraparte: z
+    .string()
+    .trim()
+    .min(2, 'patronContraparte debe tener al menos 2 caracteres.')
+    .max(200),
+  rucContraparte: z
+    .string()
+    .trim()
+    .regex(/^\d{8,15}$/, 'rucContraparte debe tener entre 8 y 15 dígitos.')
+    .nullable()
+    .optional(),
+  anexoId: z.string().uuid('anexoId debe ser un UUID válido.').nullable().optional(),
+  cuentaContableId: z
+    .string()
+    .uuid('cuentaContableId debe ser un UUID válido.')
+    .nullable()
+    .optional(),
+  tipoClasificacion: z.enum(TIPOS_CLASIFICACION_EXTRACTO).nullable().optional(),
+  activo: z.boolean().optional(),
+});
+
+const actualizarReglaAprendidaBodySchema = crearReglaAprendidaBodySchema.partial();
+
+function normalizarQueryOpcional(val: unknown): unknown {
+  return typeof val === 'string' && val.trim() === '' ? undefined : val;
+}
 
 function resolverEmpresaId(req: Request): string {
   const empresaRuta = req.empresaId || (req.params as Record<string, string | undefined>)?.empresaId;
@@ -557,6 +681,174 @@ export const conciliacionV2Controller = {
       return successResponse(res, resultado, 'Importación de extracto revertida correctamente.');
     } catch (err) {
       return manejarError(res, err, 'Error revirtiendo importación de extracto');
+    }
+  },
+
+  async ejecutarMatching(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = ejecutarMatchingBodySchema.parse(req.body ?? {});
+      const resultado = await matchingService.ejecutarMatching(empresaId, userId, payload);
+      return successResponse(res, resultado, 'Motor de matching ejecutado correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error ejecutando motor de matching');
+    }
+  },
+
+  async listarGruposMatching(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = listarGruposQuerySchema.parse({
+        cuentaFinancieraId: req.query.cuentaFinancieraId,
+        periodo: req.query.periodo,
+        estado: normalizarQueryOpcional(req.query.estado),
+      });
+      const grupos = await matchingService.listarGrupos(
+        empresaId,
+        query.cuentaFinancieraId,
+        query.periodo,
+        query.estado
+      );
+      return successResponse(res, grupos);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando grupos de conciliación');
+    }
+  },
+
+  async aceptarSugerencias(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = aceptarSugerenciasBodySchema.parse(req.body ?? {});
+      const grupos = await matchingService.aceptarSugerencias(empresaId, userId, payload);
+      return successResponse(res, grupos, 'Sugerencias de conciliación aceptadas correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error aceptando sugerencias de conciliación');
+    }
+  },
+
+  async rechazarSugerencia(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const grupoId = uuidSchema.parse(req.params.grupoId);
+      const payload = rechazarSugerenciaBodySchema.parse(req.body ?? {});
+      const grupo = await matchingService.rechazarSugerencia(
+        empresaId,
+        userId,
+        grupoId,
+        payload.motivo
+      );
+      return successResponse(res, grupo, 'Sugerencia de conciliación rechazada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error rechazando sugerencia de conciliación');
+    }
+  },
+
+  async conciliarManualGrupo(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = conciliarManualGrupoBodySchema.parse(req.body ?? {});
+      const grupo = await matchingService.conciliarManualGrupo(empresaId, userId, payload);
+      return successResponse(res, grupo, 'Grupo conciliado manualmente correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error conciliando grupo manualmente');
+    }
+  },
+
+  async desconciliarGrupo(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const grupoId = uuidSchema.parse(req.params.grupoId);
+      const payload = desconciliarGrupoBodySchema.parse(req.body ?? {});
+      const grupo = await matchingService.desconciliarGrupo(
+        empresaId,
+        userId,
+        grupoId,
+        payload.motivo
+      );
+      return successResponse(res, grupo, 'Grupo desconciliado correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error desconciliando grupo');
+    }
+  },
+
+  async listarHistorialDesconciliacion(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = historialDesconciliacionQuerySchema.parse({
+        cuentaFinancieraId: normalizarQueryOpcional(req.query.cuentaFinancieraId),
+        periodo: normalizarQueryOpcional(req.query.periodo),
+      });
+      const historial = await matchingService.listarHistorialDesconciliacion(
+        empresaId,
+        query.cuentaFinancieraId,
+        query.periodo
+      );
+      return successResponse(res, historial);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando historial de desconciliación');
+    }
+  },
+
+  async listarReglasAprendidas(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = listarReglasAprendidasQuerySchema.parse({
+        soloActivas: normalizarQueryOpcional(req.query.soloActivas),
+      });
+      const reglas = await matchingService.listarReglasAprendidas(
+        empresaId,
+        query.soloActivas === 'true'
+      );
+      return successResponse(res, reglas);
+    } catch (err) {
+      return manejarError(res, err, 'Error listando reglas aprendidas');
+    }
+  },
+
+  async crearReglaAprendida(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const payload = crearReglaAprendidaBodySchema.parse(req.body ?? {});
+      const regla = await matchingService.crearReglaAprendida(empresaId, userId, payload);
+      return successResponse(res, regla, 'Regla aprendida creada correctamente.', 201);
+    } catch (err) {
+      return manejarError(res, err, 'Error creando regla aprendida');
+    }
+  },
+
+  async actualizarReglaAprendida(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const reglaId = uuidSchema.parse(req.params.reglaId);
+      const payload = actualizarReglaAprendidaBodySchema.parse(req.body ?? {});
+      const regla = await matchingService.actualizarReglaAprendida(
+        empresaId,
+        userId,
+        reglaId,
+        payload
+      );
+      return successResponse(res, regla, 'Regla aprendida actualizada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error actualizando regla aprendida');
+    }
+  },
+
+  async eliminarReglaAprendida(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const userId = resolverUsuarioId(req);
+      const reglaId = uuidSchema.parse(req.params.reglaId);
+      const resultado = await matchingService.eliminarReglaAprendida(empresaId, userId, reglaId);
+      return successResponse(res, resultado, 'Regla aprendida eliminada correctamente.');
+    } catch (err) {
+      return manejarError(res, err, 'Error eliminando regla aprendida');
     }
   },
 };

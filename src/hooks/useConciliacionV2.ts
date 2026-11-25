@@ -1,21 +1,47 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   conciliacionV2Api,
+  type AceptarSugerenciasInput,
   type ActualizarConfigConciliacionV2Input,
   type ActualizarPerfilBancoInput,
+  type ActualizarReglaAprendidaInput,
   type ActualizarReglaClasificacionInput,
   type CerrarConciliacionV2Input,
+  type ConciliarManualGrupoInput,
   type ConciliarPartidaV2Input,
   type ConfirmarImportacionInput,
   type CrearPerfilBancoInput,
+  type CrearReglaAprendidaInput,
   type CrearReglaClasificacionInput,
+  type DesconciliarGrupoInput,
   type DesconciliarPartidaV2Input,
+  type EjecutarMatchingInput,
+  type EstadoGrupoConciliacionV2,
   type PrevisualizarImportacionInput,
   type ReabrirConciliacionV2Input,
+  type RechazarSugerenciaInput,
   type RevertirImportacionInput,
   type VincularCuentaContableInput,
 } from '../api/conciliacionV2Api';
 import { useToast } from '../context/ToastContext';
+
+export type {
+  AceptarSugerenciasInput,
+  ActualizarReglaAprendidaInput,
+  ConciliarManualGrupoInput,
+  CrearReglaAprendidaInput,
+  DesconciliarGrupoInput,
+  EjecutarMatchingInput,
+  EstadoGrupoConciliacionV2,
+  GrupoConciliacionV2,
+  HistorialDesconciliacionV2,
+  ItemConciliacionV2,
+  OrigenPartidaLibroV2,
+  RechazarSugerenciaInput,
+  ReglaAprendidaV2,
+  ResultadoEjecucionMatchingV2,
+  TipoMatchV2,
+} from '../../server/types/conciliacionV2';
 
 export const conciliacionV2Keys = {
   all: (empresaId: string | null | undefined) => ['conciliacionV2', empresaId] as const,
@@ -36,6 +62,26 @@ export const conciliacionV2Keys = {
     empresaId: string | null | undefined,
     cuentaFinancieraId?: string | null
   ) => ['conciliacionV2', 'importaciones', empresaId, cuentaFinancieraId ?? 'ALL'] as const,
+  grupos: (
+    empresaId: string | null | undefined,
+    cuentaFinancieraId: string | null | undefined,
+    periodo: string,
+    estado?: EstadoGrupoConciliacionV2
+  ) => ['conciliacionV2', 'grupos', empresaId, cuentaFinancieraId, periodo, estado ?? 'ALL'] as const,
+  historialDesconciliacion: (
+    empresaId: string | null | undefined,
+    cuentaFinancieraId?: string | null,
+    periodo?: string | null
+  ) =>
+    [
+      'conciliacionV2',
+      'historial-desconciliacion',
+      empresaId,
+      cuentaFinancieraId ?? 'ALL',
+      periodo ?? 'ALL',
+    ] as const,
+  reglasAprendidas: (empresaId: string | null | undefined) =>
+    ['conciliacionV2', 'reglas-aprendidas', empresaId] as const,
 };
 
 export function extraerMensajeErrorConciliacion(err: unknown, fallback: string): string {
@@ -184,6 +230,10 @@ export function useDesconciliarPartidaV2(empresaId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['conciliacionV2', 'historial-desconciliacion', empresaId],
+      });
       void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
       toast.success('Partida desconciliada correctamente.', 'Conciliación V2');
     },
@@ -520,6 +570,308 @@ export function useRevertirImportacionV2(empresaId: string | null | undefined) {
       toast.error(
         extraerMensajeErrorConciliacion(err, 'No se pudo revertir el lote de importación.'),
         'Error al Revertir'
+      );
+    },
+  });
+}
+
+// ============================================================================
+// FASE 3: MOTOR DE MATCHING, GRUPOS, HISTORIAL Y REGLAS APRENDIDAS
+// ============================================================================
+
+export function useGruposMatching(
+  empresaId: string | null | undefined,
+  cuentaFinancieraId: string | null | undefined,
+  periodo: string,
+  estado?: EstadoGrupoConciliacionV2,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.grupos(empresaId, cuentaFinancieraId, periodo, estado),
+    queryFn: () =>
+      conciliacionV2Api.listarGruposMatching(empresaId!, {
+        cuentaFinancieraId: cuentaFinancieraId!,
+        periodo,
+        ...(estado ? { estado } : {}),
+      }),
+    enabled:
+      enabled &&
+      Boolean(empresaId && cuentaFinancieraId && /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)),
+    retry: false,
+  });
+}
+
+export function useEjecutarMatching(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: EjecutarMatchingInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.ejecutarMatching(empresaId, payload);
+    },
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      toast.success(
+        `Matching completado en ${res.duracionMs} ms: ${res.autoConciliados} auto-conciliados y ${res.sugeridos} sugeridos.`,
+        'Matching Automático'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo ejecutar el matching automático.'),
+        'Error en Matching Automático'
+      );
+    },
+  });
+}
+
+export function useAceptarSugerencias(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: AceptarSugerenciasInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.aceptarSugerencias(empresaId, payload);
+    },
+    onSuccess: (grupos) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+      });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      toast.success(
+        grupos.length === 1
+          ? 'Sugerencia aceptada y conciliada correctamente.'
+          : `${grupos.length} sugerencias aceptadas y conciliadas.`,
+        'Sugerencias de Matching'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudieron aceptar las sugerencias.'),
+        'Error al Aceptar Sugerencias'
+      );
+    },
+  });
+}
+
+export function useRechazarSugerencia(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: ({
+      grupoId,
+      payload,
+    }: {
+      grupoId: string;
+      payload?: RechazarSugerenciaInput;
+    }) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.rechazarSugerencia(empresaId, grupoId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      toast.info('Sugerencia rechazada. Las partidas quedan pendientes.', 'Sugerencia Rechazada');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo rechazar la sugerencia.'),
+        'Error al Rechazar Sugerencia'
+      );
+    },
+  });
+}
+
+export function useConciliarManualGrupo(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: ConciliarManualGrupoInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.conciliarManualGrupo(empresaId, payload);
+    },
+    onSuccess: (grupo) => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+      });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      toast.success(
+        `Grupo ${grupo.tipoMatch} conciliado manualmente.`,
+        'Conciliación Manual'
+      );
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo conciliar la selección.'),
+        'Error en Conciliación Manual'
+      );
+    },
+  });
+}
+
+export function useDesconciliarGrupo(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: ({
+      grupoId,
+      payload,
+    }: {
+      grupoId: string;
+      payload: DesconciliarGrupoInput;
+    }) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.desconciliarGrupo(empresaId, grupoId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'grupos', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['conciliacionV2', 'historial-desconciliacion', empresaId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['movimientosTesoreria', empresaId] });
+      toast.success('Grupo desconciliado y registrado en historial.', 'Desconciliación');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo desconciliar el grupo.'),
+        'Error al Desconciliar'
+      );
+    },
+  });
+}
+
+export function useHistorialDesconciliacion(
+  empresaId: string | null | undefined,
+  cuentaFinancieraId?: string | null,
+  periodo?: string | null,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.historialDesconciliacion(
+      empresaId,
+      cuentaFinancieraId,
+      periodo
+    ),
+    queryFn: () =>
+      conciliacionV2Api.listarHistorialDesconciliacion(empresaId!, {
+        ...(cuentaFinancieraId ? { cuentaFinancieraId } : {}),
+        ...(periodo ? { periodo } : {}),
+      }),
+    enabled: Boolean(empresaId) && enabled,
+    retry: false,
+  });
+}
+
+export function useReglasAprendidas(empresaId: string | null | undefined, enabled = true) {
+  return useQuery({
+    queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+    queryFn: () => conciliacionV2Api.listarReglasAprendidas(empresaId!),
+    enabled: Boolean(empresaId) && enabled,
+    retry: false,
+  });
+}
+
+export function useCrearReglaAprendida(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (payload: CrearReglaAprendidaInput) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.crearReglaAprendida(empresaId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+      });
+      toast.success('Regla aprendida registrada correctamente.', 'Reglas Aprendidas');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo crear la regla aprendida.'),
+        'Error en Regla Aprendida'
+      );
+    },
+  });
+}
+
+export function useActualizarReglaAprendida(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: ({
+      reglaId,
+      payload,
+    }: {
+      reglaId: string;
+      payload: ActualizarReglaAprendidaInput;
+    }) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.actualizarReglaAprendida(empresaId, reglaId, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+      });
+      toast.success('Regla aprendida actualizada.', 'Reglas Aprendidas');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo actualizar la regla aprendida.'),
+        'Error en Regla Aprendida'
+      );
+    },
+  });
+}
+
+export function useEliminarReglaAprendida(empresaId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  return useMutation({
+    mutationFn: (reglaId: string) => {
+      if (!empresaId) {
+        return Promise.reject(new Error('No hay una empresa activa seleccionada.'));
+      }
+      return conciliacionV2Api.eliminarReglaAprendida(empresaId, reglaId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: conciliacionV2Keys.reglasAprendidas(empresaId),
+      });
+      toast.success('Regla aprendida eliminada.', 'Reglas Aprendidas');
+    },
+    onError: (err) => {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo eliminar la regla aprendida.'),
+        'Error al Eliminar Regla'
       );
     },
   });
