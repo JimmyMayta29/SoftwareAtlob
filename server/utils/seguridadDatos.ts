@@ -82,11 +82,24 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   ],
   aplicaciones_pago: [
     'input', 'resultados', 'fechaPago', 'referenciaBanco', 'aplicaciones',
-    'cuentaPorPagarId', 'importe', 'aplicacionId', 'nuevoSaldo', 'estadoCuenta'
+    'cuentaPorPagarId', 'movimientoTesoreriaId', 'importe', 'importeAplicado',
+    'aplicacionId', 'nuevoSaldo', 'estadoCuenta'
   ],
   aplicaciones_cobranza: [
     'input', 'resultados', 'fechaCobranza', 'referenciaBanco', 'aplicaciones',
-    'cuentaPorCobrarId', 'importe', 'aplicacionId', 'nuevoSaldo', 'estadoCuenta'
+    'cuentaPorCobrarId', 'movimientoTesoreriaId', 'importe', 'importeAplicado',
+    'aplicacionId', 'nuevoSaldo', 'estadoCuenta'
+  ],
+  cheques_bancarios: [
+    'cuentaFinancieraId', 'movimientoTesoreriaId', 'extractoLineaId', 'anexoId',
+    'numeroCheque', 'beneficiario', 'monto', 'fechaGiro', 'fechaEntrega',
+    'fechaCobro', 'fechaVencimiento', 'esNoNegociable', 'observacion',
+    'createdBy', 'updatedBy'
+  ],
+  conciliacion_plantillas_asiento: [
+    'codigo', 'nombre', 'tipoOperacion', 'cuentaContrapartidaCodigo',
+    'subdiarioCodigo', 'glosaPlantilla', 'esSistema', 'activo',
+    'createdBy', 'updatedBy'
   ],
   cajas_chicas: ['nombre', 'responsableAnexoId', 'cuentaFinancieraId', 'montoFondo', 'saldoActual'],
   cuentas_financieras: [

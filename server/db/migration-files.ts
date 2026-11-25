@@ -27,4 +27,5 @@ export const MIGRATION_FILES = [
   'schema_fase22_conciliacion_v2_base.sql',
   'schema_fase23_conciliacion_v2_importacion.sql',
   'schema_fase24_conciliacion_v2_matching.sql',
+  'schema_fase25_conciliacion_v2_cartera_asientos.sql',
 ] as const;

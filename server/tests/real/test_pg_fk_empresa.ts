@@ -170,7 +170,7 @@ export async function probarClavesEmpresa(
     (empresa_id, comprobante_id, proveedor_id, importe_original, saldo, fecha_emision, fecha_vencimiento)
     VALUES ($1, $2, $3, 1, 1, DATE '2026-11-15', DATE '2026-11-16') RETURNING id`;
   await rechazar(client, 'cuentas_por_pagar_comprobante_id_fkey', cuentaPorPagar, [a.empresa, compraB.id, a.anexo]);
-  await client.query(cuentaPorPagar, [a.empresa, compraA.id, a.anexo]);
+  const { rows: [cxpA] } = await client.query(cuentaPorPagar, [a.empresa, compraA.id, a.anexo]);
   const caja = `INSERT INTO cajas_chicas (empresa_id, cuenta_financiera_id, nombre, monto_fondo, saldo_actual)
     VALUES ($1, $2, 'Caja de prueba', 1, 1)`;
   await rechazar(client, 'cajas_chicas_cuenta_financiera_id_fkey', caja, [a.empresa, b.banco]);
@@ -289,6 +289,50 @@ export async function probarClavesEmpresa(
   await client.query(`INSERT INTO conciliacion_item
     (empresa_id, grupo_id, lado, origen_libro, movimiento_tesoreria_id, monto_imputado)
     VALUES ($1, $2, 'LIBRO', 'MOVIMIENTO_TESORERIA', $3, 100.00)`, [a.empresa, grupoA.id, movA.id]);
+
+  // Fase 25: FKs compuestas de cartera-tesorería y cheques bancarios
+  const { rows: [ventaA] } = await client.query(`INSERT INTO comprobantes_venta
+    (empresa_id, periodo_id, cliente_id, fecha_emision, fecha_contable, tipo_comprobante, serie, numero, total)
+    VALUES ($1, $2, $3, DATE '2026-11-15', DATE '2026-11-15', '01', 'F001', '1', 100.00) RETURNING id`, [a.empresa, a.periodo, a.anexo]);
+  const { rows: [cxcA] } = await client.query(`INSERT INTO cuentas_por_cobrar
+    (empresa_id, comprobante_id, cliente_id, importe_original, saldo, fecha_emision, fecha_vencimiento)
+    VALUES ($1, $2, $3, 100.00, 100.00, DATE '2026-11-15', DATE '2026-11-16') RETURNING id`, [a.empresa, ventaA.id, a.anexo]);
+
+  await rechazar(client, 'aplicaciones_cobranza_mov_tes_fkey', `INSERT INTO aplicaciones_cobranza
+    (empresa_id, cuenta_por_cobrar_id, movimiento_tesoreria_id, fecha_cobranza, importe_aplicado)
+    VALUES ($1, $2, $3, DATE '2026-11-15', 50.00)`, [a.empresa, cxcA.id, movB.id]);
+  await rechazar(client, 'aplicaciones_pago_mov_tes_fkey', `INSERT INTO aplicaciones_pago
+    (empresa_id, cuenta_por_pagar_id, movimiento_tesoreria_id, fecha_pago, importe_aplicado)
+    VALUES ($1, $2, $3, DATE '2026-11-15', 1.00)`, [a.empresa, cxpA.id, movB.id]);
+
+  await client.query(`INSERT INTO aplicaciones_cobranza
+    (empresa_id, cuenta_por_cobrar_id, movimiento_tesoreria_id, fecha_cobranza, importe_aplicado)
+    VALUES ($1, $2, $3, DATE '2026-11-15', 50.00)`, [a.empresa, cxcA.id, movA.id]);
+  await client.query(`INSERT INTO aplicaciones_pago
+    (empresa_id, cuenta_por_pagar_id, movimiento_tesoreria_id, fecha_pago, importe_aplicado)
+    VALUES ($1, $2, $3, DATE '2026-11-15', 1.00)`, [a.empresa, cxpA.id, movA.id]);
+
+  const { rows: vistaCartera } = await client.query<{ tipo_aplicacion: string }>(
+    'SELECT tipo_aplicacion FROM public.v_conciliacion_aplicaciones_cartera ORDER BY tipo_aplicacion'
+  );
+  assert.deepEqual(vistaCartera.map(r => r.tipo_aplicacion), ['COBRANZA', 'PAGO']);
+
+  await rechazar(client, 'cheques_bancarios_cuenta_financiera_fkey', `INSERT INTO cheques_bancarios
+    (empresa_id, cuenta_financiera_id, numero_cheque, beneficiario, monto, fecha_giro)
+    VALUES ($1, $2, 'CHQ-CRUCE-1', 'Beneficiario', 100.00, DATE '2026-11-15')`, [a.empresa, b.banco]);
+  await rechazar(client, 'cheques_bancarios_movimiento_tesoreria_fkey', `INSERT INTO cheques_bancarios
+    (empresa_id, cuenta_financiera_id, movimiento_tesoreria_id, numero_cheque, beneficiario, monto, fecha_giro)
+    VALUES ($1, $2, $3, 'CHQ-CRUCE-2', 'Beneficiario', 100.00, DATE '2026-11-15')`, [a.empresa, a.banco, movB.id]);
+  await rechazar(client, 'cheques_bancarios_extracto_linea_fkey', `INSERT INTO cheques_bancarios
+    (empresa_id, cuenta_financiera_id, extracto_linea_id, numero_cheque, beneficiario, monto, fecha_giro)
+    VALUES ($1, $2, $3, 'CHQ-CRUCE-3', 'Beneficiario', 100.00, DATE '2026-11-15')`, [a.empresa, a.banco, lineaExtB.id]);
+  await rechazar(client, 'cheques_bancarios_anexo_fkey', `INSERT INTO cheques_bancarios
+    (empresa_id, cuenta_financiera_id, anexo_id, numero_cheque, beneficiario, monto, fecha_giro)
+    VALUES ($1, $2, $3, 'CHQ-CRUCE-4', 'Beneficiario', 100.00, DATE '2026-11-15')`, [a.empresa, a.banco, b.anexo]);
+  await client.query(`INSERT INTO cheques_bancarios
+    (empresa_id, cuenta_financiera_id, movimiento_tesoreria_id, extracto_linea_id, anexo_id, numero_cheque, beneficiario, monto, fecha_giro)
+    VALUES ($1, $2, $3, $4, $5, 'CHQ-OK-1', 'Beneficiario A', 100.00, DATE '2026-11-15')`,
+    [a.empresa, a.banco, movA.id, lineaExtA.id, a.anexo]);
 
   const lineaPlanilla = `INSERT INTO planilla_lineas
     (planilla_id, trabajador_id, sueldo_basico, total_remuneracion, total_descuentos, neto_pagar)
