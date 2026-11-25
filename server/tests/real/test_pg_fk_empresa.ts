@@ -223,6 +223,73 @@ export async function probarClavesEmpresa(
     (empresa_id, extracto_id, import_id, linea_raw_id, fecha, descripcion, monto)
     VALUES ($1, $2, $3, $4, DATE '2026-11-01', 'Cruce', 10.00)`, [a.empresa, extractoA.id, importA.id, rawB.id]);
 
+  // Fase 24: FKs compuestas de matching, reglas aprendidas e historial de desconciliación
+  await contexto(client, b.empresa);
+  const { rows: [asientoDetB] } = await client.query(`INSERT INTO asiento_detalle
+    (empresa_id, asiento_id, cuenta_id, linea, debe) VALUES ($1, $2, $3, 1, 100.00) RETURNING id`, [b.empresa, asientoB.id, b.cuenta]);
+  const { rows: [lineaExtB] } = await client.query(`INSERT INTO extracto_lineas
+    (empresa_id, extracto_id, import_id, fecha, descripcion, monto)
+    VALUES ($1, $2, $3, DATE '2026-11-01', 'Linea B', 100.00) RETURNING id`, [b.empresa, extractoB.id, importB.id]);
+  const { rows: [movB] } = await client.query(`INSERT INTO movimientos_tesoreria
+    (empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo, importe, glosa)
+    VALUES ($1, $2, $3, DATE '2026-11-01', 'INGRESO', 100.00, 'Mov B') RETURNING id`, [b.empresa, b.periodo, b.banco]);
+  const { rows: [grupoB] } = await client.query(`INSERT INTO conciliacion_grupo
+    (empresa_id, cuenta_financiera_id, periodo_id, tipo_match, regla_aplicada, capa_matching)
+    VALUES ($1, $2, $3, '1:1', 'CAPA1_OP_EXACTA', 1) RETURNING id`, [b.empresa, b.banco, b.periodo]);
+
+  await contexto(client, a.empresa);
+  const { rows: [asientoA] } = await client.query(`INSERT INTO asientos (empresa_id, periodo_id, subdiario_id, fecha, glosa)
+    VALUES ($1, $2, $3, DATE '2026-11-15', 'Asiento A') RETURNING id`, [a.empresa, a.periodo, a.subdiario]);
+  const { rows: [asientoDetA] } = await client.query(`INSERT INTO asiento_detalle
+    (empresa_id, asiento_id, cuenta_id, linea, debe) VALUES ($1, $2, $3, 1, 100.00) RETURNING id`, [a.empresa, asientoA.id, a.cuenta]);
+  const { rows: [lineaExtA] } = await client.query(`INSERT INTO extracto_lineas
+    (empresa_id, extracto_id, import_id, fecha, descripcion, monto)
+    VALUES ($1, $2, $3, DATE '2026-11-01', 'Linea A', 100.00) RETURNING id`, [a.empresa, extractoA.id, importA.id]);
+  const { rows: [movA] } = await client.query(`INSERT INTO movimientos_tesoreria
+    (empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo, importe, glosa)
+    VALUES ($1, $2, $3, DATE '2026-11-01', 'INGRESO', 100.00, 'Mov A') RETURNING id`, [a.empresa, a.periodo, a.banco]);
+
+  await rechazar(client, 'conciliacion_grupo_cuenta_financiera_fkey', `INSERT INTO conciliacion_grupo
+    (empresa_id, cuenta_financiera_id, periodo_id, tipo_match, regla_aplicada, capa_matching)
+    VALUES ($1, $2, $3, '1:1', 'CAPA1', 1)`, [a.empresa, b.banco, a.periodo]);
+  await rechazar(client, 'conciliacion_grupo_periodo_fkey', `INSERT INTO conciliacion_grupo
+    (empresa_id, cuenta_financiera_id, periodo_id, tipo_match, regla_aplicada, capa_matching)
+    VALUES ($1, $2, $3, '1:1', 'CAPA1', 1)`, [a.empresa, a.banco, b.periodo]);
+  const { rows: [grupoA] } = await client.query(`INSERT INTO conciliacion_grupo
+    (empresa_id, cuenta_financiera_id, periodo_id, tipo_match, regla_aplicada, capa_matching)
+    VALUES ($1, $2, $3, '1:1', 'CAPA1_OP_EXACTA', 1) RETURNING id`, [a.empresa, a.banco, a.periodo]);
+
+  await rechazar(client, 'conciliacion_item_grupo_fkey', `INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, extracto_linea_id, monto_imputado)
+    VALUES ($1, $2, 'BANCO', $3, 100.00)`, [a.empresa, grupoB.id, lineaExtA.id]);
+  await rechazar(client, 'conciliacion_item_extracto_linea_fkey', `INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, extracto_linea_id, monto_imputado)
+    VALUES ($1, $2, 'BANCO', $3, 100.00)`, [a.empresa, grupoA.id, lineaExtB.id]);
+  await rechazar(client, 'conciliacion_item_movimiento_tesoreria_fkey', `INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, origen_libro, movimiento_tesoreria_id, monto_imputado)
+    VALUES ($1, $2, 'LIBRO', 'MOVIMIENTO_TESORERIA', $3, 100.00)`, [a.empresa, grupoA.id, movB.id]);
+  await rechazar(client, 'conciliacion_item_asiento_fkey', `INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, origen_libro, asiento_id, asiento_detalle_id, monto_imputado)
+    VALUES ($1, $2, 'LIBRO', 'ASIENTO_MANUAL', $3, $4, 100.00)`, [a.empresa, grupoA.id, asientoB.id, asientoDetA.id]);
+  await rechazar(client, 'conciliacion_item_asiento_detalle_fkey', `INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, origen_libro, asiento_id, asiento_detalle_id, monto_imputado)
+    VALUES ($1, $2, 'LIBRO', 'ASIENTO_MANUAL', $3, $4, 100.00)`, [a.empresa, grupoA.id, asientoA.id, asientoDetB.id]);
+
+  await rechazar(client, 'conciliacion_reglas_aprendidas_anexo_fkey', `INSERT INTO conciliacion_reglas_aprendidas
+    (empresa_id, patron_contraparte, anexo_id) VALUES ($1, 'PATRON_CRUCE_1', $2)`, [a.empresa, b.anexo]);
+  await rechazar(client, 'conciliacion_reglas_aprendidas_cuenta_contable_fkey', `INSERT INTO conciliacion_reglas_aprendidas
+    (empresa_id, patron_contraparte, cuenta_contable_id) VALUES ($1, 'PATRON_CRUCE_2', $2)`, [a.empresa, b.cuenta]);
+
+  await rechazar(client, 'conciliacion_hist_desconcil_grupo_fkey', `INSERT INTO conciliacion_historial_desconciliacion
+    (empresa_id, grupo_id, motivo) VALUES ($1, $2, 'Cruce grupo')`, [a.empresa, grupoB.id]);
+  await rechazar(client, 'conciliacion_hist_desconcil_ext_linea_fkey', `INSERT INTO conciliacion_historial_desconciliacion
+    (empresa_id, extracto_linea_id, motivo) VALUES ($1, $2, 'Cruce extracto')`, [a.empresa, lineaExtB.id]);
+  await rechazar(client, 'conciliacion_hist_desconcil_mov_tes_fkey', `INSERT INTO conciliacion_historial_desconciliacion
+    (empresa_id, movimiento_tesoreria_id, motivo) VALUES ($1, $2, 'Cruce movimiento')`, [a.empresa, movB.id]);
+  await client.query(`INSERT INTO conciliacion_item
+    (empresa_id, grupo_id, lado, origen_libro, movimiento_tesoreria_id, monto_imputado)
+    VALUES ($1, $2, 'LIBRO', 'MOVIMIENTO_TESORERIA', $3, 100.00)`, [a.empresa, grupoA.id, movA.id]);
+
   const lineaPlanilla = `INSERT INTO planilla_lineas
     (planilla_id, trabajador_id, sueldo_basico, total_remuneracion, total_descuentos, neto_pagar)
     VALUES ($1, $2, 1000, 1000, 0, 1000) RETURNING empresa_id`;

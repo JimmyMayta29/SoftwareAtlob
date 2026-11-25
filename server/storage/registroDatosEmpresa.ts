@@ -389,6 +389,35 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
     { columna: 'updated_by', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
   ] },
+  { tabla: 'conciliacion_reglas_aprendidas', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'anexo_id', tabla: 'anexos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'created_by', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+    { columna: 'cuenta_contable_id', tabla: 'plan_cuentas', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'updated_by', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
+  { tabla: 'conciliacion_grupo', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'confirmado_por', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+    { columna: 'cuenta_financiera_id', tabla: 'cuentas_financieras', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'periodo_id', tabla: 'periodos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
+  { tabla: 'conciliacion_item', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'asiento_detalle_id', tabla: 'asiento_detalle', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'asiento_id', tabla: 'asientos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'extracto_linea_id', tabla: 'extracto_lineas', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'grupo_id', tabla: 'conciliacion_grupo', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'movimiento_tesoreria_id', tabla: 'movimientos_tesoreria', columnaDestino: 'id', remapeo: 'identificador' },
+  ] },
+  { tabla: 'conciliacion_historial_desconciliacion', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'extracto_linea_id', tabla: 'extracto_lineas', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'grupo_id', tabla: 'conciliacion_grupo', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'movimiento_tesoreria_id', tabla: 'movimientos_tesoreria', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
 ];
 
 export const REGISTRO_ARCHIVOS_EMPRESA = [

@@ -133,13 +133,31 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   ],
   conciliacion_config_empresa: [
     'conciliacionV2Habilitada', 'toleranciaDias', 'toleranciaMonto',
-    'cuentaItfCodigo', 'cuentaComisionCodigo', 'cuentaInteresGastoCodigo',
-    'cuentaInteresIngresoCodigo', 'updatedBy'
+    'umbralAutoMatch', 'cuentaItfCodigo', 'cuentaComisionCodigo',
+    'cuentaInteresGastoCodigo', 'cuentaInteresIngresoCodigo', 'updatedBy'
+  ],
+  conciliacion_grupo: [
+    'grupoId', 'cuentaFinancieraId', 'tipoMatch', 'reglaAplicada',
+    'capaMatching', 'score', 'diferenciaMonto', 'observacion',
+    'usuarioId', 'confirmadoPor', 'confirmadoEn', 'itemsBanco', 'itemsLibro'
+  ],
+  conciliacion_item: [
+    'grupoId', 'lado', 'origenLibro', 'extractoLineaId',
+    'movimientoTesoreriaId', 'asientoDetalleId', 'montoImputado'
+  ],
+  conciliacion_reglas_aprendidas: [
+    'patronContraparte', 'rucContraparte', 'anexoId', 'cuentaContableId',
+    'tipoClasificacion', 'usosConfirmados', 'activo', 'createdBy', 'updatedBy'
+  ],
+  conciliacion_historial_desconciliacion: [
+    'grupoId', 'extractoLineaId', 'movimientoTesoreriaId',
+    'estadoAnteriorBanco', 'estadoAnteriorLibro', 'snapshotGrupo',
+    'snapshotGrupoJson', 'usuarioId'
   ],
   movimientos_tesoreria: [
     'cuentaFinancieraId', 'tipo', 'medioPago', 'numeroOperacion', 'anexoId',
-    'importe', 'importeMe', 'saldoSinAplicar', 'conciliado', 'aplicaciones',
-    'documentoId', 'importeAplicado'
+    'importe', 'importeMe', 'saldoSinAplicar', 'conciliado',
+    'estadoConciliacionLibro', 'aplicaciones', 'documentoId', 'importeAplicado'
   ],
   recibos_honorarios: [
     'proveedorId', 'proveedorNombre', 'proveedorRuc', 'serie', 'numero',

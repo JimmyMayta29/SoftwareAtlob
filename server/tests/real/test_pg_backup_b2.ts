@@ -41,7 +41,7 @@ async function ejecutar() {
     // -------------------------------------------------------------------------
     // CRITERIO B2.1: 100% de tablas y archivos incluidos según política aprobada
     // -------------------------------------------------------------------------
-    console.log('--- 1. Verificación de Política Declarativa de Respaldo (91 Tablas, 7 Carpetas) ---');
+    console.log('--- 1. Verificación de Política Declarativa de Respaldo (95 Tablas, 7 Carpetas) ---');
     const { rows: tablasReales } = await client.query<{ table_name: string }>(`
       SELECT table_name FROM information_schema.tables 
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -56,8 +56,8 @@ async function ejecutar() {
     const tablasEmpresa = REGISTRO_DATOS_EMPRESA.filter(t => t.exportar && t.ambito === 'empresa');
     console.log(`✔ Catálogo verificado: ${REGISTRO_DATOS_EMPRESA.length} tablas totales, ${tablasEmpresa.length} tablas exportables por empresa.`);
     console.log(`✔ Estructura de archivos físicos: ${REGISTRO_ARCHIVOS_EMPRESA.length} carpetas declaradas.`);
-    assert.equal(REGISTRO_DATOS_EMPRESA.length, 91, 'Deben registrarse exactamente 91 tablas');
-    assert.equal(tablasEmpresa.length, 67, 'Deben existir 67 tablas exportables de ámbito empresa');
+    assert.equal(REGISTRO_DATOS_EMPRESA.length, 95, 'Deben registrarse exactamente 95 tablas');
+    assert.equal(tablasEmpresa.length, 71, 'Deben existir 71 tablas exportables de ámbito empresa');
 
     // -------------------------------------------------------------------------
     // Configuración de Datos Operativos para Empresa A y Empresa B
@@ -196,6 +196,61 @@ async function ejecutar() {
             $4, 2000.00, 360.00, 2360.00, $5, 'REGISTRADO'
           )
         `, [vtaId, empId, perId, anexoCliId, ast2Id]);
+
+        // Datos de Conciliación Bancaria V2 (Fase 24)
+        const ctaFinId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO cuentas_financieras (id, empresa_id, tipo, banco, numero, cuenta_contable_id)
+          VALUES ($1, $2, 'BANCO', 'BCP', $3, $4)
+        `, [ctaFinId, empId, `191-000${sufijo}`, ctaMap.get('1212')]);
+
+        const extId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO extractos_bancarios (id, empresa_id, cuenta_financiera_id, nombre_archivo, fecha_corte_desde, fecha_corte_hasta, hash_archivo)
+          VALUES ($1, $2, $3, 'extracto_b2.csv', '2026-11-01', '2026-11-30', $4)
+        `, [extId, empId, ctaFinId, `hash-b2-${sufijo}`]);
+
+        const extLineaId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO extracto_lineas (id, empresa_id, extracto_id, fecha, descripcion, monto, estado_conciliacion)
+          VALUES ($1, $2, $3, '2026-11-12', 'ABONO CLIENTE B2', 2360.00, 'CONCILIADO')
+        `, [extLineaId, empId, extId]);
+
+        const movTesId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO movimientos_tesoreria (
+            id, empresa_id, periodo_id, cuenta_financiera_id, fecha, tipo, importe, glosa, conciliado, estado_conciliacion_libro
+          ) VALUES ($1, $2, $3, $4, '2026-11-12', 'INGRESO', 2360.00, 'COBRO CLIENTE B2', true, 'CONCILIADO')
+        `, [movTesId, empId, perId, ctaFinId]);
+
+        await client.query(`
+          INSERT INTO conciliacion_reglas_aprendidas (id, empresa_id, patron_contraparte, anexo_id, cuenta_contable_id, tipo_clasificacion)
+          VALUES ($1, $2, $3, $4, $5, 'TRANSFERENCIA')
+        `, [crypto.randomUUID(), empId, `CLIENTE_${sufijo}`, anexoCliId, ctaMap.get('1212')]);
+
+        const grupoId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO conciliacion_grupo (
+            id, empresa_id, cuenta_financiera_id, periodo_id, tipo_match, regla_aplicada, capa_matching, score, estado
+          ) VALUES ($1, $2, $3, $4, '1:1', 'CAPA1_OP_EXACTA', 1, 1.0000, 'CONCILIADO')
+        `, [grupoId, empId, ctaFinId, perId]);
+
+        await client.query(`
+          INSERT INTO conciliacion_item (id, empresa_id, grupo_id, lado, extracto_linea_id, monto_imputado)
+          VALUES ($1, $2, $3, 'BANCO', $4, 2360.00)
+        `, [crypto.randomUUID(), empId, grupoId, extLineaId]);
+
+        await client.query(`
+          INSERT INTO conciliacion_item (id, empresa_id, grupo_id, lado, origen_libro, movimiento_tesoreria_id, monto_imputado)
+          VALUES ($1, $2, $3, 'LIBRO', 'MOVIMIENTO_TESORERIA', $4, 2360.00)
+        `, [crypto.randomUUID(), empId, grupoId, movTesId]);
+
+        await client.query(`
+          INSERT INTO conciliacion_historial_desconciliacion (
+            id, empresa_id, grupo_id, extracto_linea_id, movimiento_tesoreria_id,
+            estado_anterior_banco, estado_anterior_libro, motivo, snapshot_grupo_json
+          ) VALUES ($1, $2, $3, $4, $5, 'CONCILIADO', 'CONCILIADO', 'Prueba B2 inmutabilidad', '{"ok":true}'::jsonb)
+        `, [crypto.randomUUID(), empId, grupoId, extLineaId, movTesId]);
 
         await client.query('COMMIT');
         return { perId, ast1Id, ast2Id, cmpId, vtaId };
@@ -336,6 +391,14 @@ async function ejecutar() {
     // 5.2. Simular pérdida catastrófica en Empresa A: Borrar todos sus datos en PostgreSQL y archivos
     console.log('Simulando desastre: eliminando registros de Empresa A en PostgreSQL real...');
     await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false), set_config('app.restaurando_backup', 'true', false)", [empresaA_id]);
+    await client.query('DELETE FROM conciliacion_historial_desconciliacion WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM conciliacion_item WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM conciliacion_grupo WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM conciliacion_reglas_aprendidas WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM extracto_lineas WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM extractos_bancarios WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM movimientos_tesoreria WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM cuentas_financieras WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM comprobantes_venta WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM comprobantes_compra WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM asiento_detalle WHERE empresa_id = $1', [empresaA_id]);
@@ -385,6 +448,10 @@ async function ejecutar() {
         (SELECT count(*)::int FROM asiento_detalle WHERE empresa_id = $1) AS total_detalles,
         (SELECT count(*)::int FROM comprobantes_compra WHERE empresa_id = $1) AS total_compras,
         (SELECT count(*)::int FROM comprobantes_venta WHERE empresa_id = $1) AS total_ventas,
+        (SELECT count(*)::int FROM conciliacion_reglas_aprendidas WHERE empresa_id = $1) AS total_concil_reglas,
+        (SELECT count(*)::int FROM conciliacion_grupo WHERE empresa_id = $1) AS total_concil_grupos,
+        (SELECT count(*)::int FROM conciliacion_item WHERE empresa_id = $1) AS total_concil_items,
+        (SELECT count(*)::int FROM conciliacion_historial_desconciliacion WHERE empresa_id = $1) AS total_concil_hist,
         (SELECT COALESCE(SUM(debe), 0)::numeric FROM asiento_detalle WHERE empresa_id = $1) AS suma_debe,
         (SELECT COALESCE(SUM(haber), 0)::numeric FROM asiento_detalle WHERE empresa_id = $1) AS suma_haber
     `, [empresaA_id]);
@@ -399,6 +466,10 @@ async function ejecutar() {
     assert.equal(restauradoA.total_detalles, 6, 'Deben haber 6 líneas de asiento restauradas');
     assert.equal(restauradoA.total_compras, 1, 'Debe haber 1 compra restaurada');
     assert.equal(restauradoA.total_ventas, 1, 'Debe haber 1 venta restaurada');
+    assert.equal(restauradoA.total_concil_reglas, 1, 'Debe haber 1 regla aprendida restaurada');
+    assert.equal(restauradoA.total_concil_grupos, 1, 'Debe haber 1 grupo de conciliación restaurado');
+    assert.equal(restauradoA.total_concil_items, 2, 'Deben haber 2 ítems de conciliación restaurados');
+    assert.equal(restauradoA.total_concil_hist, 1, 'Debe haber 1 historial de desconciliación restaurado');
 
     // Partida Doble
     assert.equal(Number(restauradoA.suma_debe), Number(restauradoA.suma_haber), 'Debe y Haber deben ser idénticos tras restauración');
@@ -480,17 +551,28 @@ async function ejecutar() {
   } finally {
     // Limpieza de datos de prueba
     try {
-      await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false), set_config('app.restaurando_backup', 'true', false)", [empresaA_id]);
-      await client.query('DELETE FROM comprobantes_venta WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM comprobantes_compra WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM asiento_detalle WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM asientos WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM anexos WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM subdiarios WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM plan_cuentas WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM periodos WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM ejercicios WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
-      await client.query('DELETE FROM reportes_generados WHERE empresa_id IN ($1, $2)', [empresaA_id, empresaB_id]);
+      for (const empId of [empresaA_id, empresaB_id]) {
+        await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false), set_config('app.restaurando_backup', 'true', false)", [empId]);
+        await client.query('DELETE FROM conciliacion_historial_desconciliacion WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM conciliacion_item WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM conciliacion_grupo WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM conciliacion_reglas_aprendidas WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM extracto_lineas WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM extractos_bancarios WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM movimientos_tesoreria WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM cuentas_financieras WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM comprobantes_venta WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM comprobantes_compra WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM asiento_detalle WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM asientos WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM anexos WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM subdiarios WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM plan_cuentas WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM periodos WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM ejercicios WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM reportes_generados WHERE empresa_id = $1', [empId]);
+      }
+      await client.query("SELECT set_config('app.restaurando_backup', 'false', false)");
       await client.query('DELETE FROM empresas WHERE id IN ($1, $2)', [empresaA_id, empresaB_id]);
       await client.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
       archivosEmpresaService.limpiarArchivosExportables(empresaA_id);
