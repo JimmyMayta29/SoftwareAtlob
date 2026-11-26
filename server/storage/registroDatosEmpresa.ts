@@ -434,6 +434,13 @@ export const REGISTRO_DATOS_EMPRESA: readonly RegistroTablaEmpresa[] = [
     { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
     { columna: 'updated_by', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
   ] },
+  { tabla: 'conciliacion_cierres_historial', ambito: 'empresa', exportar: true, clavePrimaria: ['id'], remapearClave: true, columnaEmpresa: 'empresa_id', referencias: [
+    { columna: 'conciliacion_id', tabla: 'conciliaciones_bancarias', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'cuenta_financiera_id', tabla: 'cuentas_financieras', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'empresa_id', tabla: 'empresas', columnaDestino: 'id', remapeo: 'empresa_destino' },
+    { columna: 'periodo_id', tabla: 'periodos', columnaDestino: 'id', remapeo: 'identificador' },
+    { columna: 'usuario_id', tabla: 'usuarios_estudio', columnaDestino: 'id', remapeo: 'evidencia_origen' },
+  ] },
 ];
 
 export const REGISTRO_ARCHIVOS_EMPRESA = [

@@ -334,6 +334,35 @@ export async function probarClavesEmpresa(
     VALUES ($1, $2, $3, $4, $5, 'CHQ-OK-1', 'Beneficiario A', 100.00, DATE '2026-11-15')`,
     [a.empresa, a.banco, movA.id, lineaExtA.id, a.anexo]);
 
+  // Fase 26: FKs compuestas de conciliacion_cierres_historial
+  await contexto(client, b.empresa);
+  const { rows: [concilB] } = await client.query(`INSERT INTO conciliaciones_bancarias
+    (empresa_id, cuenta_financiera_id, periodo_id, fecha_corte, saldo_segun_libros, saldo_segun_banco)
+    VALUES ($1, $2, $3, DATE '2026-11-30', 100.00, 100.00) RETURNING id`, [b.empresa, b.banco, b.periodo]);
+
+  await contexto(client, a.empresa);
+  const { rows: [concilA] } = await client.query(`INSERT INTO conciliaciones_bancarias
+    (empresa_id, cuenta_financiera_id, periodo_id, fecha_corte, saldo_segun_libros, saldo_segun_banco)
+    VALUES ($1, $2, $3, DATE '2026-11-30', 100.00, 100.00) RETURNING id`, [a.empresa, a.banco, a.periodo]);
+
+  const hashCierreDemo = 'b'.repeat(64);
+  await rechazar(client, 'concil_cierres_hist_conciliacion_fkey', `INSERT INTO conciliacion_cierres_historial
+    (empresa_id, conciliacion_id, cuenta_financiera_id, periodo_id, codigo_periodo, tipo_evento, numero_secuencia, fecha_corte, saldo_libros, snapshot_json, hash_snapshot_sha256)
+    VALUES ($1, $2, $3, $4, '2026-11', 'CIERRE', 1, DATE '2026-11-30', 100.00, '{"ok":true}'::jsonb, $5)`,
+    [a.empresa, concilB.id, a.banco, a.periodo, hashCierreDemo]);
+  await rechazar(client, 'concil_cierres_hist_cuenta_fin_fkey', `INSERT INTO conciliacion_cierres_historial
+    (empresa_id, conciliacion_id, cuenta_financiera_id, periodo_id, codigo_periodo, tipo_evento, numero_secuencia, fecha_corte, saldo_libros, snapshot_json, hash_snapshot_sha256)
+    VALUES ($1, $2, $3, $4, '2026-11', 'CIERRE', 1, DATE '2026-11-30', 100.00, '{"ok":true}'::jsonb, $5)`,
+    [a.empresa, concilA.id, b.banco, a.periodo, hashCierreDemo]);
+  await rechazar(client, 'concil_cierres_hist_periodo_fkey', `INSERT INTO conciliacion_cierres_historial
+    (empresa_id, conciliacion_id, cuenta_financiera_id, periodo_id, codigo_periodo, tipo_evento, numero_secuencia, fecha_corte, saldo_libros, snapshot_json, hash_snapshot_sha256)
+    VALUES ($1, $2, $3, $4, '2026-11', 'CIERRE', 1, DATE '2026-11-30', 100.00, '{"ok":true}'::jsonb, $5)`,
+    [a.empresa, concilA.id, a.banco, b.periodo, hashCierreDemo]);
+  await client.query(`INSERT INTO conciliacion_cierres_historial
+    (empresa_id, conciliacion_id, cuenta_financiera_id, periodo_id, codigo_periodo, tipo_evento, numero_secuencia, fecha_corte, saldo_libros, snapshot_json, hash_snapshot_sha256)
+    VALUES ($1, $2, $3, $4, '2026-11', 'CIERRE', 1, DATE '2026-11-30', 100.00, '{"ok":true}'::jsonb, $5)`,
+    [a.empresa, concilA.id, a.banco, a.periodo, hashCierreDemo]);
+
   const lineaPlanilla = `INSERT INTO planilla_lineas
     (planilla_id, trabajador_id, sueldo_basico, total_remuneracion, total_descuentos, neto_pagar)
     VALUES ($1, $2, 1000, 1000, 0, 1000) RETURNING empresa_id`;

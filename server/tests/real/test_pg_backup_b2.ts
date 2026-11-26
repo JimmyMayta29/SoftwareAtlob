@@ -41,7 +41,7 @@ async function ejecutar() {
     // -------------------------------------------------------------------------
     // CRITERIO B2.1: 100% de tablas y archivos incluidos según política aprobada
     // -------------------------------------------------------------------------
-    console.log('--- 1. Verificación de Política Declarativa de Respaldo (97 Tablas, 7 Carpetas) ---');
+    console.log('--- 1. Verificación de Política Declarativa de Respaldo (98 Tablas, 7 Carpetas) ---');
     const { rows: tablasReales } = await client.query<{ table_name: string }>(`
       SELECT table_name FROM information_schema.tables 
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -56,8 +56,8 @@ async function ejecutar() {
     const tablasEmpresa = REGISTRO_DATOS_EMPRESA.filter(t => t.exportar && t.ambito === 'empresa');
     console.log(`✔ Catálogo verificado: ${REGISTRO_DATOS_EMPRESA.length} tablas totales, ${tablasEmpresa.length} tablas exportables por empresa.`);
     console.log(`✔ Estructura de archivos físicos: ${REGISTRO_ARCHIVOS_EMPRESA.length} carpetas declaradas.`);
-    assert.equal(REGISTRO_DATOS_EMPRESA.length, 97, 'Deben registrarse exactamente 97 tablas');
-    assert.equal(tablasEmpresa.length, 73, 'Deben existir 73 tablas exportables de ámbito empresa');
+    assert.equal(REGISTRO_DATOS_EMPRESA.length, 98, 'Deben registrarse exactamente 98 tablas');
+    assert.equal(tablasEmpresa.length, 74, 'Deben existir 74 tablas exportables de ámbito empresa');
 
     // -------------------------------------------------------------------------
     // Configuración de Datos Operativos para Empresa A y Empresa B
@@ -279,6 +279,33 @@ async function ejecutar() {
           ) VALUES ($1, $2, $3, 'Plantilla ITF B2', 'ITF', '6412', 'ITF BANCARIO B2')
         `, [crypto.randomUUID(), empId, `PLT_ITF_${sufijo}`]);
 
+        // Datos de Conciliación Bancaria V2 (Fase 26: cierres e historial inmutable)
+        const concilId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO conciliaciones_bancarias (
+            id, empresa_id, cuenta_financiera_id, periodo_id, fecha_corte,
+            saldo_segun_libros, saldo_segun_banco, estado
+          ) VALUES ($1, $2, $3, $4, '2026-11-30', 2360.00, 2360.00, 'CERRADA')
+        `, [concilId, empId, ctaFinId, perId]);
+
+        await client.query(`
+          INSERT INTO conciliacion_cierres_historial (
+            id, empresa_id, conciliacion_id, cuenta_financiera_id, periodo_id,
+            codigo_periodo, tipo_evento, numero_secuencia, fecha_corte,
+            saldo_inicial_banco, saldo_final_banco, saldo_libros,
+            depositos_en_transito, cheques_no_cobrados, abonos_no_registrados, cargos_no_registrados,
+            saldo_mayor_104x, diferencia_integridad_mayor, diferencia,
+            motivo, snapshot_json, hash_snapshot_sha256
+          ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, 'CIERRE', 1, '2026-11-30',
+            0.00, 2360.00, 2360.00,
+            0.00, 0.00, 0.00, 0.00,
+            2360.00, 0.00, 0.00,
+            'Cierre B2 inmutabilidad', '{"ok":true}'::jsonb, $7
+          )
+        `, [crypto.randomUUID(), empId, concilId, ctaFinId, perId, periodoStr, 'a'.repeat(64)]);
+
         await client.query('COMMIT');
         return { perId, ast1Id, ast2Id, cmpId, vtaId };
       } catch (err) {
@@ -418,6 +445,8 @@ async function ejecutar() {
     // 5.2. Simular pérdida catastrófica en Empresa A: Borrar todos sus datos en PostgreSQL y archivos
     console.log('Simulando desastre: eliminando registros de Empresa A en PostgreSQL real...');
     await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false), set_config('app.restaurando_backup', 'true', false)", [empresaA_id]);
+    await client.query('DELETE FROM conciliacion_cierres_historial WHERE empresa_id = $1', [empresaA_id]);
+    await client.query('DELETE FROM conciliaciones_bancarias WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM conciliacion_plantillas_asiento WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM cheques_bancarios WHERE empresa_id = $1', [empresaA_id]);
     await client.query('DELETE FROM aplicaciones_cobranza WHERE empresa_id = $1', [empresaA_id]);
@@ -486,6 +515,8 @@ async function ejecutar() {
         (SELECT count(*)::int FROM aplicaciones_cobranza WHERE empresa_id = $1 AND movimiento_tesoreria_id IS NOT NULL) AS total_app_cobranza_mov,
         (SELECT count(*)::int FROM cheques_bancarios WHERE empresa_id = $1) AS total_cheques,
         (SELECT count(*)::int FROM conciliacion_plantillas_asiento WHERE empresa_id = $1) AS total_plantillas,
+        (SELECT count(*)::int FROM conciliaciones_bancarias WHERE empresa_id = $1) AS total_concil_bancarias,
+        (SELECT count(*)::int FROM conciliacion_cierres_historial WHERE empresa_id = $1) AS total_concil_cierres_hist,
         (SELECT COALESCE(SUM(debe), 0)::numeric FROM asiento_detalle WHERE empresa_id = $1) AS suma_debe,
         (SELECT COALESCE(SUM(haber), 0)::numeric FROM asiento_detalle WHERE empresa_id = $1) AS suma_haber
     `, [empresaA_id]);
@@ -507,6 +538,8 @@ async function ejecutar() {
     assert.equal(restauradoA.total_app_cobranza_mov, 1, 'Debe haber 1 aplicación de cobranza con movimiento_tesoreria_id restaurada');
     assert.equal(restauradoA.total_cheques, 1, 'Debe haber 1 cheque bancario restaurado');
     assert.equal(restauradoA.total_plantillas, 1, 'Debe haber 1 plantilla de asiento restaurada');
+    assert.equal(restauradoA.total_concil_bancarias, 1, 'Debe haber 1 conciliación bancaria restaurada');
+    assert.equal(restauradoA.total_concil_cierres_hist, 1, 'Debe haber 1 historial de cierre bancario restaurado');
 
     // Partida Doble
     assert.equal(Number(restauradoA.suma_debe), Number(restauradoA.suma_haber), 'Debe y Haber deben ser idénticos tras restauración');
@@ -590,6 +623,8 @@ async function ejecutar() {
     try {
       for (const empId of [empresaA_id, empresaB_id]) {
         await client.query("SELECT set_config('app.empresa_id', $1, false), set_config('app.current_empresa_id', $1, false), set_config('app.restaurando_backup', 'true', false)", [empId]);
+        await client.query('DELETE FROM conciliacion_cierres_historial WHERE empresa_id = $1', [empId]);
+        await client.query('DELETE FROM conciliaciones_bancarias WHERE empresa_id = $1', [empId]);
         await client.query('DELETE FROM conciliacion_plantillas_asiento WHERE empresa_id = $1', [empId]);
         await client.query('DELETE FROM cheques_bancarios WHERE empresa_id = $1', [empId]);
         await client.query('DELETE FROM aplicaciones_cobranza WHERE empresa_id = $1', [empId]);

@@ -34,6 +34,7 @@ const MODULO_POR_TABLA_HIJA: Record<string, string> = {
   cuentas_por_pagar: '03_cartera',
   cajas_chicas: '04_tesoreria',
   cheques_bancarios: '04_tesoreria',
+  conciliacion_cierres_historial: '04_tesoreria',
   conciliacion_grupo: '04_tesoreria',
   conciliacion_historial_desconciliacion: '04_tesoreria',
   conciliacion_item: '04_tesoreria',
@@ -139,7 +140,7 @@ export async function ejecutarDiagnosticoFkSoloLectura(client: PoolClient): Prom
     `);
 
     const fks = fksRaw.filter(fk => tablasEmpresa.has(fk.hija) && tablasEmpresa.has(fk.padre) && fk.padre !== 'empresas');
-    assert.equal(fks.length, 101, `Se esperaban 101 relaciones de empresa, se encontraron ${fks.length}`);
+    assert.equal(fks.length, 104, `Se esperaban 104 relaciones de empresa, se encontraron ${fks.length}`);
 
     // Recolectar mapa de padres (id -> empresa_id) iterando contextos de empresa bajo READ ONLY
     const padresUnicos = [...new Set(fks.map(fk => fk.padre))];

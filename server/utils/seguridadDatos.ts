@@ -101,6 +101,14 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'subdiarioCodigo', 'glosaPlantilla', 'esSistema', 'activo',
     'createdBy', 'updatedBy'
   ],
+  conciliacion_cierres_historial: [
+    'conciliacionId', 'cuentaFinancieraId', 'periodoId', 'codigoPeriodo',
+    'tipoEvento', 'numeroSecuencia', 'fechaCorte', 'saldoInicialBanco',
+    'saldoFinalBanco', 'saldoLibros', 'depositosEnTransito', 'chequesNoCobrados',
+    'abonosNoRegistrados', 'cargosNoRegistrados', 'saldoMayor104x',
+    'diferenciaIntegridadMayor', 'diferencia', 'motivo', 'hashSnapshotSha256',
+    'usuarioId'
+  ],
   cajas_chicas: ['nombre', 'responsableAnexoId', 'cuentaFinancieraId', 'montoFondo', 'saldoActual'],
   cuentas_financieras: [
     'tipo', 'banco', 'numero', 'moneda', 'cuentaContableCodigo', 'cuentaContableId',
