@@ -33,6 +33,7 @@ import {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TIPOS_CARGO_BANCARIO_AUTOMATICO = new Set(['ITF', 'COMISION_BANCARIA', 'MANTENIMIENTO']);
+const CHUNK_SIZE_INSERCION_BD = 500;
 
 export class ConciliacionImportacionError extends ConciliacionV2Error {
   public readonly errores?: ErrorFilaImportacion[];
@@ -642,6 +643,191 @@ function mapImportacionResumenRow(row: any): ImportacionExtractoResumenV2 {
   };
 }
 
+/**
+ * Inserta filas en `extracto_linea_raw` en lotes de `CHUNK_SIZE_INSERCION_BD` mediante UNNEST
+ * y devuelve un mapa `num_fila -> id` para enlazar las líneas operativas sin queries N+1.
+ */
+async function insertarExtractoLineaRawEnLotes(
+  client: PoolClient,
+  empresaId: string,
+  importId: string,
+  lineas: LineaPrevisualizadaV2[],
+  forzarFueDuplicada?: boolean
+): Promise<Map<number, string>> {
+  const rawIdPorFila = new Map<number, string>();
+
+  for (let i = 0; i < lineas.length; i += CHUNK_SIZE_INSERCION_BD) {
+    const chunk = lineas.slice(i, i + CHUNK_SIZE_INSERCION_BD);
+    if (chunk.length === 0) {
+      continue;
+    }
+
+    const numFilas: number[] = [];
+    const rawJsons: string[] = [];
+    const hashesLinea: string[] = [];
+    const fueronDuplicadas: boolean[] = [];
+
+    for (const linea of chunk) {
+      numFilas.push(linea.numFila);
+      rawJsons.push(JSON.stringify(linea.rawJson ?? {}));
+      hashesLinea.push(linea.hashLinea);
+      fueronDuplicadas.push(forzarFueDuplicada !== undefined ? forzarFueDuplicada : linea.esDuplicada);
+    }
+
+    const res = await client.query<{ num_fila: number; id: string }>(
+      `INSERT INTO extracto_linea_raw (
+         empresa_id, import_id, num_fila, raw_json, hash_linea, fue_duplicada
+       )
+       SELECT $1::uuid, $2::uuid, u.num_fila, u.raw_json, u.hash_linea, u.fue_duplicada
+       FROM UNNEST($3::int[], $4::jsonb[], $5::varchar[], $6::boolean[])
+         AS u(num_fila, raw_json, hash_linea, fue_duplicada)
+       RETURNING num_fila, id`,
+      [empresaId, importId, numFilas, rawJsons, hashesLinea, fueronDuplicadas]
+    );
+
+    for (const row of res.rows) {
+      rawIdPorFila.set(Number(row.num_fila), row.id);
+    }
+  }
+
+  return rawIdPorFila;
+}
+
+/**
+ * Inserta las líneas operativas nuevas en `extracto_lineas` en lotes de `CHUNK_SIZE_INSERCION_BD`
+ * usando UNNEST con cast explícito de tipos para soportar arreglos mixtos o completamente nulos.
+ */
+async function insertarExtractoLineasEnLotes(
+  client: PoolClient,
+  params: {
+    extractoBancarioId: string;
+    empresaId: string;
+    importId: string;
+    lineasNuevas: LineaPrevisualizadaV2[];
+    rawIdPorFila: Map<number, string>;
+  }
+): Promise<void> {
+  const { extractoBancarioId, empresaId, importId, lineasNuevas, rawIdPorFila } = params;
+
+  for (let i = 0; i < lineasNuevas.length; i += CHUNK_SIZE_INSERCION_BD) {
+    const chunk = lineasNuevas.slice(i, i + CHUNK_SIZE_INSERCION_BD);
+    if (chunk.length === 0) {
+      continue;
+    }
+
+    const fechas: string[] = [];
+    const descripciones: string[] = [];
+    const referencias: (string | null)[] = [];
+    const montos: string[] = [];
+    const saldos: (string | null)[] = [];
+    const estadosConciliacion: string[] = [];
+    const hashesLinea: string[] = [];
+    const lineaRawIds: string[] = [];
+    const tiposClasificacion: (string | null)[] = [];
+    const rucsExtraidos: (string | null)[] = [];
+    const contrapartesExtraidas: (string | null)[] = [];
+    const docsExtraidos: (string | null)[] = [];
+
+    for (const linea of chunk) {
+      const lineaRawId = rawIdPorFila.get(linea.numFila);
+      if (!lineaRawId) {
+        throw new ConciliacionV2Error(
+          500,
+          'EXTRACTO_RAW_ID_NO_ENCONTRADO',
+          `No se encontró el identificador raw para la fila ${linea.numFila}.`
+        );
+      }
+
+      const estadoConciliacion = TIPOS_CARGO_BANCARIO_AUTOMATICO.has(linea.tipoClasificacion)
+        ? 'CARGO_BANCARIO_ITF'
+        : 'PENDIENTE_LIBROS';
+
+      fechas.push(linea.fecha);
+      descripciones.push(linea.descripcion);
+      referencias.push(linea.referencia ?? null);
+      montos.push(linea.monto);
+      saldos.push(linea.saldo ?? null);
+      estadosConciliacion.push(estadoConciliacion);
+      hashesLinea.push(linea.hashLinea);
+      lineaRawIds.push(lineaRawId);
+      tiposClasificacion.push(linea.tipoClasificacion ?? null);
+      rucsExtraidos.push(linea.rucExtraido ?? null);
+      contrapartesExtraidas.push(linea.contraparteExtraida ?? null);
+      docsExtraidos.push(linea.docExtraido ?? null);
+    }
+
+    await client.query(
+      `INSERT INTO extracto_lineas (
+         extracto_id, empresa_id, fecha, descripcion, referencia,
+         monto, saldo, conciliada, estado_conciliacion, hash_linea,
+         import_id, linea_raw_id, tipo_clasificacion,
+         ruc_extraido, contraparte_extraida, doc_extraido
+       )
+       SELECT
+         $1::uuid,
+         $2::uuid,
+         u.fecha,
+         u.descripcion,
+         u.referencia,
+         u.monto,
+         u.saldo,
+         FALSE,
+         u.estado_conciliacion,
+         u.hash_linea,
+         $3::uuid,
+         u.linea_raw_id,
+         u.tipo_clasificacion,
+         u.ruc_extraido,
+         u.contraparte_extraida,
+         u.doc_extraido
+       FROM UNNEST(
+         $4::date[],
+         $5::text[],
+         $6::varchar[],
+         $7::numeric(14,2)[],
+         $8::numeric(14,2)[],
+         $9::varchar[],
+         $10::varchar[],
+         $11::uuid[],
+         $12::varchar[],
+         $13::varchar[],
+         $14::varchar[],
+         $15::varchar[]
+       ) AS u(
+         fecha,
+         descripcion,
+         referencia,
+         monto,
+         saldo,
+         estado_conciliacion,
+         hash_linea,
+         linea_raw_id,
+         tipo_clasificacion,
+         ruc_extraido,
+         contraparte_extraida,
+         doc_extraido
+       )`,
+      [
+        extractoBancarioId,
+        empresaId,
+        importId,
+        fechas,
+        descripciones,
+        referencias,
+        montos,
+        saldos,
+        estadosConciliacion,
+        hashesLinea,
+        lineaRawIds,
+        tiposClasificacion,
+        rucsExtraidos,
+        contrapartesExtraidas,
+        docsExtraidos,
+      ]
+    );
+  }
+}
+
 export const importacionExtractoService = {
   generarPlantillaCsvSegura,
 
@@ -773,13 +959,7 @@ export const importacionExtractoService = {
         );
         const importId = impRes.rows[0].id;
 
-        for (const linea of prev.lineas) {
-          await client.query(
-            `INSERT INTO extracto_linea_raw (empresa_id, import_id, num_fila, raw_json, hash_linea, fue_duplicada)
-             VALUES ($1, $2, $3, $4::jsonb, $5, TRUE)`,
-            [empresaId, importId, linea.numFila, JSON.stringify(linea.rawJson), linea.hashLinea]
-          );
-        }
+        await insertarExtractoLineaRawEnLotes(client, empresaId, importId, prev.lineas, true);
 
         await auditoriaChainService.registrar(
           {
@@ -896,59 +1076,22 @@ export const importacionExtractoService = {
       const importId = impRes.rows[0].id;
 
       // 3. Insertar capa raw inmutable (todas las filas) y líneas operativas (solo nuevas)
-      for (const linea of prev.lineas) {
-        const rawRes = await client.query<{ id: string }>(
-          `INSERT INTO extracto_linea_raw (
-             empresa_id, import_id, num_fila, raw_json, hash_linea, fue_duplicada
-           ) VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-           RETURNING id`,
-          [
-            empresaId,
-            importId,
-            linea.numFila,
-            JSON.stringify(linea.rawJson),
-            linea.hashLinea,
-            linea.esDuplicada,
-          ]
-        );
-        const lineaRawId = rawRes.rows[0].id;
+      const rawIdPorFila = await insertarExtractoLineaRawEnLotes(
+        client,
+        empresaId,
+        importId,
+        prev.lineas
+      );
 
-        if (!linea.esDuplicada) {
-          const estadoConciliacion = TIPOS_CARGO_BANCARIO_AUTOMATICO.has(linea.tipoClasificacion)
-            ? 'CARGO_BANCARIO_ITF'
-            : 'PENDIENTE_LIBROS';
-
-          await client.query(
-            `INSERT INTO extracto_lineas (
-               extracto_id, empresa_id, fecha, descripcion, referencia,
-               monto, saldo, conciliada, estado_conciliacion, hash_linea,
-               import_id, linea_raw_id, tipo_clasificacion,
-               ruc_extraido, contraparte_extraida, doc_extraido
-             ) VALUES (
-               $1, $2, $3, $4, $5,
-               $6, $7, FALSE, $8, $9,
-               $10, $11, $12,
-               $13, $14, $15
-             )`,
-            [
-              extractoBancarioId,
-              empresaId,
-              linea.fecha,
-              linea.descripcion,
-              linea.referencia,
-              linea.monto,
-              linea.saldo,
-              estadoConciliacion,
-              linea.hashLinea,
-              importId,
-              lineaRawId,
-              linea.tipoClasificacion,
-              linea.rucExtraido,
-              linea.contraparteExtraida,
-              linea.docExtraido,
-            ]
-          );
-        }
+      const lineasNuevas = prev.lineas.filter((linea) => !linea.esDuplicada);
+      if (lineasNuevas.length > 0) {
+        await insertarExtractoLineasEnLotes(client, {
+          extractoBancarioId,
+          empresaId,
+          importId,
+          lineasNuevas,
+          rawIdPorFila,
+        });
       }
 
       // 4. Auditoría transaccional encadenada

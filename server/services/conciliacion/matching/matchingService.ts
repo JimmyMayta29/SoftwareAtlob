@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { db } from '../../../config/database';
@@ -27,6 +28,7 @@ import {
   obtenerCuentaBancariaEnTx,
   obtenerResumenConciliacionEnTx,
   registrarAuditoriaEnTx,
+  registrarAuditoriaLoteEnTx,
   resolverRangoPeriodo,
   validarPrecondicionOperacionCuenta,
   verificarPeriodoNoCerradoEnTx,
@@ -181,8 +183,19 @@ function calcularTipoMatch(cantidadBanco: number, cantidadLibro: number): TipoMa
   return 'N:M';
 }
 
+const LOTE_PERSISTENCIA_TAMANO = 500;
+
 function ordenarUuidsUnicos(ids: string[]): string[] {
   return Array.from(new Set(ids)).sort();
+}
+
+function dividirEnLotes<T>(items: T[], tamano = LOTE_PERSISTENCIA_TAMANO): T[][] {
+  if (items.length === 0) return [];
+  const lotes: T[][] = [];
+  for (let i = 0; i < items.length; i += tamano) {
+    lotes.push(items.slice(i, i + tamano));
+  }
+  return lotes;
 }
 
 async function bloquearCuentaFinancieraEnTx(
@@ -385,7 +398,8 @@ async function cargarGruposConItemsEnTx(
   empresaId: string,
   grupoIds: string[]
 ): Promise<GrupoConciliacionV2[]> {
-  if (grupoIds.length === 0) return [];
+  const grupoIdsUnicos = ordenarUuidsUnicos(grupoIds);
+  if (grupoIdsUnicos.length === 0) return [];
 
   const gruposRes = await client.query(
     `SELECT cg.id,
@@ -408,52 +422,166 @@ async function cargarGruposConItemsEnTx(
      WHERE cg.empresa_id = $1
        AND cg.id = ANY($2::uuid[])
      ORDER BY cg.created_at ASC, cg.id ASC`,
-    [empresaId, grupoIds]
+    [empresaId, grupoIdsUnicos]
   );
 
   if (gruposRes.rows.length === 0) return [];
 
-  const itemsRes = await client.query(
-    `SELECT ci.id,
-            ci.grupo_id AS "grupoId",
-            ci.lado,
-            ci.origen_libro AS "origenLibro",
-            ci.extracto_linea_id AS "extractoLineaId",
-            ci.movimiento_tesoreria_id AS "movimientoTesoreriaId",
-            ci.asiento_id AS "asientoId",
-            ci.asiento_detalle_id AS "asientoDetalleId",
-            ci.monto_imputado::text AS "montoImputado",
-            COALESCE(el.fecha::text, mt.fecha::text, a.fecha::text) AS fecha,
-            COALESCE(
-              el.descripcion,
-              mt.glosa,
-              NULLIF(TRIM(ad.glosa_linea), ''),
-              a.glosa
-            ) AS descripcion,
-            COALESCE(
-              el.referencia,
-              mt.numero_operacion,
-              NULLIF(CONCAT_WS('-', ad.doc_tipo, ad.doc_serie, ad.doc_numero), ''),
-              a.numero
-            ) AS referencia
-     FROM conciliacion_item ci
-     LEFT JOIN extracto_lineas el
-       ON el.empresa_id = ci.empresa_id
-      AND el.id = ci.extracto_linea_id
-     LEFT JOIN movimientos_tesoreria mt
-       ON mt.empresa_id = ci.empresa_id
-      AND mt.id = ci.movimiento_tesoreria_id
-     LEFT JOIN asiento_detalle ad
-       ON ad.empresa_id = ci.empresa_id
-      AND ad.id = ci.asiento_detalle_id
-     LEFT JOIN asientos a
-       ON a.empresa_id = ci.empresa_id
-      AND a.id = COALESCE(ci.asiento_id, ad.asiento_id)
-     WHERE ci.empresa_id = $1
-       AND ci.grupo_id = ANY($2::uuid[])
-     ORDER BY ci.created_at ASC, ci.id ASC`,
-    [empresaId, grupoIds]
+  const itemsRes = await client.query<{
+    id: string;
+    grupoId: string;
+    lado: 'BANCO' | 'LIBRO';
+    origenLibro: string | null;
+    extractoLineaId: string | null;
+    movimientoTesoreriaId: string | null;
+    asientoId: string | null;
+    asientoDetalleId: string | null;
+    montoImputado: string | null;
+  }>(
+    `SELECT id,
+            grupo_id AS "grupoId",
+            lado,
+            origen_libro AS "origenLibro",
+            extracto_linea_id AS "extractoLineaId",
+            movimiento_tesoreria_id AS "movimientoTesoreriaId",
+            asiento_id AS "asientoId",
+            asiento_detalle_id AS "asientoDetalleId",
+            monto_imputado::text AS "montoImputado"
+     FROM conciliacion_item
+     WHERE empresa_id = $1
+       AND grupo_id = ANY($2::uuid[])
+     ORDER BY created_at ASC, id ASC`,
+    [empresaId, grupoIdsUnicos]
   );
+
+  const extractoLineaIdsSet = new Set<string>();
+  const movimientoTesoreriaIdsSet = new Set<string>();
+  const asientoDetalleIdsSet = new Set<string>();
+  const asientoIdsSet = new Set<string>();
+
+  for (const row of itemsRes.rows) {
+    if (row.extractoLineaId) extractoLineaIdsSet.add(row.extractoLineaId);
+    if (row.movimientoTesoreriaId) movimientoTesoreriaIdsSet.add(row.movimientoTesoreriaId);
+    if (row.asientoDetalleId) asientoDetalleIdsSet.add(row.asientoDetalleId);
+    if (row.asientoId) asientoIdsSet.add(row.asientoId);
+  }
+
+  const extractoMap = new Map<
+    string,
+    { fecha: string | null; descripcion: string | null; referencia: string | null }
+  >();
+  if (extractoLineaIdsSet.size > 0) {
+    const elRes = await client.query<{
+      id: string;
+      fecha: string | null;
+      descripcion: string | null;
+      referencia: string | null;
+    }>(
+      `SELECT id,
+              fecha::text AS fecha,
+              descripcion,
+              referencia
+       FROM extracto_lineas
+       WHERE empresa_id = $1
+         AND id = ANY($2::uuid[])`,
+      [empresaId, Array.from(extractoLineaIdsSet).sort()]
+    );
+    for (const r of elRes.rows) {
+      extractoMap.set(r.id, {
+        fecha: r.fecha ?? null,
+        descripcion: r.descripcion ?? null,
+        referencia: r.referencia ?? null,
+      });
+    }
+  }
+
+  const movimientoMap = new Map<
+    string,
+    { fecha: string | null; glosa: string | null; numeroOperacion: string | null }
+  >();
+  if (movimientoTesoreriaIdsSet.size > 0) {
+    const mtRes = await client.query<{
+      id: string;
+      fecha: string | null;
+      glosa: string | null;
+      numeroOperacion: string | null;
+    }>(
+      `SELECT id,
+              fecha::text AS fecha,
+              glosa,
+              numero_operacion AS "numeroOperacion"
+       FROM movimientos_tesoreria
+       WHERE empresa_id = $1
+         AND id = ANY($2::uuid[])`,
+      [empresaId, Array.from(movimientoTesoreriaIdsSet).sort()]
+    );
+    for (const r of mtRes.rows) {
+      movimientoMap.set(r.id, {
+        fecha: r.fecha ?? null,
+        glosa: r.glosa ?? null,
+        numeroOperacion: r.numeroOperacion ?? null,
+      });
+    }
+  }
+
+  const asientoDetalleMap = new Map<
+    string,
+    { asientoId: string | null; glosaLinea: string | null; docRef: string | null }
+  >();
+  if (asientoDetalleIdsSet.size > 0) {
+    const adRes = await client.query<{
+      id: string;
+      asientoId: string | null;
+      glosaLinea: string | null;
+      docRef: string | null;
+    }>(
+      `SELECT id,
+              asiento_id AS "asientoId",
+              NULLIF(TRIM(glosa_linea), '') AS "glosaLinea",
+              NULLIF(CONCAT_WS('-', doc_tipo, doc_serie, doc_numero), '') AS "docRef"
+       FROM asiento_detalle
+       WHERE empresa_id = $1
+         AND id = ANY($2::uuid[])`,
+      [empresaId, Array.from(asientoDetalleIdsSet).sort()]
+    );
+    for (const r of adRes.rows) {
+      asientoDetalleMap.set(r.id, {
+        asientoId: r.asientoId ?? null,
+        glosaLinea: r.glosaLinea ?? null,
+        docRef: r.docRef ?? null,
+      });
+      if (r.asientoId) asientoIdsSet.add(r.asientoId);
+    }
+  }
+
+  const asientoMap = new Map<
+    string,
+    { fecha: string | null; glosa: string | null; numero: string | null }
+  >();
+  if (asientoIdsSet.size > 0) {
+    const aRes = await client.query<{
+      id: string;
+      fecha: string | null;
+      glosa: string | null;
+      numero: string | null;
+    }>(
+      `SELECT id,
+              fecha::text AS fecha,
+              glosa,
+              numero
+       FROM asientos
+       WHERE empresa_id = $1
+         AND id = ANY($2::uuid[])`,
+      [empresaId, Array.from(asientoIdsSet).sort()]
+    );
+    for (const r of aRes.rows) {
+      asientoMap.set(r.id, {
+        fecha: r.fecha ?? null,
+        glosa: r.glosa ?? null,
+        numero: r.numero ?? null,
+      });
+    }
+  }
 
   const itemsPorGrupo = new Map<
     string,
@@ -467,6 +595,12 @@ async function cargarGruposConItemsEnTx(
       itemsPorGrupo.set(row.grupoId, bucket);
     }
 
+    const el = row.extractoLineaId ? extractoMap.get(row.extractoLineaId) : undefined;
+    const mt = row.movimientoTesoreriaId ? movimientoMap.get(row.movimientoTesoreriaId) : undefined;
+    const ad = row.asientoDetalleId ? asientoDetalleMap.get(row.asientoDetalleId) : undefined;
+    const asientoIdEfectivo = row.asientoId ?? ad?.asientoId ?? null;
+    const a = asientoIdEfectivo ? asientoMap.get(asientoIdEfectivo) : undefined;
+
     const item: ItemConciliacionV2 = {
       id: row.id,
       grupoId: row.grupoId,
@@ -477,9 +611,9 @@ async function cargarGruposConItemsEnTx(
       asientoId: row.asientoId ?? null,
       asientoDetalleId: row.asientoDetalleId ?? null,
       montoImputado: Money.format(row.montoImputado ?? '0'),
-      fecha: row.fecha ?? null,
-      descripcion: row.descripcion ?? null,
-      referencia: row.referencia ?? null,
+      fecha: el?.fecha ?? mt?.fecha ?? a?.fecha ?? null,
+      descripcion: el?.descripcion ?? mt?.glosa ?? ad?.glosaLinea ?? a?.glosa ?? null,
+      referencia: el?.referencia ?? mt?.numeroOperacion ?? ad?.docRef ?? a?.numero ?? null,
     };
 
     if (item.lado === 'BANCO') {
@@ -608,8 +742,9 @@ async function rechazarSugerenciasSuperpuestasEnTx(
   const lineasAfectadas = ordenarUuidsUnicos(afectadasRes.rows.map((r) => r.extractoLineaId));
   await restaurarLineasExtractoDeSugeridosEnTx(client, empresaId, lineasAfectadas);
 
-  for (const grupoRechazadoId of ids) {
-    await registrarAuditoriaEnTx(client, {
+  await registrarAuditoriaLoteEnTx(
+    client,
+    ids.map((grupoRechazadoId) => ({
       empresaId,
       usuarioId,
       tablaAfectada: 'conciliacion_grupo',
@@ -620,8 +755,8 @@ async function rechazarSugerenciasSuperpuestasEnTx(
         estado: 'RECHAZADO',
         motivo: 'Reemplazada por conciliación confirmada',
       },
-    });
-  }
+    }))
+  );
 }
 
 async function aplicarConfirmacionConciliacionEnTx(
@@ -703,56 +838,262 @@ async function aplicarConfirmacionConciliacionEnTx(
   }
 }
 
-async function persistirGrupoCandidatoEnTx(
+interface GrupoPreparadoLote {
+  id: string;
+  grupo: GrupoCandidatoMatching;
+  scoreStr: string;
+  difFormateada: string;
+  confirmadoPor: string | null;
+  confirmadoEn: string | null;
+}
+
+interface ItemPreparadoLote {
+  grupoId: string;
+  lado: 'BANCO' | 'LIBRO';
+  origenLibro: OrigenPartidaLibroV2 | null;
+  extractoLineaId: string | null;
+  movimientoTesoreriaId: string | null;
+  asientoId: string | null;
+  asientoDetalleId: string | null;
+  montoImputado: string;
+}
+
+interface BancoConciliadoUpdateLote {
+  id: string;
+  primerMovId: string | null;
+  dif: string;
+  obs: string | null;
+}
+
+/**
+ * Persiste los grupos candidatos producidos por el motor de matching en lotes
+ * acotados (UNNEST en chunks de 500) y registra su auditoría encadenada en un solo lote.
+ */
+async function persistirGruposCandidatosEnLotesEnTx(
   client: PoolClient,
   params: {
     empresaId: string;
     userId: string;
     cuentaFinancieraId: string;
     periodoId: string;
-    grupo: GrupoCandidatoMatching;
+    grupos: GrupoCandidatoMatching[];
   }
-): Promise<string> {
-  const { empresaId, userId, cuentaFinancieraId, periodoId, grupo } = params;
-  const esAuto = grupo.estado === 'CONCILIADO';
+): Promise<string[]> {
+  const { empresaId, userId, cuentaFinancieraId, periodoId, grupos } = params;
+  if (grupos.length === 0) return [];
 
-  const insGrupoRes = await client.query<{ id: string }>(
-    `INSERT INTO conciliacion_grupo (
-       empresa_id,
-       cuenta_financiera_id,
-       periodo_id,
-       tipo_match,
-       regla_aplicada,
-       capa_matching,
-       score,
-       estado,
-       diferencia_monto,
-       observacion,
-       usuario_id,
-       confirmado_por,
-       confirmado_en
-     )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, ${esAuto ? 'CURRENT_TIMESTAMP' : 'NULL'})
-     RETURNING id`,
-    [
+  const ahoraIso = new Date().toISOString();
+  const gruposPreparados: GrupoPreparadoLote[] = [];
+  const itemsPreparados: ItemPreparadoLote[] = [];
+  const bancoConciliadoUpdates: BancoConciliadoUpdateLote[] = [];
+  const movIdsConciliadosRaw: string[] = [];
+  const bancoSugeridoObsMap = new Map<string, string | null>();
+  const auditoriaEventos: Array<{
+    empresaId: string;
+    usuarioId: string;
+    tablaAfectada: string;
+    registroId: string;
+    accion: string;
+    datosNuevos: unknown;
+  }> = [];
+
+  // Validar invariantes y pre-asignar UUIDs antes de ejecutar escrituras SQL.
+  for (const grupo of grupos) {
+    const grupoId = randomUUID();
+    const esAuto = grupo.estado === 'CONCILIADO';
+    const difFormateada = Money.format(grupo.diferenciaMonto);
+
+    for (const ib of grupo.itemsBanco) {
+      itemsPreparados.push({
+        grupoId,
+        lado: 'BANCO',
+        origenLibro: null,
+        extractoLineaId: ib.partida.id,
+        movimientoTesoreriaId: null,
+        asientoId: null,
+        asientoDetalleId: null,
+        montoImputado: Money.format(ib.montoImputado),
+      });
+    }
+
+    for (const il of grupo.itemsLibro) {
+      if (il.partida.origenLibro === 'MOVIMIENTO_TESORERIA') {
+        itemsPreparados.push({
+          grupoId,
+          lado: 'LIBRO',
+          origenLibro: 'MOVIMIENTO_TESORERIA',
+          extractoLineaId: null,
+          movimientoTesoreriaId: il.partida.id,
+          asientoId: il.partida.asientoId ?? null,
+          asientoDetalleId: null,
+          montoImputado: Money.format(il.montoImputado),
+        });
+      } else {
+        const asientoId = il.partida.asientoId;
+        const asientoDetalleId = il.partida.asientoDetalleId ?? il.partida.id;
+        if (!asientoId || !asientoDetalleId) {
+          throw new ConciliacionV2Error(
+            409,
+            'ASIENTO_MANUAL_INCOMPLETO',
+            'La partida de asiento manual no tiene asiento_id y asiento_detalle_id válidos.'
+          );
+        }
+        itemsPreparados.push({
+          grupoId,
+          lado: 'LIBRO',
+          origenLibro: 'ASIENTO_MANUAL',
+          extractoLineaId: null,
+          movimientoTesoreriaId: null,
+          asientoId,
+          asientoDetalleId,
+          montoImputado: Money.format(il.montoImputado),
+        });
+      }
+    }
+
+    const bancoIds = ordenarUuidsUnicos(grupo.itemsBanco.map((ib) => ib.partida.id));
+    if (esAuto) {
+      const movIds = ordenarUuidsUnicos(
+        grupo.itemsLibro
+          .filter((il) => il.partida.origenLibro === 'MOVIMIENTO_TESORERIA' && il.partida.id)
+          .map((il) => il.partida.id)
+      );
+      const primerMovId = movIds[0] ?? null;
+      const primeraLineaId = grupo.itemsBanco[0]?.partida.id ?? bancoIds[0] ?? null;
+
+      for (const lineaId of bancoIds) {
+        bancoConciliadoUpdates.push({
+          id: lineaId,
+          primerMovId,
+          dif: lineaId === primeraLineaId ? difFormateada : '0.00',
+          obs: grupo.observacion ?? null,
+        });
+      }
+      for (const movId of movIds) {
+        movIdsConciliadosRaw.push(movId);
+      }
+    } else {
+      for (const lineaId of bancoIds) {
+        if (!bancoSugeridoObsMap.has(lineaId) || grupo.observacion !== null) {
+          bancoSugeridoObsMap.set(lineaId, grupo.observacion ?? null);
+        }
+      }
+    }
+
+    gruposPreparados.push({
+      id: grupoId,
+      grupo,
+      scoreStr: grupo.score.toFixed(4),
+      difFormateada,
+      confirmadoPor: esAuto ? userId : null,
+      confirmadoEn: esAuto ? ahoraIso : null,
+    });
+
+    auditoriaEventos.push({
       empresaId,
-      cuentaFinancieraId,
-      periodoId,
-      grupo.tipoMatch,
-      grupo.reglaAplicada,
-      grupo.capaMatching,
-      grupo.score.toFixed(4),
-      grupo.estado,
-      Money.format(grupo.diferenciaMonto),
-      grupo.observacion,
-      userId,
-      esAuto ? userId : null,
-    ]
-  );
+      usuarioId: userId,
+      tablaAfectada: 'conciliacion_grupo',
+      registroId: grupoId,
+      accion: 'INSERT',
+      datosNuevos: {
+        cuentaFinancieraId,
+        periodoId,
+        tipoMatch: grupo.tipoMatch,
+        reglaAplicada: grupo.reglaAplicada,
+        capaMatching: grupo.capaMatching,
+        score: grupo.score,
+        estado: grupo.estado,
+        diferenciaMonto: difFormateada,
+        itemsBanco: grupo.itemsBanco.map((b) => ({ id: b.partida.id, monto: b.montoImputado })),
+        itemsLibro: grupo.itemsLibro.map((l) => ({
+          origenLibro: l.partida.origenLibro,
+          id: l.partida.id,
+          monto: l.montoImputado,
+        })),
+      },
+    });
+  }
 
-  const grupoId = insGrupoRes.rows[0].id;
+  // 1. Insertar cabeceras de grupos en lotes de 500.
+  for (const loteGrupos of dividirEnLotes(gruposPreparados)) {
+    await client.query(
+      `INSERT INTO conciliacion_grupo (
+         id,
+         empresa_id,
+         cuenta_financiera_id,
+         periodo_id,
+         tipo_match,
+         regla_aplicada,
+         capa_matching,
+         score,
+         estado,
+         diferencia_monto,
+         observacion,
+         usuario_id,
+         confirmado_por,
+         confirmado_en
+       )
+       SELECT
+         u.id,
+         $1::uuid,
+         $2::uuid,
+         $3::uuid,
+         u.tipo_match,
+         u.regla_aplicada,
+         u.capa_matching,
+         u.score,
+         u.estado,
+         u.diferencia_monto,
+         u.observacion,
+         $4::uuid,
+         u.confirmado_por,
+         u.confirmado_en
+       FROM UNNEST(
+         $5::uuid[],
+         $6::varchar[],
+         $7::varchar[],
+         $8::smallint[],
+         $9::numeric[],
+         $10::varchar[],
+         $11::numeric[],
+         $12::text[],
+         $13::uuid[],
+         $14::timestamptz[]
+       ) WITH ORDINALITY AS u(
+         id,
+         tipo_match,
+         regla_aplicada,
+         capa_matching,
+         score,
+         estado,
+         diferencia_monto,
+         observacion,
+         confirmado_por,
+         confirmado_en,
+         ord
+       )
+       ORDER BY u.ord`,
+      [
+        empresaId,
+        cuentaFinancieraId,
+        periodoId,
+        userId,
+        loteGrupos.map((g) => g.id),
+        loteGrupos.map((g) => g.grupo.tipoMatch),
+        loteGrupos.map((g) => g.grupo.reglaAplicada),
+        loteGrupos.map((g) => g.grupo.capaMatching),
+        loteGrupos.map((g) => g.scoreStr),
+        loteGrupos.map((g) => g.grupo.estado),
+        loteGrupos.map((g) => g.difFormateada),
+        loteGrupos.map((g) => g.grupo.observacion ?? null),
+        loteGrupos.map((g) => g.confirmadoPor),
+        loteGrupos.map((g) => g.confirmadoEn),
+      ]
+    );
+  }
 
-  for (const ib of grupo.itemsBanco) {
+  // 2. Insertar ítems (BANCO y LIBRO) en lotes de 500.
+  for (const loteItems of dividirEnLotes(itemsPreparados)) {
     await client.query(
       `INSERT INTO conciliacion_item (
          empresa_id,
@@ -765,88 +1106,80 @@ async function persistirGrupoCandidatoEnTx(
          asiento_detalle_id,
          monto_imputado
        )
-       VALUES ($1, $2, 'BANCO', NULL, $3, NULL, NULL, NULL, $4)`,
-      [empresaId, grupoId, ib.partida.id, Money.format(ib.montoImputado)]
+       SELECT
+         $1::uuid,
+         u.grupo_id,
+         u.lado,
+         u.origen_libro,
+         u.extracto_linea_id,
+         u.movimiento_tesoreria_id,
+         u.asiento_id,
+         u.asiento_detalle_id,
+         u.monto_imputado
+       FROM UNNEST(
+         $2::uuid[],
+         $3::varchar[],
+         $4::varchar[],
+         $5::uuid[],
+         $6::uuid[],
+         $7::uuid[],
+         $8::uuid[],
+         $9::numeric(14,2)[]
+       ) WITH ORDINALITY AS u(
+         grupo_id,
+         lado,
+         origen_libro,
+         extracto_linea_id,
+         movimiento_tesoreria_id,
+         asiento_id,
+         asiento_detalle_id,
+         monto_imputado,
+         ord
+       )
+       ORDER BY u.ord`,
+      [
+        empresaId,
+        loteItems.map((i) => i.grupoId),
+        loteItems.map((i) => i.lado),
+        loteItems.map((i) => i.origenLibro),
+        loteItems.map((i) => i.extractoLineaId),
+        loteItems.map((i) => i.movimientoTesoreriaId),
+        loteItems.map((i) => i.asientoId),
+        loteItems.map((i) => i.asientoDetalleId),
+        loteItems.map((i) => i.montoImputado),
+      ]
     );
   }
 
-  for (const il of grupo.itemsLibro) {
-    if (il.partida.origenLibro === 'MOVIMIENTO_TESORERIA') {
-      await client.query(
-        `INSERT INTO conciliacion_item (
-           empresa_id,
-           grupo_id,
-           lado,
-           origen_libro,
-           extracto_linea_id,
-           movimiento_tesoreria_id,
-           asiento_id,
-           asiento_detalle_id,
-           monto_imputado
-         )
-         VALUES ($1, $2, 'LIBRO', 'MOVIMIENTO_TESORERIA', NULL, $3, $4, NULL, $5)`,
-        [
-          empresaId,
-          grupoId,
-          il.partida.id,
-          il.partida.asientoId ?? null,
-          Money.format(il.montoImputado),
-        ]
-      );
-    } else {
-      const asientoId = il.partida.asientoId;
-      const asientoDetalleId = il.partida.asientoDetalleId ?? il.partida.id;
-      if (!asientoId || !asientoDetalleId) {
-        throw new ConciliacionV2Error(
-          409,
-          'ASIENTO_MANUAL_INCOMPLETO',
-          'La partida de asiento manual no tiene asiento_id y asiento_detalle_id válidos.'
-        );
-      }
-      await client.query(
-        `INSERT INTO conciliacion_item (
-           empresa_id,
-           grupo_id,
-           lado,
-           origen_libro,
-           extracto_linea_id,
-           movimiento_tesoreria_id,
-           asiento_id,
-           asiento_detalle_id,
-           monto_imputado
-         )
-         VALUES ($1, $2, 'LIBRO', 'ASIENTO_MANUAL', NULL, NULL, $3, $4, $5)`,
-        [empresaId, grupoId, asientoId, asientoDetalleId, Money.format(il.montoImputado)]
-      );
-    }
-  }
-
-  if (esAuto) {
-    await aplicarConfirmacionConciliacionEnTx(client, {
-      empresaId,
-      estadoDestino: 'CONCILIADO',
-      diferenciaMonto: grupo.diferenciaMonto,
-      observacion: grupo.observacion,
-      itemsBanco: grupo.itemsBanco.map((ib) => ({ extractoLineaId: ib.partida.id })),
-      itemsLibro: grupo.itemsLibro.map((il) => ({
-        origenLibro: il.partida.origenLibro,
-        movimientoTesoreriaId:
-          il.partida.origenLibro === 'MOVIMIENTO_TESORERIA' ? il.partida.id : null,
-      })),
-    });
-  } else {
-    const bancoIds = ordenarUuidsUnicos(grupo.itemsBanco.map((ib) => ib.partida.id));
-    const updSug = await client.query(
-      `UPDATE extracto_lineas
-       SET estado_conciliacion = 'SUGERIDO',
-           observacion_conciliacion = COALESCE($1, observacion_conciliacion)
-       WHERE id = ANY($3::uuid[])
-         AND empresa_id = $2
-         AND conciliada = false`,
-      [grupo.observacion, empresaId, bancoIds]
+  // 3. Actualizar líneas de extracto y movimientos de tesorería para grupos CONCILIADO.
+  for (const chunk of dividirEnLotes(bancoConciliadoUpdates)) {
+    const updBanco = await client.query(
+      `UPDATE extracto_lineas el
+       SET conciliada = true,
+           estado_conciliacion = 'CONCILIADO',
+           movimiento_tesoreria_id = v.primer_mov_id,
+           diferencia_importe = v.dif,
+           observacion_conciliacion = COALESCE(v.obs, el.observacion_conciliacion),
+           conciliado_en = CURRENT_TIMESTAMP
+       FROM UNNEST(
+         $2::uuid[],
+         $3::uuid[],
+         $4::numeric(14,2)[],
+         $5::text[]
+       ) AS v(id, primer_mov_id, dif, obs)
+       WHERE el.id = v.id
+         AND el.empresa_id = $1
+         AND el.conciliada = false`,
+      [
+        empresaId,
+        chunk.map((x) => x.id),
+        chunk.map((x) => x.primerMovId),
+        chunk.map((x) => x.dif),
+        chunk.map((x) => x.obs),
+      ]
     );
 
-    if (updSug.rowCount !== bancoIds.length) {
+    if (updBanco.rowCount !== chunk.length) {
       throw new ConciliacionV2Error(
         409,
         'CONCURRENCIA_CONCILIACION',
@@ -855,31 +1188,73 @@ async function persistirGrupoCandidatoEnTx(
     }
   }
 
-  await registrarAuditoriaEnTx(client, {
-    empresaId,
-    usuarioId: userId,
-    tablaAfectada: 'conciliacion_grupo',
-    registroId: grupoId,
-    accion: 'INSERT',
-    datosNuevos: {
-      cuentaFinancieraId,
-      periodoId,
-      tipoMatch: grupo.tipoMatch,
-      reglaAplicada: grupo.reglaAplicada,
-      capaMatching: grupo.capaMatching,
-      score: grupo.score,
-      estado: grupo.estado,
-      diferenciaMonto: Money.format(grupo.diferenciaMonto),
-      itemsBanco: grupo.itemsBanco.map((b) => ({ id: b.partida.id, monto: b.montoImputado })),
-      itemsLibro: grupo.itemsLibro.map((l) => ({
-        origenLibro: l.partida.origenLibro,
-        id: l.partida.id,
-        monto: l.montoImputado,
-      })),
-    },
-  });
+  const movIdsConciliadosUnicos = ordenarUuidsUnicos(movIdsConciliadosRaw);
+  if (movIdsConciliadosUnicos.length !== movIdsConciliadosRaw.length) {
+    throw new ConciliacionV2Error(
+      409,
+      'CONCURRENCIA_CONCILIACION',
+      'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+    );
+  }
 
-  return grupoId;
+  for (const chunkIds of dividirEnLotes(movIdsConciliadosUnicos)) {
+    const updMov = await client.query(
+      `UPDATE movimientos_tesoreria
+       SET conciliado = true,
+           estado_conciliacion_libro = 'CONCILIADO',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ANY($2::uuid[])
+         AND empresa_id = $1
+         AND conciliado = false`,
+      [empresaId, chunkIds]
+    );
+
+    if (updMov.rowCount !== chunkIds.length) {
+      throw new ConciliacionV2Error(
+        409,
+        'CONCURRENCIA_CONCILIACION',
+        'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+      );
+    }
+  }
+
+  // 4. Actualizar líneas de extracto para grupos SUGERIDO.
+  const bancoSugeridoUpdates = Array.from(bancoSugeridoObsMap.entries()).map(([id, obs]) => ({
+    id,
+    obs,
+  }));
+  for (const chunk of dividirEnLotes(bancoSugeridoUpdates)) {
+    const updSug = await client.query(
+      `UPDATE extracto_lineas el
+       SET estado_conciliacion = 'SUGERIDO',
+           observacion_conciliacion = COALESCE(v.obs, el.observacion_conciliacion)
+       FROM UNNEST(
+         $2::uuid[],
+         $3::text[]
+       ) AS v(id, obs)
+       WHERE el.id = v.id
+         AND el.empresa_id = $1
+         AND el.conciliada = false`,
+      [
+        empresaId,
+        chunk.map((x) => x.id),
+        chunk.map((x) => x.obs),
+      ]
+    );
+
+    if (updSug.rowCount !== chunk.length) {
+      throw new ConciliacionV2Error(
+        409,
+        'CONCURRENCIA_CONCILIACION',
+        'Una o más partidas fueron conciliadas en paralelo por otra operación.'
+      );
+    }
+  }
+
+  // 5. Registrar toda la auditoría encadenada en un solo lote transaccional.
+  await registrarAuditoriaLoteEnTx(client, auditoriaEventos);
+
+  return gruposPreparados.map((g) => g.id);
 }
 
 export const matchingService = {
@@ -956,8 +1331,9 @@ export const matchingService = {
             ordenarUuidsUnicos(prevLineasRes.rows.map((r) => r.extractoLineaId))
           );
 
-          for (const prevId of prevIds) {
-            await registrarAuditoriaEnTx(client, {
+          await registrarAuditoriaLoteEnTx(
+            client,
+            prevIds.map((prevId) => ({
               empresaId,
               usuarioId: userId,
               tablaAfectada: 'conciliacion_grupo',
@@ -968,8 +1344,8 @@ export const matchingService = {
                 estado: 'RECHAZADO',
                 motivo: 'Limpieza previa a nueva ejecución de matching',
               },
-            });
-          }
+            }))
+          );
         }
       }
 
@@ -1040,17 +1416,13 @@ export const matchingService = {
         },
       });
 
-      const grupoIdsCreados: string[] = [];
-      for (const candidato of resultadoMotor.grupos) {
-        const gid = await persistirGrupoCandidatoEnTx(client, {
-          empresaId,
-          userId,
-          cuentaFinancieraId: parsed.cuentaFinancieraId,
-          periodoId,
-          grupo: candidato,
-        });
-        grupoIdsCreados.push(gid);
-      }
+      const grupoIdsCreados = await persistirGruposCandidatosEnLotesEnTx(client, {
+        empresaId,
+        userId,
+        cuentaFinancieraId: parsed.cuentaFinancieraId,
+        periodoId,
+        grupos: resultadoMotor.grupos,
+      });
 
       const gruposCreados = await cargarGruposConItemsEnTx(client, empresaId, grupoIdsCreados);
       const duracionMs = Math.max(0, Date.now() - inicioMs);
@@ -1204,6 +1576,16 @@ export const matchingService = {
           g.codigoPeriodo
         );
       }
+
+      const auditoriaAceptacionEventos: Array<{
+        empresaId: string;
+        usuarioId: string;
+        tablaAfectada: string;
+        registroId: string;
+        accion: string;
+        datosAnteriores: unknown;
+        datosNuevos: unknown;
+      }> = [];
 
       for (const gid of grupoIdsUnicos) {
         const g = mapaGrupos.get(gid)!;
@@ -1475,7 +1857,7 @@ export const matchingService = {
           'Superpuesto por aceptación de sugerencia'
         );
 
-        await registrarAuditoriaEnTx(client, {
+        auditoriaAceptacionEventos.push({
           empresaId,
           usuarioId: userId,
           tablaAfectada: 'conciliacion_grupo',
@@ -1488,6 +1870,10 @@ export const matchingService = {
             confirmadoPor: userId,
           },
         });
+      }
+
+      if (auditoriaAceptacionEventos.length > 0) {
+        await registrarAuditoriaLoteEnTx(client, auditoriaAceptacionEventos);
       }
 
       return cargarGruposConItemsEnTx(client, empresaId, grupoIdsUnicos);

@@ -358,6 +358,25 @@ export async function registrarAuditoriaEnTx(
   await auditoriaChainService.registrar(params, client);
 }
 
+export async function registrarAuditoriaLoteEnTx(
+  client: PoolClient,
+  eventos: Array<{
+    empresaId: string;
+    usuarioId: string;
+    tablaAfectada: string;
+    registroId: string;
+    accion: string;
+    datosAnteriores?: unknown;
+    datosNuevos?: unknown;
+  }>
+): Promise<void> {
+  for (const evento of eventos) {
+    asegurarUuid(evento.empresaId, 'empresaId');
+    asegurarUuid(evento.usuarioId, 'usuarioId');
+  }
+  await auditoriaChainService.registrarLote(eventos, client);
+}
+
 // ============================================================================
 // HELPERS INTERNOS DE LECTURA/MAPEO EN TRANSACCIÓN
 // ============================================================================
@@ -605,6 +624,90 @@ export async function obtenerResumenConciliacionEnTx(
     ? Money.format(extractosRes.rows[extractosRes.rows.length - 1].saldoFinal)
     : null;
 
+  // 1b. Lectura dedicada de mapas de grupos activos para (empresaId, cuentaFinancieraId)
+  //     sin DISTINCT ON ni JOINs anidados para evitar Nested Loop / Index Scan Backward.
+  const grupoPorExtracto = new Map<string, string>();
+  const grupoPorMovTes = new Map<string, string>();
+  const grupoPorAsientoDet = new Map<string, string>();
+  const conciliadoGrupoPorAsientoDet = new Map<string, string>();
+
+  const gruposActivosRes = await client.query<{ id: string; estado: string }>(
+    `SELECT id, estado
+     FROM conciliacion_grupo
+     WHERE empresa_id = $1
+       AND cuenta_financiera_id = $2
+       AND estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+     ORDER BY created_at DESC, id DESC`,
+    [empresaId, cuentaFinancieraId]
+  );
+
+  if (gruposActivosRes.rows.length > 0) {
+    const ordenPorGrupo = new Map<string, number>();
+    const estadoPorGrupo = new Map<string, string>();
+    const grupoIds: string[] = [];
+
+    for (let idx = 0; idx < gruposActivosRes.rows.length; idx += 1) {
+      const g = gruposActivosRes.rows[idx];
+      ordenPorGrupo.set(g.id, idx);
+      estadoPorGrupo.set(g.id, g.estado);
+      grupoIds.push(g.id);
+    }
+
+    const itemsRes = await client.query<{
+      grupoId: string;
+      lado: string;
+      origenLibro: string | null;
+      extractoLineaId: string | null;
+      movimientoTesoreriaId: string | null;
+      asientoDetalleId: string | null;
+    }>(
+      `SELECT grupo_id AS "grupoId",
+              lado,
+              origen_libro AS "origenLibro",
+              extracto_linea_id AS "extractoLineaId",
+              movimiento_tesoreria_id AS "movimientoTesoreriaId",
+              asiento_detalle_id AS "asientoDetalleId"
+       FROM conciliacion_item
+       WHERE empresa_id = $1
+         AND grupo_id = ANY($2::uuid[])`,
+      [empresaId, grupoIds]
+    );
+
+    const asignarMasReciente = (
+      map: Map<string, string>,
+      clave: string | null,
+      grupoId: string
+    ) => {
+      if (!clave) return;
+      const existente = map.get(clave);
+      if (existente === undefined) {
+        map.set(clave, grupoId);
+        return;
+      }
+      const ordenNuevo = ordenPorGrupo.get(grupoId) ?? Number.MAX_SAFE_INTEGER;
+      const ordenExistente = ordenPorGrupo.get(existente) ?? Number.MAX_SAFE_INTEGER;
+      if (ordenNuevo < ordenExistente) {
+        map.set(clave, grupoId);
+      }
+    };
+
+    for (const item of itemsRes.rows) {
+      if (item.lado === 'BANCO' && item.extractoLineaId) {
+        asignarMasReciente(grupoPorExtracto, item.extractoLineaId, item.grupoId);
+      } else if (item.lado === 'LIBRO') {
+        if (item.origenLibro === 'MOVIMIENTO_TESORERIA' && item.movimientoTesoreriaId) {
+          asignarMasReciente(grupoPorMovTes, item.movimientoTesoreriaId, item.grupoId);
+        } else if (item.origenLibro === 'ASIENTO_MANUAL' && item.asientoDetalleId) {
+          asignarMasReciente(grupoPorAsientoDet, item.asientoDetalleId, item.grupoId);
+          const estadoGrupo = estadoPorGrupo.get(item.grupoId);
+          if (estadoGrupo === 'CONCILIADO' || estadoGrupo === 'CONCILIADO_MANUAL') {
+            asignarMasReciente(conciliadoGrupoPorAsientoDet, item.asientoDetalleId, item.grupoId);
+          }
+        }
+      }
+    }
+  }
+
   // 2. Líneas de extracto dentro de [fechaInicio, fechaFin]
   const lineasRes = await client.query(
     `SELECT el.id,
@@ -625,20 +728,7 @@ export async function obtenerResumenConciliacionEnTx(
             el.tipo_clasificacion AS "tipoClasificacion",
             el.ruc_extraido AS "rucExtraido",
             el.contraparte_extraida AS "contraparteExtraida",
-            el.doc_extraido AS "docExtraido",
-            (
-              SELECT ci.grupo_id
-              FROM conciliacion_item ci
-              JOIN conciliacion_grupo cg
-                ON cg.id = ci.grupo_id
-               AND cg.empresa_id = ci.empresa_id
-              WHERE ci.empresa_id = el.empresa_id
-                AND ci.lado = 'BANCO'
-                AND ci.extracto_linea_id = el.id
-                AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
-              ORDER BY cg.created_at DESC
-              LIMIT 1
-            ) AS "grupoConciliacionId"
+            el.doc_extraido AS "docExtraido"
      FROM extracto_lineas el
      JOIN extractos_bancarios eb
        ON eb.id = el.extracto_id
@@ -651,7 +741,10 @@ export async function obtenerResumenConciliacionEnTx(
     [empresaId, cuentaFinancieraId, fechaInicio, fechaFin]
   );
 
-  const extractoLineas: PartidaExtractoV2[] = lineasRes.rows.map(mapPartidaExtractoRow);
+  const extractoLineas: PartidaExtractoV2[] = lineasRes.rows.map((r) => ({
+    ...mapPartidaExtractoRow(r),
+    grupoConciliacionId: grupoPorExtracto.get(r.id) ?? null,
+  }));
 
   let abonosNoRegistradosDec = Money.create(0);
   let cargosNoRegistradosDec = Money.create(0);
@@ -710,21 +803,7 @@ export async function obtenerResumenConciliacionEnTx(
             mt.asiento_id AS "asientoId",
             mt.anexo_id AS "anexoId",
             ax.razon_social AS "anexoNombre",
-            ax.numero_documento AS "anexoRuc",
-            (
-              SELECT ci.grupo_id
-              FROM conciliacion_item ci
-              JOIN conciliacion_grupo cg
-                ON cg.id = ci.grupo_id
-               AND cg.empresa_id = ci.empresa_id
-              WHERE ci.empresa_id = mt.empresa_id
-                AND ci.lado = 'LIBRO'
-                AND ci.origen_libro = 'MOVIMIENTO_TESORERIA'
-                AND ci.movimiento_tesoreria_id = mt.id
-                AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
-              ORDER BY cg.created_at DESC
-              LIMIT 1
-            ) AS "grupoConciliacionId"
+            ax.numero_documento AS "anexoRuc"
      FROM movimientos_tesoreria mt
      LEFT JOIN anexos ax
        ON ax.empresa_id = mt.empresa_id
@@ -799,7 +878,7 @@ export async function obtenerResumenConciliacionEnTx(
       anexoId: r.anexoId ?? null,
       anexoNombre: r.anexoNombre ?? null,
       anexoRuc: r.anexoRuc ?? null,
-      grupoConciliacionId: r.grupoConciliacionId ?? null,
+      grupoConciliacionId: grupoPorMovTes.get(r.id) ?? null,
     };
   });
 
@@ -826,35 +905,7 @@ export async function obtenerResumenConciliacionEnTx(
               ad.doc_numero AS "docNumero",
               ad.anexo_id AS "anexoId",
               ax.razon_social AS "anexoNombre",
-              ax.numero_documento AS "anexoRuc",
-              (
-                SELECT cg.id
-                FROM conciliacion_item ci
-                JOIN conciliacion_grupo cg
-                  ON cg.id = ci.grupo_id
-                 AND cg.empresa_id = ci.empresa_id
-                WHERE ci.empresa_id = ad.empresa_id
-                  AND ci.lado = 'LIBRO'
-                  AND ci.origen_libro = 'ASIENTO_MANUAL'
-                  AND ci.asiento_detalle_id = ad.id
-                  AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')
-                ORDER BY cg.created_at DESC
-                LIMIT 1
-              ) AS "conciliadoGrupoId",
-              (
-                SELECT cg.id
-                FROM conciliacion_item ci
-                JOIN conciliacion_grupo cg
-                  ON cg.id = ci.grupo_id
-                 AND cg.empresa_id = ci.empresa_id
-                WHERE ci.empresa_id = ad.empresa_id
-                  AND ci.lado = 'LIBRO'
-                  AND ci.origen_libro = 'ASIENTO_MANUAL'
-                  AND ci.asiento_detalle_id = ad.id
-                  AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
-                ORDER BY cg.created_at DESC
-                LIMIT 1
-              ) AS "grupoConciliacionId"
+              ax.numero_documento AS "anexoRuc"
        FROM asiento_detalle ad
        JOIN asientos a
          ON a.id = ad.asiento_id
@@ -873,35 +924,22 @@ export async function obtenerResumenConciliacionEnTx(
              AND mt.asiento_id = a.id
              AND mt.estado <> 'ANULADO'
          )
-         AND (
-           a.fecha BETWEEN $3 AND $4
-           OR (
-             a.fecha < $3
-             AND NOT EXISTS (
-               SELECT 1
-               FROM conciliacion_item ci
-               JOIN conciliacion_grupo cg
-                 ON cg.id = ci.grupo_id
-                AND cg.empresa_id = ci.empresa_id
-               WHERE ci.empresa_id = ad.empresa_id
-                 AND ci.lado = 'LIBRO'
-                 AND ci.origen_libro = 'ASIENTO_MANUAL'
-                 AND ci.asiento_detalle_id = ad.id
-                 AND cg.estado IN ('CONCILIADO', 'CONCILIADO_MANUAL')
-             )
-           )
-         )
+         AND a.fecha <= $3
        ORDER BY a.fecha ASC, a.created_at ASC, ad.linea ASC`,
-      [empresaId, cuenta.cuentaContableId, fechaInicio, fechaFin]
+      [empresaId, cuenta.cuentaContableId, fechaFin]
     );
 
     for (const r of manualesRes.rows) {
+      const conciliado = conciliadoGrupoPorAsientoDet.has(r.id);
+      if (r.fecha < fechaInicio && conciliado) {
+        continue;
+      }
+
       const debeDec = Money.round(r.debe ?? '0');
       const haberDec = Money.round(r.haber ?? '0');
       const esIngreso = debeDec.gt(0);
       const importeDec = esIngreso ? debeDec : haberDec;
       const importeConSignoDec = esIngreso ? importeDec : importeDec.negated();
-      const conciliado = Boolean(r.conciliadoGrupoId);
       const docRef = [r.docTipo, r.docSerie, r.docNumero].filter(Boolean).join('-') || null;
       const glosaLinea = typeof r.glosaLinea === 'string' ? r.glosaLinea.trim() : '';
 
@@ -928,7 +966,7 @@ export async function obtenerResumenConciliacionEnTx(
         anexoId: r.anexoId ?? null,
         anexoNombre: r.anexoNombre ?? null,
         anexoRuc: r.anexoRuc ?? null,
-        grupoConciliacionId: r.grupoConciliacionId ?? null,
+        grupoConciliacionId: grupoPorAsientoDet.get(r.id) ?? null,
       });
     }
   }

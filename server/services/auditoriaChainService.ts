@@ -118,8 +118,8 @@ export const auditoriaChainService = {
         [params.empresaId]
       );
 
-      const prevRes = await txClient.query<{ hash_actual: string }>(
-        `SELECT hash_actual
+      const prevRes = await txClient.query<{ hash_actual: string | null; created_at: string | null }>(
+        `SELECT hash_actual, created_at::text AS created_at
          FROM auditoria_log
          WHERE empresa_id = $1
          ORDER BY created_at DESC, id DESC
@@ -128,6 +128,7 @@ export const auditoriaChainService = {
       );
 
       const hashPrevio = prevRes.rows[0]?.hash_actual || GENESIS_HASH;
+      const prevCreatedAt = prevRes.rows[0]?.created_at ?? null;
       const hashActual = this.calcularHash(
         id,
         params.empresaId,
@@ -143,7 +144,10 @@ export const auditoriaChainService = {
         `INSERT INTO auditoria_log (
           id, empresa_id, usuario_id, tabla_afectada, registro_id,
           accion, datos_anteriores, datos_nuevos, hash_previo, hash_actual, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, clock_timestamp())
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10,
+          GREATEST(clock_timestamp(), COALESCE($11::timestamptz + interval '1 microsecond', clock_timestamp()))
+        )
         RETURNING created_at`,
         [
           id,
@@ -156,6 +160,7 @@ export const auditoriaChainService = {
           datosNuevos !== undefined && datosNuevos !== null ? JSON.stringify(datosNuevos) : null,
           hashPrevio,
           hashActual,
+          prevCreatedAt,
         ]
       );
 
@@ -234,6 +239,223 @@ export const auditoriaChainService = {
 
     AUDITORIA_LOG_CHAIN_MEMORIA.push(entrada);
     return entrada;
+  },
+
+  /**
+   * Registra un lote de eventos de auditoría encadenados dentro de una transacción activa,
+   * agrupando por empresaId, tomando un único advisory lock por empresa e insertando en
+   * chunks de 500 filas con timestamps estrictamente crecientes en microsegundos.
+   */
+  async registrarLote(
+    eventos: RegistrarAuditoriaChainParams[],
+    client: PoolClient
+  ): Promise<AuditoriaLogEntry[]> {
+    if (!client || typeof client.query !== 'function') {
+      throw new Error(
+        'AUDITORIA_LOTE_CLIENT_REQUERIDO: auditoriaChainService.registrarLote requiere un PoolClient transaccional válido.'
+      );
+    }
+    if (!Array.isArray(eventos)) {
+      throw new Error('AUDITORIA_LOTE_EVENTOS_INVALIDO: eventos debe ser un arreglo.');
+    }
+    if (eventos.length === 0) {
+      return [];
+    }
+
+    for (const ev of eventos) {
+      if (!ev || !esUuidValido(ev.empresaId) || !esUuidValido(ev.usuarioId)) {
+        throw new Error('AUDITORIA_LOG_IDENTIFICADOR_INVALIDO: empresaId y usuarioId deben ser UUID válidos.');
+      }
+    }
+
+    const porEmpresa = new Map<string, Array<{ index: number; evento: RegistrarAuditoriaChainParams }>>();
+    for (let i = 0; i < eventos.length; i++) {
+      const evento = eventos[i];
+      let grupo = porEmpresa.get(evento.empresaId);
+      if (!grupo) {
+        grupo = [];
+        porEmpresa.set(evento.empresaId, grupo);
+      }
+      grupo.push({ index: i, evento });
+    }
+
+    const resultados: AuditoriaLogEntry[] = new Array(eventos.length);
+    const CHUNK_SIZE = 500;
+
+    for (const [empresaId, items] of porEmpresa.entries()) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('auditoria_log:' || $1))",
+        [empresaId]
+      );
+
+      const prevRes = await client.query<{ hash_actual: string | null; created_at: Date | string | null }>(
+        `SELECT hash_actual, created_at::text AS created_at
+         FROM auditoria_log
+         WHERE empresa_id = $1
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [empresaId]
+      );
+
+      let hashPrevio = prevRes.rows[0]?.hash_actual || GENESIS_HASH;
+      const prevMaxCreatedAt = prevRes.rows[0]?.created_at ?? null;
+
+      const baseTsRes = await client.query<{ base_ts: string }>(
+        `SELECT GREATEST(
+           clock_timestamp(),
+           COALESCE($1::timestamptz + interval '1 microsecond', clock_timestamp())
+         )::text AS base_ts`,
+        [prevMaxCreatedAt]
+      );
+      const baseTs = baseTsRes.rows[0].base_ts;
+
+      const preparadas: Array<{
+        index: number;
+        entry: AuditoriaLogEntry;
+        datosAnterioresJson: string | null;
+        datosNuevosJson: string | null;
+      }> = [];
+
+      for (const { index, evento } of items) {
+        const datosAnterioresFiltrados = filtrarDetalleAuditoria(evento.tablaAfectada, evento.datosAnteriores ?? null);
+        const datosNuevosFiltrados = filtrarDetalleAuditoria(evento.tablaAfectada, evento.datosNuevos ?? null);
+        const datosAnteriores = ordenarClavesComoJsonb(datosAnterioresFiltrados ?? null);
+        const datosNuevos = ordenarClavesComoJsonb(datosNuevosFiltrados ?? null);
+
+        const id = randomUUID();
+        const hashActual = this.calcularHash(
+          id,
+          empresaId,
+          evento.usuarioId,
+          evento.tablaAfectada,
+          evento.registroId,
+          evento.accion,
+          datosNuevos,
+          hashPrevio
+        );
+
+        const entry: AuditoriaLogEntry = {
+          id,
+          empresaId,
+          usuarioId: evento.usuarioId,
+          tablaAfectada: evento.tablaAfectada,
+          registroId: evento.registroId,
+          accion: evento.accion,
+          datosAnteriores,
+          datosNuevos,
+          hashPrevio,
+          hashActual,
+          createdAt: '',
+        };
+
+        preparadas.push({
+          index,
+          entry,
+          datosAnterioresJson:
+            datosAnteriores !== undefined && datosAnteriores !== null ? JSON.stringify(datosAnteriores) : null,
+          datosNuevosJson:
+            datosNuevos !== undefined && datosNuevos !== null ? JSON.stringify(datosNuevos) : null,
+        });
+
+        hashPrevio = hashActual;
+      }
+
+      for (let indiceGlobal = 0; indiceGlobal < preparadas.length; indiceGlobal += CHUNK_SIZE) {
+        const chunk = preparadas.slice(indiceGlobal, indiceGlobal + CHUNK_SIZE);
+
+        const ids: string[] = [];
+        const usuarioIds: string[] = [];
+        const tablasAfectadas: string[] = [];
+        const registrosIds: string[] = [];
+        const acciones: string[] = [];
+        const datosAnterioresArr: Array<string | null> = [];
+        const datosNuevosArr: Array<string | null> = [];
+        const hashesPrevios: string[] = [];
+        const hashesActuales: string[] = [];
+
+        for (const item of chunk) {
+          ids.push(item.entry.id);
+          usuarioIds.push(item.entry.usuarioId);
+          tablasAfectadas.push(item.entry.tablaAfectada);
+          registrosIds.push(item.entry.registroId);
+          acciones.push(item.entry.accion);
+          datosAnterioresArr.push(item.datosAnterioresJson);
+          datosNuevosArr.push(item.datosNuevosJson);
+          hashesPrevios.push(item.entry.hashPrevio);
+          hashesActuales.push(item.entry.hashActual);
+        }
+
+        const insertRes = await client.query<{ created_at: Date | string }>(
+          `INSERT INTO auditoria_log (
+            id, empresa_id, usuario_id, tabla_afectada, registro_id,
+            accion, datos_anteriores, datos_nuevos, hash_previo, hash_actual, created_at
+          )
+          SELECT
+            u.id,
+            $1::uuid,
+            u.usuario_id,
+            u.tabla_afectada,
+            u.registro_id,
+            u.accion,
+            u.datos_anteriores::jsonb,
+            u.datos_nuevos::jsonb,
+            u.hash_previo,
+            u.hash_actual,
+            $2::timestamptz + (($3::bigint + u.ord - 1) * interval '1 microsecond')
+          FROM UNNEST(
+            $4::text[],
+            $5::uuid[],
+            $6::text[],
+            $7::text[],
+            $8::text[],
+            $9::text[],
+            $10::text[],
+            $11::text[],
+            $12::text[]
+          ) WITH ORDINALITY AS u(
+            id,
+            usuario_id,
+            tabla_afectada,
+            registro_id,
+            accion,
+            datos_anteriores,
+            datos_nuevos,
+            hash_previo,
+            hash_actual,
+            ord
+          )
+          ORDER BY u.ord
+          RETURNING created_at`,
+          [
+            empresaId,
+            baseTs,
+            indiceGlobal,
+            ids,
+            usuarioIds,
+            tablasAfectadas,
+            registrosIds,
+            acciones,
+            datosAnterioresArr,
+            datosNuevosArr,
+            hashesPrevios,
+            hashesActuales,
+          ]
+        );
+
+        for (let k = 0; k < chunk.length; k++) {
+          const rawCreatedAt = insertRes.rows[k]?.created_at;
+          const createdAt = rawCreatedAt instanceof Date
+            ? rawCreatedAt.toISOString()
+            : rawCreatedAt
+              ? new Date(rawCreatedAt).toISOString()
+              : new Date().toISOString();
+          chunk[k].entry.createdAt = createdAt;
+          resultados[chunk[k].index] = chunk[k].entry;
+        }
+      }
+    }
+
+    return resultados;
   },
 
   /**

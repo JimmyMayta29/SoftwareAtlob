@@ -27,6 +27,11 @@ import {
   formatearCentavos,
   formatearMonedaExacta,
 } from './conciliacionUtils';
+import { useListaVirtualizada } from './useListaVirtualizada';
+
+const UMBRAL_VIRTUALIZACION = 120;
+const ALTURA_FILA_VIRTUALIZADA_PX = 46;
+const FILAS_ESQUELETO = 6;
 
 export type FiltroEstadoDual = 'TODOS' | 'PENDIENTES' | 'SUGERIDOS' | 'CONCILIADOS';
 
@@ -53,6 +58,9 @@ export interface PanelDualConciliacionProps {
   onDesconciliarPartidaLegacy: (extractoLineaId: string, motivo: string) => Promise<void>;
   onAbrirAplicarCartera?: (linea: PartidaExtractoV2) => void;
   onAbrirGenerarAsiento?: (linea: PartidaExtractoV2) => void;
+  onEjecutarMatching?: () => void | Promise<void>;
+  puedeEjecutarMatching?: boolean;
+  onReintentar?: () => void;
 }
 
 function claseBadgeEstadoExtracto(estado: EstadoConciliacionV2): string {
@@ -92,6 +100,64 @@ function tipoMatchTexto(cantBanco: number, cantLibros: number): string {
   return `${cantBanco}:${cantLibros} (N:M)`;
 }
 
+const FilasEsqueletoTabla: React.FC = () => (
+  <>
+    {Array.from({ length: FILAS_ESQUELETO }, (_, idx) => (
+      <tr key={`skeleton-${idx}`} className={idx % 2 === 0 ? 'bg-[#FFFFFF]' : 'bg-[#F5F7FA]'}>
+        <td className="text-center">
+          <div className="w-3.5 h-3.5 mx-auto bg-[#E5E7EB] animate-pulse" />
+        </td>
+        <td>
+          <div className="h-3 w-16 bg-[#E5E7EB] animate-pulse" />
+        </td>
+        <td>
+          <div className="space-y-1 py-0.5">
+            <div className="h-3 w-3/4 bg-[#E5E7EB] animate-pulse" />
+            <div className="h-2.5 w-1/2 bg-[#F3F4F6] animate-pulse" />
+          </div>
+        </td>
+        <td>
+          <div className="h-4 w-20 bg-[#E5E7EB] animate-pulse" />
+        </td>
+        <td className="text-right">
+          <div className="h-3 w-16 ml-auto bg-[#E5E7EB] animate-pulse" />
+        </td>
+        <td className="text-center">
+          <div className="h-5 w-16 mx-auto bg-[#F3F4F6] animate-pulse" />
+        </td>
+      </tr>
+    ))}
+  </>
+);
+
+interface EstadoErrorTablaProps {
+  mensaje: string;
+  onReintentar?: () => void;
+}
+
+const EstadoErrorTabla: React.FC<EstadoErrorTablaProps> = ({ mensaje, onReintentar }) => (
+  <tr>
+    <td colSpan={6} className="text-center py-4 px-3">
+      <div
+        role="alert"
+        className="inline-flex flex-wrap items-center justify-center gap-2.5 text-[#B91C1C] font-bold text-[12px]"
+      >
+        <span>{mensaje}</span>
+        {onReintentar && (
+          <button
+            type="button"
+            onClick={onReintentar}
+            aria-label="Reintentar carga de conciliación"
+            className="h-6 px-2.5 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#B91C1C] text-[11px] font-bold cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+          >
+            Reintentar
+          </button>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
 export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   resumen,
   grupos,
@@ -108,9 +174,27 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   onDesconciliarPartidaLegacy,
   onAbrirAplicarCartera,
   onAbrirGenerarAsiento,
+  onEjecutarMatching,
+  puedeEjecutarMatching = false,
+  onReintentar,
 }) => {
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstadoDual>('TODOS');
   const [textoBusqueda, setTextoBusqueda] = useState('');
+  const [textoBusquedaDebounced, setTextoBusquedaDebounced] = useState('');
+  const busquedaInputRef = useRef<HTMLInputElement | null>(null);
+  const extractoContainerRef = useRef<HTMLDivElement | null>(null);
+  const librosContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (textoBusqueda === '') {
+      setTextoBusquedaDebounced('');
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setTextoBusquedaDebounced(textoBusqueda);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [textoBusqueda]);
 
   // Selección múltiple
   const [extractoSeleccionadoIds, setExtractoSeleccionadoIds] = useState<string[]>([]);
@@ -296,10 +380,10 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
   const porcentajeProgreso =
     totalExtracto > 0 ? Math.min(100, Math.round((conciliadasExtracto / totalExtracto) * 100)) : 0;
 
-  // Filtrado de ambos paneles
+  // Filtrado de ambos paneles (usando término debounced)
   const extractoFiltrado = useMemo(() => {
     const lineas = resumen?.extractoLineas ?? [];
-    const q = textoBusqueda.trim().toLowerCase();
+    const q = textoBusquedaDebounced.trim().toLowerCase();
     return lineas.filter((l) => {
       if (filtroEstado === 'CONCILIADOS' && !l.conciliada) return false;
       if (filtroEstado === 'SUGERIDOS' && l.estadoConciliacion !== 'SUGERIDO') return false;
@@ -320,10 +404,10 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         l.monto.includes(q)
       );
     });
-  }, [resumen?.extractoLineas, filtroEstado, textoBusqueda]);
+  }, [resumen?.extractoLineas, filtroEstado, textoBusquedaDebounced]);
 
   const librosFiltrado = useMemo(() => {
-    const q = textoBusqueda.trim().toLowerCase();
+    const q = textoBusquedaDebounced.trim().toLowerCase();
     return librosUnificados.filter((m) => {
       const esSugerido = !m.conciliado && librosSugeridosKeys.has(m.claveCompuesta);
       if (filtroEstado === 'CONCILIADOS' && !m.conciliado) return false;
@@ -341,23 +425,59 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         m.importe.includes(q)
       );
     });
-  }, [librosUnificados, librosSugeridosKeys, filtroEstado, textoBusqueda]);
+  }, [librosUnificados, librosSugeridosKeys, filtroEstado, textoBusquedaDebounced]);
+
+  // Virtualización ligera para listas grandes (> 120 filas)
+  const extractoVirt = useListaVirtualizada({
+    items: extractoFiltrado,
+    rowHeightPx: ALTURA_FILA_VIRTUALIZADA_PX,
+    containerRef: extractoContainerRef,
+    overscan: 10,
+    enabled: extractoFiltrado.length > UMBRAL_VIRTUALIZACION,
+  });
+
+  const librosVirt = useListaVirtualizada({
+    items: librosFiltrado,
+    rowHeightPx: ALTURA_FILA_VIRTUALIZADA_PX,
+    containerRef: librosContainerRef,
+    overscan: 10,
+    enabled: librosFiltrado.length > UMBRAL_VIRTUALIZACION,
+  });
+
+  const resetScrollExtracto = extractoVirt.resetScroll;
+  const resetScrollLibros = librosVirt.resetScroll;
+
+  useEffect(() => {
+    resetScrollExtracto();
+    resetScrollLibros();
+  }, [filtroEstado, textoBusquedaDebounced, resetScrollExtracto, resetScrollLibros]);
+
+  // Conjuntos O(1) para verificar selección por fila
+  const extractoSeleccionadoSet = useMemo(
+    () => new Set(extractoSeleccionadoIds),
+    [extractoSeleccionadoIds]
+  );
+
+  const librosSeleccionadosSet = useMemo(
+    () => new Set(librosSeleccionadosKeys),
+    [librosSeleccionadosKeys]
+  );
 
   // Cálculos exactos en centavos enteros para la barra de cuadre en vivo
   const extractoSeleccionados = useMemo(
     () =>
       (resumen?.extractoLineas ?? []).filter((l) =>
-        extractoSeleccionadoIds.includes(l.id)
+        extractoSeleccionadoSet.has(l.id)
       ),
-    [resumen?.extractoLineas, extractoSeleccionadoIds]
+    [resumen?.extractoLineas, extractoSeleccionadoSet]
   );
 
   const librosSeleccionados = useMemo(
     () =>
       librosUnificados.filter((m) =>
-        librosSeleccionadosKeys.includes(m.claveCompuesta)
+        librosSeleccionadosSet.has(m.claveCompuesta)
       ),
-    [librosUnificados, librosSeleccionadosKeys]
+    [librosUnificados, librosSeleccionadosSet]
   );
 
   const totalBancoCentavos = useMemo(
@@ -401,7 +521,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
     );
   };
 
-  const limpiarSeleccion = () => {
+  const limpiarSeleccion = useCallback(() => {
     setExtractoSeleccionadoIds([]);
     setLibrosSeleccionadosKeys([]);
     setObservacionManual('');
@@ -409,7 +529,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
     setPatronRegla('');
     setRucRegla('');
     setTipoClasifRegla('');
-  };
+  }, []);
 
   const handleConciliarSeleccion = useCallback(async () => {
     if (!puedeConfirmarSeleccion) return;
@@ -444,19 +564,54 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
     rucRegla,
     tipoClasifRegla,
     onConciliarManualGrupo,
+    limpiarSeleccion,
   ]);
 
-  // Atajo Enter para conciliar selección cuando hay ítems válidos y no hay modal abierto
+  // Atajos de teclado: / Buscar, Esc Limpiar, Alt+M Matching, Enter Conciliar
   useEffect(() => {
-    if (!puedeConfirmarSeleccion || hayModalAbierto || Boolean(desconciliarObjetivo)) {
+    if (hayModalAbierto || Boolean(desconciliarObjetivo)) {
       return;
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter') return;
-      const activo = document.activeElement;
-      if (activo) {
-        const tag = activo.tagName.toUpperCase();
+      const activo = document.activeElement as HTMLElement | null;
+      const tag = activo?.tagName?.toUpperCase() ?? '';
+      const esCampoEdicion =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        Boolean(activo?.isContentEditable);
+
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (esCampoEdicion) return;
+        e.preventDefault();
+        busquedaInputRef.current?.focus();
+        busquedaInputRef.current?.select();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (activo === busquedaInputRef.current && textoBusqueda !== '') {
+          e.preventDefault();
+          setTextoBusqueda('');
+          return;
+        }
+        if (extractoSeleccionadoIds.length > 0 || librosSeleccionadosKeys.length > 0) {
+          e.preventDefault();
+          limpiarSeleccion();
+        }
+        return;
+      }
+
+      if (e.altKey && (e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
+        if (puedeEjecutarMatching && onEjecutarMatching) {
+          e.preventDefault();
+          void onEjecutarMatching();
+        }
+        return;
+      }
+
+      if (e.key === 'Enter' && puedeConfirmarSeleccion) {
         if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') {
           return;
         }
@@ -464,14 +619,25 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
           const inputType = (activo as HTMLInputElement).type?.toLowerCase();
           if (inputType !== 'checkbox') return;
         }
+        e.preventDefault();
+        void handleConciliarSeleccion();
       }
-      e.preventDefault();
-      void handleConciliarSeleccion();
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [puedeConfirmarSeleccion, hayModalAbierto, desconciliarObjetivo, handleConciliarSeleccion]);
+  }, [
+    hayModalAbierto,
+    desconciliarObjetivo,
+    textoBusqueda,
+    extractoSeleccionadoIds.length,
+    librosSeleccionadosKeys.length,
+    limpiarSeleccion,
+    puedeEjecutarMatching,
+    onEjecutarMatching,
+    puedeConfirmarSeleccion,
+    handleConciliarSeleccion,
+  ]);
 
   const abrirModalDesconciliarExtracto = (linea: PartidaExtractoV2) => {
     const grupoId =
@@ -520,11 +686,22 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
       {/* Barra superior: Progreso visual + Filtros por estado + Búsqueda */}
       <div className="p-2 bg-[#F5F7FA] border border-[#D1D5DB] flex flex-wrap items-center justify-between gap-2.5 text-[12px]">
         {/* Progreso visual */}
-        <div className="flex items-center gap-2.5 min-w-[240px]">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`Progreso de conciliación: ${conciliadasExtracto} de ${totalExtracto} partidas (${porcentajeProgreso}%)`}
+          className="flex items-center gap-2.5 min-w-[240px]"
+        >
           <div className="text-[11px] font-bold text-[#1E3A5F] whitespace-nowrap">
             Progreso conciliación:
           </div>
-          <div className="w-36 h-2.5 bg-[#E5E7EB] border border-[#D1D5DB] overflow-hidden">
+          <div
+            role="progressbar"
+            aria-valuenow={porcentajeProgreso}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="w-36 h-2.5 bg-[#E5E7EB] border border-[#D1D5DB] overflow-hidden"
+          >
             <div
               className={`h-full transition-all ${
                 porcentajeProgreso === 100 ? 'bg-[#1E6F42]' : 'bg-[#1E3A5F]'
@@ -538,14 +715,20 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         </div>
 
         {/* Filtros de estado */}
-        <div className="flex flex-wrap items-center gap-1">
+        <div
+          role="group"
+          aria-label="Filtrar partidas por estado"
+          className="flex flex-wrap items-center gap-1"
+        >
           {(['TODOS', 'PENDIENTES', 'SUGERIDOS', 'CONCILIADOS'] as FiltroEstadoDual[]).map(
             (est) => (
               <button
                 key={est}
                 type="button"
+                aria-pressed={filtroEstado === est}
+                aria-label={`Filtrar por ${est.toLowerCase()}`}
                 onClick={() => setFiltroEstado(est)}
-                className={`h-6 px-2.5 text-[11px] border cursor-pointer rounded-none ${
+                className={`h-6 px-2.5 text-[11px] border cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F] ${
                   filtroEstado === est
                     ? 'bg-[#1E3A5F] text-[#FFFFFF] border-[#1E3A5F] font-bold'
                     : 'bg-[#FFFFFF] text-[#111827] border-[#D1D5DB] hover:bg-[#E8ECF1]'
@@ -561,18 +744,20 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         <div className="relative flex items-center">
           <Search className="w-3.5 h-3.5 text-[#6B7280] absolute left-2 pointer-events-none" />
           <input
+            ref={busquedaInputRef}
             type="text"
             value={textoBusqueda}
             onChange={(e) => setTextoBusqueda(e.target.value)}
-            placeholder="Buscar glosa, referencia, RUC o monto..."
-            className="h-7 pl-7 pr-6 w-64 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
+            aria-label="Buscar partidas por glosa, referencia, RUC o monto"
+            placeholder="Buscar glosa, referencia, RUC o monto... (/)"
+            className="h-7 pl-7 pr-6 w-72 bg-[#FFFFFF] border border-[#D1D5DB] text-[12px] focus:outline-none focus:border-[#1E3A5F] focus-visible:outline-2 focus-visible:outline-[#1E3A5F] rounded-none"
           />
           {textoBusqueda && (
             <button
               type="button"
               onClick={() => setTextoBusqueda('')}
               aria-label="Limpiar búsqueda"
-              className="absolute right-1.5 text-[#6B7280] hover:text-[#111827] cursor-pointer"
+              className="absolute right-1.5 text-[#6B7280] hover:text-[#111827] cursor-pointer focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -582,6 +767,9 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
 
       {/* Barra de cuadre en vivo (Sticky/Cabecera de selección múltiple) */}
       <div
+        role="status"
+        aria-live="polite"
+        aria-label="Resumen de selección y cuadre en vivo"
         className={`p-2 border transition-colors ${
           tieneSeleccionAmbosLados
             ? dentroTolerancia
@@ -649,7 +837,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                       checked={recordarRegla}
                       disabled={operacionesBloqueadas || conciliandoManual}
                       onChange={(e) => setRecordarRegla(e.target.checked)}
-                      className="w-3.5 h-3.5 accent-[#1E3A5F]"
+                      className="w-3.5 h-3.5 accent-[#1E3A5F] focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
                     />
                     <Sparkles className="w-3 h-3 text-[#1E3A5F]" />
                     <span>Recordar regla para esta contraparte</span>
@@ -660,7 +848,8 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   type="button"
                   onClick={limpiarSeleccion}
                   disabled={conciliandoManual}
-                  className="h-7 px-2 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#374151] border border-[#D1D5DB] text-[11px] cursor-pointer rounded-none"
+                  aria-label="Limpiar selección actual"
+                  className="h-7 px-2 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#374151] border border-[#D1D5DB] text-[11px] cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
                 >
                   Limpiar
                 </button>
@@ -671,6 +860,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
               type="button"
               disabled={!puedeConfirmarSeleccion}
               onClick={() => void handleConciliarSeleccion()}
+              aria-label="Conciliar partidas seleccionadas"
               title={
                 operacionesBloqueadas
                   ? motivoBloqueo
@@ -678,7 +868,7 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   ? 'Seleccione al menos 1 partida de Extracto y 1 de Libros'
                   : 'Conciliar selección [Enter]'
               }
-              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] text-[#FFFFFF] border border-[#1E3A5F] disabled:border-[#D1D5DB] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed rounded-none"
+              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] text-[#FFFFFF] border border-[#1E3A5F] disabled:border-[#D1D5DB] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
             >
               <Link2 className="w-3.5 h-3.5" />
               <span>
@@ -696,8 +886,9 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
               maxLength={300}
               value={observacionManual}
               onChange={(e) => setObservacionManual(e.target.value)}
+              aria-label="Observación opcional de conciliación manual"
               placeholder="Observación opcional de conciliación manual..."
-              className="h-6 px-2 flex-1 min-w-[200px] bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
+              className="h-6 px-2 flex-1 min-w-[200px] bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] focus:outline-none focus:border-[#1E3A5F] focus-visible:outline-2 focus-visible:outline-[#1E3A5F] rounded-none"
             />
             {puedeAprenderRegla && recordarRegla && (
               <>
@@ -706,23 +897,26 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   maxLength={150}
                   value={patronRegla}
                   onChange={(e) => setPatronRegla(e.target.value)}
+                  aria-label="Patrón de contraparte para regla automática"
                   placeholder="Patrón contraparte * (mín. 2 car.)"
-                  className="h-6 px-2 w-56 bg-[#FFFFFF] border border-[#1E3A5F] text-[11px] focus:outline-none rounded-none"
+                  className="h-6 px-2 w-56 bg-[#FFFFFF] border border-[#1E3A5F] text-[11px] focus:outline-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F] rounded-none"
                 />
                 <input
                   type="text"
                   maxLength={11}
                   value={rucRegla}
                   onChange={(e) => setRucRegla(e.target.value)}
+                  aria-label="RUC opcional de contraparte"
                   placeholder="RUC (opcional)"
-                  className="h-6 px-2 w-28 bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] font-mono focus:outline-none focus:border-[#1E3A5F] rounded-none"
+                  className="h-6 px-2 w-28 bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] font-mono focus:outline-none focus:border-[#1E3A5F] focus-visible:outline-2 focus-visible:outline-[#1E3A5F] rounded-none"
                 />
                 <select
                   value={tipoClasifRegla}
+                  aria-label="Tipo de clasificación opcional"
                   onChange={(e) =>
                     setTipoClasifRegla(e.target.value as TipoClasificacionExtracto | '')
                   }
-                  className="h-6 px-1.5 bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] focus:outline-none focus:border-[#1E3A5F] rounded-none"
+                  className="h-6 px-1.5 bg-[#FFFFFF] border border-[#D1D5DB] text-[11px] focus:outline-none focus:border-[#1E3A5F] focus-visible:outline-2 focus-visible:outline-[#1E3A5F] rounded-none"
                 >
                   <option value="">Clasificación (opc.)</option>
                   {TIPOS_CLASIFICACION_EXTRACTO.map((t) => (
@@ -737,10 +931,56 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         )}
       </div>
 
+      {/* Tira informativa discreta de atajos de teclado */}
+      <div
+        aria-label="Atajos de teclado disponibles"
+        className="px-2 py-1 bg-[#F5F7FA] border border-[#D1D5DB] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#4B5563]"
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-bold text-[#1E3A5F]">Atajos:</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1 py-0 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[10px] font-bold text-[#1E3A5F] rounded-none">
+              /
+            </kbd>
+            <span>Buscar</span>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1 py-0 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[10px] font-bold text-[#1E3A5F] rounded-none">
+              Esc
+            </kbd>
+            <span>Limpiar</span>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1 py-0 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[10px] font-bold text-[#1E3A5F] rounded-none">
+              Enter
+            </kbd>
+            <span>Conciliar</span>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="inline-flex items-center gap-1">
+            <kbd className="px-1 py-0 bg-[#FFFFFF] border border-[#D1D5DB] font-mono text-[10px] font-bold text-[#1E3A5F] rounded-none">
+              Alt+M
+            </kbd>
+            <span>Matching</span>
+          </span>
+        </div>
+        {(extractoVirt.isVirtualized || librosVirt.isVirtualized) && (
+          <span className="font-mono text-[10px] text-[#4B5563]">
+            Modo alto rendimiento activo
+          </span>
+        )}
+      </div>
+
       {/* Panel dividido lado a lado */}
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-2 gap-2.5">
         {/* IZQUIERDA: EXTRACTO BANCARIO */}
-        <div className="flex flex-col min-h-[280px] border border-[#D1D5DB] bg-[#FFFFFF]">
+        <div
+          role="region"
+          aria-label="Extracto Bancario"
+          className="flex flex-col min-h-[280px] border border-[#D1D5DB] bg-[#FFFFFF]"
+        >
           <div className="px-2.5 py-1.5 bg-[#1E3A5F] text-[#FFFFFF] flex items-center justify-between text-[12px]">
             <span className="font-bold">Extracto Bancario</span>
             <span className="font-mono text-[11px] text-[#E8ECF1]">
@@ -748,9 +988,14 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto">
-            <table className="tabla-densa">
-              <thead>
+          <div ref={extractoContainerRef} className="flex-1 overflow-auto">
+            <table
+              aria-label="Tabla de partidas del extracto bancario"
+              className={`tabla-densa ${
+                extractoVirt.isVirtualized ? 'table-fixed min-w-[640px]' : ''
+              }`}
+            >
+              <thead className="sticky top-0 z-10">
                 <tr>
                   <th className="w-7 text-center">Sel</th>
                   <th className="w-20 text-left">Fecha</th>
@@ -760,170 +1005,242 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   <th className="w-40 text-center">Acción</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody aria-busy={cargando ? 'true' : undefined}>
                 {cargando ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#4B5563]">
-                      Cargando partidas de extracto...
-                    </td>
-                  </tr>
+                  <FilasEsqueletoTabla />
                 ) : mensajeError ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#B91C1C] font-bold">
-                      {mensajeError}
-                    </td>
-                  </tr>
+                  <EstadoErrorTabla mensaje={mensajeError} onReintentar={onReintentar} />
                 ) : extractoFiltrado.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#4B5563]">
-                      {resumen && !resumen.tieneExtracto
-                        ? 'No existe extracto bancario importado en este período.'
-                        : 'Sin partidas de extracto para el filtro actual.'}
+                    <td colSpan={6} className="text-center py-6 px-3 text-[#4B5563]">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span>
+                          {resumen && !resumen.tieneExtracto
+                            ? 'No existe extracto bancario importado en este período.'
+                            : 'Sin partidas de extracto para el filtro o búsqueda actual.'}
+                        </span>
+                        {(filtroEstado !== 'TODOS' || textoBusquedaDebounced.trim().length > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFiltroEstado('TODOS');
+                              setTextoBusqueda('');
+                            }}
+                            className="h-6 px-2.5 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#1E3A5F] border border-[#D1D5DB] text-[11px] cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                          >
+                            Restablecer filtros
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  extractoFiltrado.map((l, idx) => {
-                    const seleccionada = extractoSeleccionadoIds.includes(l.id);
-                    const seleccionable =
-                      !operacionesBloqueadas &&
-                      !l.conciliada &&
-                      l.estadoConciliacion !== 'DUPLICADO';
-                    const montoNeg = aCentavos(l.monto) < 0;
-                    const grupo = l.grupoConciliacionId
-                      ? grupoPorId.get(l.grupoConciliacionId)
-                      : grupoPorExtractoId.get(l.id);
-
-                    return (
-                      <tr
-                        key={l.id}
-                        onClick={() => {
-                          if (seleccionable) toggleExtracto(l.id);
-                        }}
-                        className={`${
-                          seleccionada
-                            ? 'bg-[#DBEAFE] text-[#111827]'
-                            : idx % 2 === 0
-                            ? 'bg-[#FFFFFF] hover:bg-[#E8ECF1]'
-                            : 'bg-[#F5F7FA] hover:bg-[#E8ECF1]'
-                        } ${seleccionable ? 'cursor-pointer' : ''}`}
-                      >
+                  <>
+                    {extractoVirt.paddingTopPx > 0 && (
+                      <tr aria-hidden="true">
                         <td
-                          className="text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={`Seleccionar extracto ${l.descripcion}`}
-                            checked={seleccionada}
-                            disabled={!seleccionable}
-                            onChange={() => toggleExtracto(l.id)}
-                            className="w-3.5 h-3.5 accent-[#1E3A5F] cursor-pointer disabled:cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="font-mono text-[11px] whitespace-nowrap">{l.fecha}</td>
-                        <td>
-                          <div className="text-[11px] text-[#111827] leading-tight">
-                            {l.descripcion}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px]">
-                            {l.referencia && (
-                              <span className="font-mono text-[#1E3A5F]">
-                                Ref: {l.referencia}
-                              </span>
-                            )}
-                            {l.tipoClasificacion && (
-                              <span className="px-1 py-0 bg-[#F3F4F6] text-[#374151] border border-[#D1D5DB] font-bold">
-                                {l.tipoClasificacion}
-                              </span>
-                            )}
-                            {l.rucExtraido && (
-                              <span className="font-mono text-[#4B5563]">
-                                RUC {l.rucExtraido}
-                              </span>
-                            )}
-                            {grupo && (
-                              <span className="px-1 py-0 bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] font-mono font-bold">
-                                {grupo.tipoMatch}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <span
-                            className={`inline-block px-1 py-0.5 text-[9px] font-bold border ${claseBadgeEstadoExtracto(
-                              l.estadoConciliacion
-                            )}`}
-                          >
-                            {l.estadoConciliacion}
-                          </span>
-                        </td>
-                        <td className="text-right tabular-nums">
-                          <span
-                            className={`font-mono font-bold text-[11px] ${
-                              montoNeg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'
-                            }`}
-                          >
-                            {formatearMonedaExacta(l.monto, moneda)}
-                          </span>
-                        </td>
-                        <td
-                          className="text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {l.conciliada ? (
-                            <button
-                              type="button"
-                              disabled={operacionesBloqueadas || desconciliando}
-                              onClick={() => abrirModalDesconciliarExtracto(l)}
-                              title={
-                                operacionesBloqueadas
-                                  ? motivoBloqueo
-                                  : 'Desconciliar partida/grupo'
-                              }
-                              className="h-6 px-1.5 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#D1D5DB] text-[10px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none"
-                            >
-                              <Unlink className="w-3 h-3" />
-                              <span>Desconciliar</span>
-                            </button>
-                          ) : !operacionesBloqueadas &&
-                            l.estadoConciliacion !== 'DUPLICADO' &&
-                            (onAbrirAplicarCartera || onAbrirGenerarAsiento) ? (
-                            <div className="flex flex-wrap items-center justify-center gap-1">
-                              {onAbrirAplicarCartera && (
-                                <button
-                                  type="button"
-                                  onClick={() => onAbrirAplicarCartera(l)}
-                                  title="Aplicar línea bancaria a Cartera CxC/CxP o caso especial"
-                                  className="h-5 px-1.5 bg-[#FFFFFF] hover:bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none"
-                                >
-                                  <FileCheck2 className="w-2.5 h-2.5" />
-                                  <span>Aplicar CxC/CxP</span>
-                                </button>
-                              )}
-                              {onAbrirGenerarAsiento && (
-                                <button
-                                  type="button"
-                                  onClick={() => onAbrirGenerarAsiento(l)}
-                                  title="Previsualizar y generar asiento contable bancario"
-                                  className="h-5 px-1.5 bg-[#F5F7FA] hover:bg-[#ECFDF5] text-[#1E6F42] border border-[#1E6F42] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none"
-                                >
-                                  <FileSpreadsheet className="w-2.5 h-2.5" />
-                                  <span>Generar Asiento</span>
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <span
-                              title={operacionesBloqueadas ? motivoBloqueo : undefined}
-                              className="text-[10px] text-[#9CA3AF]"
-                            >
-                              —
-                            </span>
-                          )}
-                        </td>
+                          colSpan={6}
+                          style={{
+                            height: `${extractoVirt.paddingTopPx}px`,
+                            padding: 0,
+                            border: 0,
+                          }}
+                        />
                       </tr>
-                    );
-                  })
+                    )}
+                    {extractoVirt.visibleItems.map((l, localIdx) => {
+                      const idx = extractoVirt.startIndex + localIdx;
+                      const seleccionada = extractoSeleccionadoSet.has(l.id);
+                      const seleccionable =
+                        !operacionesBloqueadas &&
+                        !l.conciliada &&
+                        l.estadoConciliacion !== 'DUPLICADO';
+                      const montoNeg = aCentavos(l.monto) < 0;
+                      const grupo = l.grupoConciliacionId
+                        ? grupoPorId.get(l.grupoConciliacionId)
+                        : grupoPorExtractoId.get(l.id);
+
+                      return (
+                        <tr
+                          key={l.id}
+                          style={
+                            extractoVirt.isVirtualized
+                              ? { height: `${ALTURA_FILA_VIRTUALIZADA_PX}px` }
+                              : undefined
+                          }
+                          onClick={() => {
+                            if (seleccionable) toggleExtracto(l.id);
+                          }}
+                          className={`${
+                            seleccionada
+                              ? 'bg-[#DBEAFE] text-[#111827]'
+                              : idx % 2 === 0
+                              ? 'bg-[#FFFFFF] hover:bg-[#E8ECF1]'
+                              : 'bg-[#F5F7FA] hover:bg-[#E8ECF1]'
+                          } ${seleccionable ? 'cursor-pointer' : ''}`}
+                        >
+                          <td
+                            className="text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar extracto ${l.descripcion}`}
+                              checked={seleccionada}
+                              disabled={!seleccionable}
+                              onChange={() => toggleExtracto(l.id)}
+                              className="w-3.5 h-3.5 accent-[#1E3A5F] cursor-pointer disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                            />
+                          </td>
+                          <td className="font-mono text-[11px] whitespace-nowrap">{l.fecha}</td>
+                          <td>
+                            <div
+                              className={
+                                extractoVirt.isVirtualized
+                                  ? 'max-h-[40px] overflow-hidden'
+                                  : undefined
+                              }
+                            >
+                              <div
+                                title={l.descripcion}
+                                className={`text-[11px] text-[#111827] leading-tight ${
+                                  extractoVirt.isVirtualized ? 'truncate' : ''
+                                }`}
+                              >
+                                {l.descripcion}
+                              </div>
+                              <div
+                                className={`flex items-center gap-1.5 mt-0.5 text-[10px] ${
+                                  extractoVirt.isVirtualized
+                                    ? 'overflow-hidden whitespace-nowrap'
+                                    : 'flex-wrap'
+                                }`}
+                              >
+                                {l.referencia && (
+                                  <span className="font-mono text-[#1E3A5F]">
+                                    Ref: {l.referencia}
+                                  </span>
+                                )}
+                                {l.tipoClasificacion && (
+                                  <span className="px-1 py-0 bg-[#F3F4F6] text-[#374151] border border-[#D1D5DB] font-bold">
+                                    {l.tipoClasificacion}
+                                  </span>
+                                )}
+                                {l.rucExtraido && (
+                                  <span className="font-mono text-[#4B5563]">
+                                    RUC {l.rucExtraido}
+                                  </span>
+                                )}
+                                {grupo && (
+                                  <span className="px-1 py-0 bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] font-mono font-bold">
+                                    {grupo.tipoMatch}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span
+                              className={`inline-block px-1 py-0.5 text-[9px] font-bold border ${claseBadgeEstadoExtracto(
+                                l.estadoConciliacion
+                              )}`}
+                            >
+                              {l.estadoConciliacion}
+                            </span>
+                          </td>
+                          <td className="text-right tabular-nums">
+                            <span
+                              className={`font-mono font-bold text-[11px] ${
+                                montoNeg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'
+                              }`}
+                            >
+                              {formatearMonedaExacta(l.monto, moneda)}
+                            </span>
+                          </td>
+                          <td
+                            className="text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {l.conciliada ? (
+                              <button
+                                type="button"
+                                disabled={operacionesBloqueadas || desconciliando}
+                                onClick={() => abrirModalDesconciliarExtracto(l)}
+                                aria-label={`Desconciliar extracto ${l.descripcion}`}
+                                title={
+                                  operacionesBloqueadas
+                                    ? motivoBloqueo
+                                    : 'Desconciliar partida/grupo'
+                                }
+                                className="h-6 px-1.5 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#D1D5DB] text-[10px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                              >
+                                <Unlink className="w-3 h-3" />
+                                <span>Desconciliar</span>
+                              </button>
+                            ) : !operacionesBloqueadas &&
+                              l.estadoConciliacion !== 'DUPLICADO' &&
+                              (onAbrirAplicarCartera || onAbrirGenerarAsiento) ? (
+                              <div
+                                className={`flex flex-wrap items-center justify-center ${
+                                  extractoVirt.isVirtualized
+                                    ? 'gap-0.5 max-h-[40px] overflow-hidden'
+                                    : 'gap-1'
+                                }`}
+                              >
+                                {onAbrirAplicarCartera && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onAbrirAplicarCartera(l)}
+                                    aria-label={`Aplicar cartera a ${l.descripcion}`}
+                                    title="Aplicar línea bancaria a Cartera CxC/CxP o caso especial"
+                                    className={`${
+                                      extractoVirt.isVirtualized ? 'h-[18px]' : 'h-5'
+                                    } px-1.5 bg-[#FFFFFF] hover:bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]`}
+                                  >
+                                    <FileCheck2 className="w-2.5 h-2.5" />
+                                    <span>Aplicar CxC/CxP</span>
+                                  </button>
+                                )}
+                                {onAbrirGenerarAsiento && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onAbrirGenerarAsiento(l)}
+                                    aria-label={`Generar asiento para ${l.descripcion}`}
+                                    title="Previsualizar y generar asiento contable bancario"
+                                    className={`${
+                                      extractoVirt.isVirtualized ? 'h-[18px]' : 'h-5'
+                                    } px-1.5 bg-[#F5F7FA] hover:bg-[#ECFDF5] text-[#1E6F42] border border-[#1E6F42] text-[10px] font-medium inline-flex items-center gap-0.5 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]`}
+                                  >
+                                    <FileSpreadsheet className="w-2.5 h-2.5" />
+                                    <span>Generar Asiento</span>
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <span
+                                title={operacionesBloqueadas ? motivoBloqueo : undefined}
+                                className="text-[10px] text-[#9CA3AF]"
+                              >
+                                —
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {extractoVirt.paddingBottomPx > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={6}
+                          style={{
+                            height: `${extractoVirt.paddingBottomPx}px`,
+                            padding: 0,
+                            border: 0,
+                          }}
+                        />
+                      </tr>
+                    )}
+                  </>
                 )}
               </tbody>
             </table>
@@ -931,7 +1248,11 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
         </div>
 
         {/* DERECHA: LIBROS CONTABLES (TESORERÍA + ASIENTOS MANUALES 104x) */}
-        <div className="flex flex-col min-h-[280px] border border-[#D1D5DB] bg-[#FFFFFF]">
+        <div
+          role="region"
+          aria-label="Libros Contables (Tesorería + Mayor 104x)"
+          className="flex flex-col min-h-[280px] border border-[#D1D5DB] bg-[#FFFFFF]"
+        >
           <div className="px-2.5 py-1.5 bg-[#1E3A5F] text-[#FFFFFF] flex items-center justify-between text-[12px]">
             <span className="font-bold">Libros Contables (Tesorería + Mayor 104x)</span>
             <span className="font-mono text-[11px] text-[#E8ECF1]">
@@ -939,9 +1260,14 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto">
-            <table className="tabla-densa">
-              <thead>
+          <div ref={librosContainerRef} className="flex-1 overflow-auto">
+            <table
+              aria-label="Tabla de movimientos en libros contables"
+              className={`tabla-densa ${
+                librosVirt.isVirtualized ? 'table-fixed min-w-[600px]' : ''
+              }`}
+            >
+              <thead className="sticky top-0 z-10">
                 <tr>
                   <th className="w-7 text-center">Sel</th>
                   <th className="w-20 text-left">Fecha</th>
@@ -951,142 +1277,207 @@ export const PanelDualConciliacion: React.FC<PanelDualConciliacionProps> = ({
                   <th className="w-24 text-center">Acción</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody aria-busy={cargando ? 'true' : undefined}>
                 {cargando ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#4B5563]">
-                      Cargando movimientos de libros...
-                    </td>
-                  </tr>
+                  <FilasEsqueletoTabla />
                 ) : mensajeError ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#B91C1C] font-bold">
-                      {mensajeError}
-                    </td>
-                  </tr>
+                  <EstadoErrorTabla mensaje={mensajeError} onReintentar={onReintentar} />
                 ) : librosFiltrado.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-4 text-[#4B5563]">
-                      Sin partidas en libros contables para el filtro actual.
+                    <td colSpan={6} className="text-center py-6 px-3 text-[#4B5563]">
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span>
+                          {librosUnificados.length === 0
+                            ? 'No existen movimientos en libros contables para este período.'
+                            : 'Sin partidas en libros contables para el filtro o búsqueda actual.'}
+                        </span>
+                        {(filtroEstado !== 'TODOS' || textoBusquedaDebounced.trim().length > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFiltroEstado('TODOS');
+                              setTextoBusqueda('');
+                            }}
+                            className="h-6 px-2.5 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#1E3A5F] border border-[#D1D5DB] text-[11px] cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                          >
+                            Restablecer filtros
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  librosFiltrado.map((m, idx) => {
-                    const seleccionada = librosSeleccionadosKeys.includes(m.claveCompuesta);
-                    const seleccionable =
-                      !operacionesBloqueadas && !m.conciliado && m.estado !== 'ANULADO';
-                    const importeNeg = aCentavos(m.importeConSigno) < 0;
-                    const esAsientoManual = m.origenEfectivo === 'ASIENTO_MANUAL';
-                    const esSugerido =
-                      !m.conciliado && librosSugeridosKeys.has(m.claveCompuesta);
-                    const grupo = m.grupoConciliacionId
-                      ? grupoPorId.get(m.grupoConciliacionId)
-                      : grupoPorLibroKey.get(m.claveCompuesta);
-
-                    return (
-                      <tr
-                        key={m.claveCompuesta}
-                        onClick={() => {
-                          if (seleccionable) toggleLibro(m.claveCompuesta);
-                        }}
-                        className={`${
-                          seleccionada
-                            ? 'bg-[#DBEAFE] text-[#111827]'
-                            : idx % 2 === 0
-                            ? 'bg-[#FFFFFF] hover:bg-[#E8ECF1]'
-                            : 'bg-[#F5F7FA] hover:bg-[#E8ECF1]'
-                        } ${seleccionable ? 'cursor-pointer' : ''}`}
-                      >
+                  <>
+                    {librosVirt.paddingTopPx > 0 && (
+                      <tr aria-hidden="true">
                         <td
-                          className="text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={`Seleccionar libro ${m.glosa}`}
-                            checked={seleccionada}
-                            disabled={!seleccionable}
-                            onChange={() => toggleLibro(m.claveCompuesta)}
-                            className="w-3.5 h-3.5 accent-[#1E3A5F] cursor-pointer disabled:cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="font-mono text-[11px] whitespace-nowrap">{m.fecha}</td>
-                        <td>
-                          <div className="text-[11px] text-[#111827] leading-tight">
-                            {esAsientoManual && (
-                              <span className="inline-block px-1 py-0 text-[9px] font-bold bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] mr-1">
-                                Asiento Manual 104x
-                              </span>
-                            )}
-                            {m.glosa}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px]">
-                            <span className="font-mono text-[#4B5563]">
-                              {m.tipo} · {m.medioPago}
-                            </span>
-                            {(m.numeroOperacion || m.docRef) && (
-                              <span className="font-mono text-[#1E3A5F]">
-                                Op: {m.numeroOperacion || m.docRef}
-                              </span>
-                            )}
-                            {m.anexoNombre && (
-                              <span className="text-[#4B5563] truncate max-w-[160px]">
-                                · {m.anexoNombre}
-                                {m.anexoRuc ? ` (${m.anexoRuc})` : ''}
-                              </span>
-                            )}
-                            {grupo && (
-                              <span className="px-1 py-0 bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] font-mono font-bold">
-                                {grupo.tipoMatch}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <span
-                            className={`inline-block px-1 py-0.5 text-[9px] font-bold border ${claseBadgeEstadoLibro(
-                              m.estadoLibroV2,
-                              esSugerido
-                            )}`}
-                          >
-                            {esSugerido ? 'SUGERIDO' : m.estadoLibroV2}
-                          </span>
-                        </td>
-                        <td className="text-right tabular-nums">
-                          <span
-                            className={`font-mono font-bold text-[11px] ${
-                              importeNeg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'
-                            }`}
-                          >
-                            {formatearMonedaExacta(m.importeConSigno, moneda)}
-                          </span>
-                        </td>
-                        <td
-                          className="text-center"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {m.conciliado && grupo ? (
-                            <button
-                              type="button"
-                              disabled={operacionesBloqueadas || desconciliando}
-                              onClick={() => abrirModalDesconciliarLibro(m)}
-                              title={
-                                operacionesBloqueadas
-                                  ? motivoBloqueo
-                                  : 'Desconciliar grupo'
-                              }
-                              className="h-6 px-1.5 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#D1D5DB] text-[10px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none"
-                            >
-                              <Unlink className="w-3 h-3" />
-                              <span>Desconciliar</span>
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-[#9CA3AF]">—</span>
-                          )}
-                        </td>
+                          colSpan={6}
+                          style={{
+                            height: `${librosVirt.paddingTopPx}px`,
+                            padding: 0,
+                            border: 0,
+                          }}
+                        />
                       </tr>
-                    );
-                  })
+                    )}
+                    {librosVirt.visibleItems.map((m, localIdx) => {
+                      const idx = librosVirt.startIndex + localIdx;
+                      const seleccionada = librosSeleccionadosSet.has(m.claveCompuesta);
+                      const seleccionable =
+                        !operacionesBloqueadas && !m.conciliado && m.estado !== 'ANULADO';
+                      const importeNeg = aCentavos(m.importeConSigno) < 0;
+                      const esAsientoManual = m.origenEfectivo === 'ASIENTO_MANUAL';
+                      const esSugerido =
+                        !m.conciliado && librosSugeridosKeys.has(m.claveCompuesta);
+                      const grupo = m.grupoConciliacionId
+                        ? grupoPorId.get(m.grupoConciliacionId)
+                        : grupoPorLibroKey.get(m.claveCompuesta);
+
+                      return (
+                        <tr
+                          key={m.claveCompuesta}
+                          style={
+                            librosVirt.isVirtualized
+                              ? { height: `${ALTURA_FILA_VIRTUALIZADA_PX}px` }
+                              : undefined
+                          }
+                          onClick={() => {
+                            if (seleccionable) toggleLibro(m.claveCompuesta);
+                          }}
+                          className={`${
+                            seleccionada
+                              ? 'bg-[#DBEAFE] text-[#111827]'
+                              : idx % 2 === 0
+                              ? 'bg-[#FFFFFF] hover:bg-[#E8ECF1]'
+                              : 'bg-[#F5F7FA] hover:bg-[#E8ECF1]'
+                          } ${seleccionable ? 'cursor-pointer' : ''}`}
+                        >
+                          <td
+                            className="text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar libro ${m.glosa}`}
+                              checked={seleccionada}
+                              disabled={!seleccionable}
+                              onChange={() => toggleLibro(m.claveCompuesta)}
+                              className="w-3.5 h-3.5 accent-[#1E3A5F] cursor-pointer disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                            />
+                          </td>
+                          <td className="font-mono text-[11px] whitespace-nowrap">{m.fecha}</td>
+                          <td>
+                            <div
+                              className={
+                                librosVirt.isVirtualized
+                                  ? 'max-h-[40px] overflow-hidden'
+                                  : undefined
+                              }
+                            >
+                              <div
+                                title={m.glosa}
+                                className={`text-[11px] text-[#111827] leading-tight ${
+                                  librosVirt.isVirtualized ? 'truncate' : ''
+                                }`}
+                              >
+                                {esAsientoManual && (
+                                  <span className="inline-block px-1 py-0 text-[9px] font-bold bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] mr-1">
+                                    Asiento Manual 104x
+                                  </span>
+                                )}
+                                {m.glosa}
+                              </div>
+                              <div
+                                className={`flex items-center gap-1.5 mt-0.5 text-[10px] ${
+                                  librosVirt.isVirtualized
+                                    ? 'overflow-hidden whitespace-nowrap'
+                                    : 'flex-wrap'
+                                }`}
+                              >
+                                <span className="font-mono text-[#4B5563]">
+                                  {m.tipo} · {m.medioPago}
+                                </span>
+                                {(m.numeroOperacion || m.docRef) && (
+                                  <span className="font-mono text-[#1E3A5F]">
+                                    Op: {m.numeroOperacion || m.docRef}
+                                  </span>
+                                )}
+                                {m.anexoNombre && (
+                                  <span
+                                    title={`${m.anexoNombre}${m.anexoRuc ? ` (${m.anexoRuc})` : ''}`}
+                                    className="text-[#4B5563] truncate max-w-[160px]"
+                                  >
+                                    · {m.anexoNombre}
+                                    {m.anexoRuc ? ` (${m.anexoRuc})` : ''}
+                                  </span>
+                                )}
+                                {grupo && (
+                                  <span className="px-1 py-0 bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] font-mono font-bold">
+                                    {grupo.tipoMatch}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span
+                              className={`inline-block px-1 py-0.5 text-[9px] font-bold border ${claseBadgeEstadoLibro(
+                                m.estadoLibroV2,
+                                esSugerido
+                              )}`}
+                            >
+                              {esSugerido ? 'SUGERIDO' : m.estadoLibroV2}
+                            </span>
+                          </td>
+                          <td className="text-right tabular-nums">
+                            <span
+                              className={`font-mono font-bold text-[11px] ${
+                                importeNeg ? 'text-[#B91C1C]' : 'text-[#1E6F42]'
+                              }`}
+                            >
+                              {formatearMonedaExacta(m.importeConSigno, moneda)}
+                            </span>
+                          </td>
+                          <td
+                            className="text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {m.conciliado && grupo ? (
+                              <button
+                                type="button"
+                                disabled={operacionesBloqueadas || desconciliando}
+                                onClick={() => abrirModalDesconciliarLibro(m)}
+                                aria-label={`Desconciliar libro ${m.glosa}`}
+                                title={
+                                  operacionesBloqueadas
+                                    ? motivoBloqueo
+                                    : 'Desconciliar grupo'
+                                }
+                                className="h-6 px-1.5 bg-[#FFFFFF] hover:bg-[#FEF2F2] text-[#B91C1C] border border-[#D1D5DB] text-[10px] inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+                              >
+                                <Unlink className="w-3 h-3" />
+                                <span>Desconciliar</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-[#9CA3AF]">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {librosVirt.paddingBottomPx > 0 && (
+                      <tr aria-hidden="true">
+                        <td
+                          colSpan={6}
+                          style={{
+                            height: `${librosVirt.paddingBottomPx}px`,
+                            padding: 0,
+                            border: 0,
+                          }}
+                        />
+                      </tr>
+                    )}
+                  </>
                 )}
               </tbody>
             </table>

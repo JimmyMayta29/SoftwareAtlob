@@ -523,8 +523,9 @@ export const ConciliacionBancariaV2View: React.FC = () => {
             type="button"
             disabled={!cuentaSeleccionada}
             onClick={() => setModalChequesAlertasAbierto(true)}
+            aria-label={`Cheques y alertas (${totalAlertas})`}
             title="Gestión de cheques bancarios, alertas tributarias (ITF / Ley 28194) y plantillas de asiento"
-            className={`h-6 px-2.5 text-[12px] inline-flex items-center gap-1.5 border rounded-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`h-6 px-2.5 text-[12px] inline-flex items-center gap-1.5 border rounded-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[#1E3A5F] ${
               totalAlertas > 0
                 ? tieneAlertasCriticas
                   ? 'bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] border-[#B91C1C] font-bold'
@@ -627,8 +628,9 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               type="button"
               disabled={!puedeEjecutarMatching || ejecutarMatchingMutation.isPending}
               onClick={() => void handleEjecutarMatching()}
-              title={tooltipEjecutarMatching}
-              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] text-[#FFFFFF] border border-[#1E3A5F] disabled:border-[#D1D5DB] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed rounded-none"
+              aria-label="Ejecutar matching automático (Alt+M)"
+              title={`${tooltipEjecutarMatching} [Alt+M]`}
+              className="h-7 px-3 bg-[#1E3A5F] hover:bg-[#162C49] disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF] text-[#FFFFFF] border border-[#1E3A5F] disabled:border-[#D1D5DB] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
             >
               <Wand2 className="w-3.5 h-3.5" />
               <span>
@@ -642,7 +644,9 @@ export const ConciliacionBancariaV2View: React.FC = () => {
           <button
             type="button"
             onClick={() => setSugerenciasAbierto((prev) => !prev)}
-            className={`h-7 px-2.5 text-[12px] border inline-flex items-center gap-1.5 cursor-pointer rounded-none ${
+            aria-expanded={sugerenciasAbierto}
+            aria-label={`Mostrar u ocultar bandeja de sugerencias (${gruposSugeridos.length})`}
+            className={`h-7 px-2.5 text-[12px] border inline-flex items-center gap-1.5 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F] ${
               gruposSugeridos.length > 0
                 ? 'bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1E3A5F] border-[#1E3A5F] font-bold'
                 : 'bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border-[#D1D5DB]'
@@ -667,7 +671,8 @@ export const ConciliacionBancariaV2View: React.FC = () => {
               setTabHistorialReglas('HISTORIAL');
               setModalHistorialReglasAbierto(true);
             }}
-            className="h-7 px-2.5 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border border-[#D1D5DB] text-[12px] inline-flex items-center gap-1.5 cursor-pointer rounded-none"
+            aria-label="Abrir historial de desconciliaciones y reglas aprendidas"
+            className="h-7 px-2.5 bg-[#FFFFFF] hover:bg-[#E8ECF1] text-[#111827] border border-[#D1D5DB] text-[12px] inline-flex items-center gap-1.5 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
           >
             <BookOpen className="w-3.5 h-3.5 text-[#1E3A5F]" />
             <span>Historial y Reglas Aprendidas</span>
@@ -677,15 +682,28 @@ export const ConciliacionBancariaV2View: React.FC = () => {
 
       {/* Errores explícitos de servidor */}
       {(cuentasQuery.error || resumenQuery.error) && (
-        <div className="mx-3 mt-2 p-2.5 bg-[#FEF2F2] border border-[#B91C1C] text-[#991B1B] text-[12px] flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <strong>Error del servidor:</strong>{' '}
-            {extraerMensajeErrorConciliacion(
-              cuentasQuery.error || resumenQuery.error,
-              'Error consultando Conciliación Bancaria V2.'
-            )}
+        <div
+          role="alert"
+          className="mx-3 mt-2 p-2.5 bg-[#FEF2F2] border border-[#B91C1C] text-[#991B1B] text-[12px] flex items-center justify-between gap-2"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <strong>Error del servidor:</strong>{' '}
+              {extraerMensajeErrorConciliacion(
+                cuentasQuery.error || resumenQuery.error,
+                'Error consultando Conciliación Bancaria V2.'
+              )}
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={handleRefrescar}
+            aria-label="Reintentar carga de datos del servidor"
+            className="h-7 px-2.5 bg-[#FFFFFF] hover:bg-[#FEE2E2] text-[#991B1B] border border-[#B91C1C] text-[11px] font-bold shrink-0 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:outline-[#1E3A5F]"
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
@@ -933,7 +951,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         <PanelDualConciliacion
           resumen={resumen}
           grupos={grupos}
-          cargando={resumenQuery.isLoading || gruposQuery.isLoading}
+          cargando={cuentasQuery.isLoading || resumenQuery.isLoading || gruposQuery.isLoading}
           mensajeError={
             resumenQuery.error
               ? extraerMensajeErrorConciliacion(
@@ -955,6 +973,9 @@ export const ConciliacionBancariaV2View: React.FC = () => {
           onDesconciliarPartidaLegacy={handleDesconciliarPartidaLegacy}
           onAbrirAplicarCartera={(linea) => setLineaCarteraModal(linea)}
           onAbrirGenerarAsiento={(linea) => setLineaAsientoModal(linea)}
+          onEjecutarMatching={handleEjecutarMatching}
+          puedeEjecutarMatching={puedeEjecutarMatching}
+          onReintentar={handleRefrescar}
         />
       </div>
 
