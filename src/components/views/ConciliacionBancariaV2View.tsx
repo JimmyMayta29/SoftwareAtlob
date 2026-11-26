@@ -5,21 +5,29 @@ import {
   BookOpen,
   CheckCircle2,
   CreditCard,
+  FileCode2,
+  FileSpreadsheet,
+  FileText,
   History,
   Link2,
   Lock,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Unlock,
   Upload,
   Wand2,
+  X,
 } from 'lucide-react';
-import type {
-  ConciliarManualGrupoInput,
-  PartidaExtractoV2,
-  SemaforoConciliacion,
+import {
+  conciliacionV2Api,
+  descargarArchivoBlob,
+  type ConciliarManualGrupoInput,
+  type PartidaExtractoV2,
+  type ResultadoPle010200V2,
+  type SemaforoConciliacion,
 } from '../../api/conciliacionV2Api';
 import { useEmpresaPeriodo } from '../../context/EmpresaPeriodoContext';
 import { useToast } from '../../context/ToastContext';
@@ -47,7 +55,9 @@ import { AsistenteImportacionModal } from '../conciliacion/AsistenteImportacionM
 import { ChequesYAlertasPanel } from '../conciliacion/ChequesYAlertasPanel';
 import { ConfigConciliacionV2Modal } from '../conciliacion/ConfigConciliacionV2Modal';
 import { formatearMonedaExacta } from '../conciliacion/conciliacionUtils';
+import { HistorialCierresModal } from '../conciliacion/HistorialCierresModal';
 import { HistorialImportacionesModal } from '../conciliacion/HistorialImportacionesModal';
+import { descargarReporteConciliacionPdf } from '../../services/reports/formato_estandar/conciliacionReporteEstandar';
 import {
   HistorialYReglasModal,
   type TabHistorialReglas,
@@ -137,6 +147,13 @@ export const ConciliacionBancariaV2View: React.FC = () => {
   const [lineaAsientoModal, setLineaAsientoModal] = useState<PartidaExtractoV2 | null>(null);
   const [modalChequesAlertasAbierto, setModalChequesAlertasAbierto] = useState(false);
 
+  // Fase 6: Historial inmutable de cierres, Reportes oficiales PDF/Excel y PLE 1.2 (010200)
+  const [modalHistorialCierresAbierto, setModalHistorialCierresAbierto] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [descargandoExcel, setDescargandoExcel] = useState(false);
+  const [exportandoPle, setExportandoPle] = useState(false);
+  const [ultimoResumenPle, setUltimoResumenPle] = useState<ResultadoPle010200V2 | null>(null);
+
   // Bandeja de sugerencias
   const [sugerenciasAbierto, setSugerenciasAbierto] = useState(true);
   const [rechazandoGrupoId, setRechazandoGrupoId] = useState<string | null>(null);
@@ -212,6 +229,10 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     setCuentaContableSelectId('');
     setCciInput(cuentaSeleccionada?.cci ?? '');
   }, [cuentaSeleccionada?.id, cuentaSeleccionada?.cci]);
+
+  useEffect(() => {
+    setUltimoResumenPle(null);
+  }, [empresaId, cuentaSeleccionadaId, periodo]);
 
   // Notificar errores reales de queries sin duplicar por el mismo mensaje
   const ultimoErrorReportadoRef = useRef<string | null>(null);
@@ -435,6 +456,99 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     }
   };
 
+  const periodoValido = /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo);
+  const tieneCuentaYPeriodo = Boolean(empresaId && cuentaSeleccionada && periodoValido);
+
+  const handleDescargarReportePdf = async () => {
+    if (!empresaId || !cuentaSeleccionada || !periodoValido || generandoPdf) return;
+    setGenerandoPdf(true);
+    try {
+      const reporte = await conciliacionV2Api.obtenerReporteOficial(empresaId, {
+        cuentaFinancieraId: cuentaSeleccionada.id,
+        periodo,
+        ...(resumen?.fechaFin ? { fechaCorte: resumen.fechaFin } : {}),
+      });
+      descargarReporteConciliacionPdf(reporte);
+      toast.success(
+        `Reporte oficial PDF generado para ${cuentaSeleccionada.banco} (${periodo}).`,
+        'Reporte Oficial PDF'
+      );
+    } catch (err) {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo generar el reporte oficial en PDF.'),
+        'Error en Reporte PDF'
+      );
+    } finally {
+      setGenerandoPdf(false);
+    }
+  };
+
+  const handleDescargarReporteExcel = async () => {
+    if (!empresaId || !cuentaSeleccionada || !periodoValido || descargandoExcel) return;
+    setDescargandoExcel(true);
+    try {
+      const blob = await conciliacionV2Api.descargarReporteOficialExcel(empresaId, {
+        cuentaFinancieraId: cuentaSeleccionada.id,
+        periodo,
+        ...(resumen?.fechaFin ? { fechaCorte: resumen.fechaFin } : {}),
+      });
+      const rucLimpio = (empresaActiva?.ruc ?? 'EMPRESA').replace(/[^a-zA-Z0-9_-]/g, '');
+      const cuentaLimpia = cuentaSeleccionada.numero.replace(/[^a-zA-Z0-9_-]/g, '');
+      const periodoCompacto = periodo.replace(/[^0-9]/g, '');
+      const nombreArchivo = `Conciliacion_Bancaria_${rucLimpio}_${cuentaLimpia}_${periodoCompacto}.xlsx`;
+      descargarArchivoBlob(blob, nombreArchivo);
+      toast.success(`Reporte oficial Excel descargado (${nombreArchivo}).`, 'Reporte Oficial Excel');
+    } catch (err) {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo descargar el reporte oficial en Excel.'),
+        'Error en Reporte Excel'
+      );
+    } finally {
+      setDescargandoExcel(false);
+    }
+  };
+
+  const handleExportarPle = async () => {
+    if (!empresaId || !cuentaSeleccionada || !periodoValido || exportandoPle) return;
+    setExportandoPle(true);
+    try {
+      const pleJson = await conciliacionV2Api.exportarPle010200Json(empresaId, {
+        periodo,
+        cuentaFinancieraId: cuentaSeleccionada.id,
+      });
+      setUltimoResumenPle(pleJson);
+
+      if (!pleJson.validacionEstructura.esValido) {
+        const primerasObs = pleJson.validacionEstructura.errores
+          .slice(0, 2)
+          .map((e) => `L${e.linea} C${e.columna} (${e.nombreCampo}): ${e.mensaje}`)
+          .join(' | ');
+        toast.warning(
+          `El PLE 1.2 presenta ${pleJson.validacionEstructura.totalErrores} observación(es) de estructura: ${primerasObs}`,
+          'Observaciones PLE 1.2 (010200)'
+        );
+      }
+
+      const txtBlob = await conciliacionV2Api.descargarPle010200Txt(empresaId, {
+        periodo,
+        cuentaFinancieraId: cuentaSeleccionada.id,
+      });
+      descargarArchivoBlob(txtBlob, pleJson.nombreArchivo);
+
+      toast.success(
+        `${pleJson.nombreArchivo} descargado (${pleJson.totalFilas} fila(s) · Debe ${pleJson.sumaDebe} · Haber ${pleJson.sumaHaber} · SHA-256 ${pleJson.hashSha256.slice(0, 12)}…).`,
+        'Exportación PLE 1.2 (010200)'
+      );
+    } catch (err) {
+      toast.error(
+        extraerMensajeErrorConciliacion(err, 'No se pudo exportar el archivo PLE 1.2 (010200).'),
+        'Error en Exportación PLE 1.2'
+      );
+    } finally {
+      setExportandoPle(false);
+    }
+  };
+
   if (!empresaId) {
     return (
       <div className="p-4 bg-[#FFFFFF] border border-[#D1D5DB] text-[#4B5563] text-[12px]">
@@ -453,6 +567,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
     modalPerfilesAbierto ||
     modalHistorialAbierto ||
     modalHistorialReglasAbierto ||
+    modalHistorialCierresAbierto ||
     modalReabrirAbierto ||
     Boolean(lineaCarteraModal) ||
     Boolean(lineaAsientoModal) ||
@@ -485,6 +600,37 @@ export const ConciliacionBancariaV2View: React.FC = () => {
             disabled: !cuentaSeleccionada,
             onClick: () => setModalHistorialAbierto(true),
           },
+          ...(tieneCuentaYPeriodo
+            ? [
+                {
+                  id: 'historial-cierres-v2',
+                  label: 'Historial Cierres',
+                  icono: ShieldCheck,
+                  onClick: () => setModalHistorialCierresAbierto(true),
+                },
+                {
+                  id: 'reporte-oficial-pdf-v2',
+                  label: generandoPdf ? 'Generando PDF...' : 'Reporte PDF',
+                  icono: FileText,
+                  disabled: generandoPdf,
+                  onClick: () => void handleDescargarReportePdf(),
+                },
+                {
+                  id: 'reporte-oficial-excel-v2',
+                  label: descargandoExcel ? 'Generando Excel...' : 'Reporte Excel',
+                  icono: FileSpreadsheet,
+                  disabled: descargandoExcel,
+                  onClick: () => void handleDescargarReporteExcel(),
+                },
+                {
+                  id: 'exportar-ple-010200-v2',
+                  label: exportandoPle ? 'Exportando PLE...' : 'Exportar PLE 1.2',
+                  icono: FileCode2,
+                  disabled: exportandoPle,
+                  onClick: () => void handleExportarPle(),
+                },
+              ]
+            : []),
           ...(esAdministrador
             ? [
                 {
@@ -679,6 +825,51 @@ export const ConciliacionBancariaV2View: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Resumen de última exportación PLE 1.2 (010200) */}
+      {ultimoResumenPle && (
+        <div
+          role={ultimoResumenPle.validacionEstructura.esValido ? 'status' : 'alert'}
+          className={`mx-3 mt-2 p-2 border text-[11px] flex items-start justify-between gap-2 ${
+            ultimoResumenPle.validacionEstructura.esValido
+              ? 'bg-[#ECFDF5] border-[#1E6F42] text-[#14532D]'
+              : 'bg-[#FEF3C7] border-[#B45309] text-[#78350F]'
+          }`}
+        >
+          <div className="space-y-0.5 min-w-0">
+            <div className="font-bold flex flex-wrap items-center gap-2">
+              <span>PLE 1.2 (Libro {ultimoResumenPle.codigoLibro}): {ultimoResumenPle.nombreArchivo}</span>
+              <span className="font-mono font-normal">
+                Filas: <strong>{ultimoResumenPle.totalFilas}</strong> · Debe:{' '}
+                <strong>{ultimoResumenPle.sumaDebe}</strong> · Haber:{' '}
+                <strong>{ultimoResumenPle.sumaHaber}</strong>
+              </span>
+            </div>
+            <div className="font-mono text-[10px] break-all">
+              SHA-256: {ultimoResumenPle.hashSha256}
+            </div>
+            {!ultimoResumenPle.validacionEstructura.esValido && (
+              <div className="text-[11px] text-[#991B1B]">
+                <strong>
+                  Observaciones de estructura ({ultimoResumenPle.validacionEstructura.totalErrores}):
+                </strong>{' '}
+                {ultimoResumenPle.validacionEstructura.errores
+                  .slice(0, 3)
+                  .map((e) => `Línea ${e.linea} Col. ${e.columna} (${e.nombreCampo}): ${e.mensaje}`)
+                  .join(' · ')}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setUltimoResumenPle(null)}
+            aria-label="Cerrar resumen de exportación PLE 1.2"
+            className="w-5 h-5 flex items-center justify-center border border-current hover:opacity-75 shrink-0 cursor-pointer rounded-none"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {/* Errores explícitos de servidor */}
       {(cuentasQuery.error || resumenQuery.error) && (
@@ -1013,6 +1204,15 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         empresaId={empresaId}
         cuenta={cuentaSeleccionada}
         puedeRevertir={puedeEditarPerfilesYRevertir}
+      />
+
+      {/* Historial Inmutable de Cierres y Reaperturas (Fase 6) */}
+      <HistorialCierresModal
+        abierto={modalHistorialCierresAbierto}
+        onCerrar={() => setModalHistorialCierresAbierto(false)}
+        empresaId={empresaId}
+        cuenta={cuentaSeleccionada}
+        periodo={periodo}
       />
 
       {/* Modal Historial de Desconciliaciones y Reglas Aprendidas (Fase 3) */}

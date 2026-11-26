@@ -231,4 +231,21 @@ router.get(
   conciliacionV2Controller.obtenerAlertasControl
 );
 
+// Reportes oficiales, historial de cierres y PLE 010200 (Fase 6)
+router.get(
+  '/cierres/historial',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.listarHistorialCierres
+);
+router.get(
+  '/reporte/oficial',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.obtenerReporteOficial
+);
+router.get(
+  '/ple-010200',
+  requireEmpresaMembership(ROLES_LECTURA),
+  conciliacionV2Controller.exportarPle010200
+);
+
 export const conciliacionV2Routes = router;

@@ -6,7 +6,9 @@ import { ventaService, VENTAS_MEMORIA } from './ventaService';
 import { ASIENTOS_MEMORIA } from './asientoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
 import { parametroRepository } from '../repositories/parametroRepository';
-import { sanitizarCampoPlano } from './sireLayoutService';
+import { sanitizarCampoPlano, formatearFechaDDMMYYYY } from './sireLayoutService';
+import { archivoValidadorService } from './archivoValidadorService';
+import type { ResultadoPle010200V2 } from '../types/conciliacionV2';
 
 export interface PleLibroConfigModel {
   codigoLibro: string;
@@ -116,9 +118,284 @@ export const PLE_LIBROS_CATALOGO: PleLibroConfigModel[] = [
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const CODIGOS_ENTIDAD_TABLA3_SET = new Set([
+  '02', '03', '07', '09', '11', '18', '35', '38', '49', '99'
+]);
+
+const CODIGOS_MEDIO_PAGO_CAT01_SET = new Set([
+  '001', '002', '003', '004', '005', '006', '007', '008', '009',
+  '010', '011', '012', '013', '101', '102', '103', '104', '105', '106', '107', '108', '999'
+]);
+
+function normalizarTextoCatalogo(valor: string): string {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
+function mapearEntidadFinancieraSunatTabla3(banco: string | null | undefined): string {
+  const norm = normalizarTextoCatalogo(banco ?? '');
+  if (!norm) return '99';
+  if (CODIGOS_ENTIDAD_TABLA3_SET.has(norm)) return norm;
+  if (norm.includes('BCP') || norm.includes('CREDITO DEL PERU') || norm === 'CREDITO') return '02';
+  if (norm.includes('BBVA') || norm.includes('CONTINENTAL')) return '11';
+  if (norm.includes('INTERBANK') || norm.includes('INTERNACIONAL')) return '03';
+  if (norm.includes('SCOTIA')) return '09';
+  if (norm.includes('NACION') || norm === 'BN' || norm.includes('DETRACCIONES_BN')) return '18';
+  if (norm.includes('BANBIF') || norm.includes('INTERAMERICANO DE FINANZAS')) return '38';
+  if (norm.includes('PICHINCHA') || norm.includes('FINANCIERO')) return '35';
+  if (norm.includes('CITI')) return '07';
+  if (norm.includes('MIBANCO') || norm.includes('MI BANCO')) return '49';
+  return '99';
+}
+
+function mapearMedioPagoSunatCat01(medioPago: string | null | undefined): string {
+  const norm = normalizarTextoCatalogo(medioPago ?? '');
+  if (!norm) return '999';
+  if (CODIGOS_MEDIO_PAGO_CAT01_SET.has(norm)) return norm;
+  if (norm.includes('DEPOSITO')) return '001';
+  if (norm.includes('GIRO')) return '002';
+  if (norm.includes('TRANSFER')) return '003';
+  if (norm.includes('ORDEN DE PAGO')) return '004';
+  if (norm.includes('DEBITO')) return '005';
+  if (norm.includes('CREDITO') || norm.includes('TARJETA')) return '006';
+  if (norm.includes('CHEQUE')) return '007';
+  if (norm.includes('EFECTIVO') || norm.includes('CAJA')) return '008';
+  return '999';
+}
+
+function resolverPeriodoPle010200(periodo: string): {
+  periodoIso: string;
+  periodoPle: string;
+  fechaInicio: string;
+  fechaFin: string;
+} {
+  const limpio = (periodo ?? '').trim();
+  let anio = '';
+  let mes = '';
+
+  const matchGuion = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(limpio);
+  const matchCompacto = /^(\d{4})(0[1-9]|1[0-2])$/.exec(limpio);
+  if (matchGuion) {
+    anio = matchGuion[1];
+    mes = matchGuion[2];
+  } else if (matchCompacto) {
+    anio = matchCompacto[1];
+    mes = matchCompacto[2];
+  } else {
+    throw new Error(`PERIODO_INVALIDO: El período '${periodo}' debe tener formato YYYY-MM o YYYYMM.`);
+  }
+
+  const ultimoDia = new Date(Date.UTC(Number(anio), Number(mes), 0)).toISOString().slice(0, 10);
+  return {
+    periodoIso: `${anio}-${mes}`,
+    periodoPle: `${anio}${mes}`,
+    fechaInicio: `${anio}-${mes}-01`,
+    fechaFin: ultimoDia,
+  };
+}
+
+function resolverEstadoAnotacion010200(
+  fechaMovimiento: string,
+  fechaInicioPeriodo: string,
+  asientoEstado: string | null | undefined
+): '1' | '8' | '9' {
+  if (asientoEstado === 'ANULADO') return '9';
+  if (fechaMovimiento < fechaInicioPeriodo) return '8';
+  return '1';
+}
+
+/**
+ * Exporta el Libro Caja y Bancos - Cuenta Corriente (Formato 1.2 / código 010200)
+ * directamente desde PostgreSQL (`movimientos_tesoreria` + `cuentas_financieras` + `asientos` + `anexos`),
+ * generando UTF-8 sin BOM, CRLF (\r\n), 15 campos PLE 5.2 y validación oficial con `archivoValidadorService`.
+ */
+export async function exportarLibro010200DesdePostgres(
+  empresaId: string,
+  periodo: string,
+  cuentaFinancieraId?: string
+): Promise<ResultadoPle010200V2> {
+  if (!db.isPostgresConnected()) {
+    throw new Error('POSTGRESQL_NO_DISPONIBLE: La exportación PLE 010200 desde base de datos requiere PostgreSQL conectado.');
+  }
+  if (!UUID_REGEX.test(empresaId)) {
+    throw new Error('IDENTIFICADOR_INVALIDO: empresaId debe ser un UUID válido.');
+  }
+  if (cuentaFinancieraId !== undefined && !UUID_REGEX.test(cuentaFinancieraId)) {
+    throw new Error('IDENTIFICADOR_INVALIDO: cuentaFinancieraId debe ser un UUID válido.');
+  }
+
+  const { periodoIso, periodoPle, fechaInicio, fechaFin } = resolverPeriodoPle010200(periodo);
+
+  return db.withEmpresaTransaction(empresaId, async (client) => {
+    const empRes = await client.query<{ ruc: string }>(
+      `SELECT ruc
+       FROM empresas
+       WHERE id = $1
+       LIMIT 1`,
+      [empresaId]
+    );
+    if (empRes.rows.length === 0) {
+      throw new Error('EMPRESA_NO_ENCONTRADA: La empresa solicitada no existe.');
+    }
+    const ruc = String(empRes.rows[0].ruc ?? '').trim();
+
+    if (cuentaFinancieraId) {
+      const ctaRes = await client.query<{ id: string }>(
+        `SELECT id
+         FROM cuentas_financieras
+         WHERE empresa_id = $1 AND id = $2
+         LIMIT 1`,
+        [empresaId, cuentaFinancieraId]
+      );
+      if (ctaRes.rows.length === 0) {
+        throw new Error('CUENTA_FINANCIERA_NO_ENCONTRADA: La cuenta financiera solicitada no existe en la empresa.');
+      }
+    }
+
+    const movsRes = await client.query<{
+      id: string;
+      fecha: string;
+      tipo: string;
+      medioPago: string;
+      numeroOperacion: string | null;
+      moneda: string;
+      importe: string;
+      glosa: string;
+      estado: string;
+      banco: string;
+      cuentaNumero: string;
+      asientoNumero: string | null;
+      asientoEstado: string | null;
+      terceroTipoDoc: string | null;
+      terceroNumDoc: string | null;
+      terceroRazonSocial: string | null;
+    }>(
+      `SELECT mt.id,
+              mt.fecha::text AS fecha,
+              mt.tipo,
+              mt.medio_pago AS "medioPago",
+              mt.numero_operacion AS "numeroOperacion",
+              mt.moneda,
+              mt.importe::text AS importe,
+              mt.glosa,
+              mt.estado,
+              cf.banco,
+              cf.numero AS "cuentaNumero",
+              a.numero AS "asientoNumero",
+              a.estado AS "asientoEstado",
+              ax.tipo_documento AS "terceroTipoDoc",
+              ax.numero_documento AS "terceroNumDoc",
+              ax.razon_social AS "terceroRazonSocial"
+       FROM movimientos_tesoreria mt
+       JOIN cuentas_financieras cf
+         ON cf.id = mt.cuenta_financiera_id
+        AND cf.empresa_id = mt.empresa_id
+       LEFT JOIN asientos a
+         ON a.id = mt.asiento_id
+        AND a.empresa_id = mt.empresa_id
+       LEFT JOIN anexos ax
+         ON ax.id = mt.anexo_id
+        AND ax.empresa_id = mt.empresa_id
+       WHERE mt.empresa_id = $1
+         AND mt.estado = 'REGISTRADO'
+         AND mt.fecha BETWEEN $2 AND $3
+         AND ($4::uuid IS NULL OR mt.cuenta_financiera_id = $4::uuid)
+         AND ($4::uuid IS NOT NULL OR cf.tipo <> 'CAJA')
+       ORDER BY mt.fecha ASC, COALESCE(a.numero, mt.id::text) ASC, mt.created_at ASC, mt.id ASC`,
+      [empresaId, fechaInicio, fechaFin, cuentaFinancieraId ?? null]
+    );
+
+    const lineas: string[] = [];
+    let sumaDebe = Money.create(0);
+    let sumaHaber = Money.create(0);
+    const contadorPorCuo = new Map<string, number>();
+    let correlativoCuo = 1;
+
+    for (const r of movsRes.rows) {
+      const cuoBase = sanitizarCampoPlano(r.asientoNumero || '');
+      const cuo = cuoBase || `BC${String(correlativoCuo).padStart(6, '0')}`;
+      correlativoCuo += 1;
+
+      const seq = (contadorPorCuo.get(cuo) ?? 0) + 1;
+      contadorPorCuo.set(cuo, seq);
+      const correlativoAsiento = `M${seq}`;
+
+      const importeDec = Money.round(r.importe ?? '0');
+      const esIngreso = r.tipo === 'INGRESO';
+      const debeDec = esIngreso ? importeDec : Money.create(0);
+      const haberDec = esIngreso ? Money.create(0) : importeDec;
+
+      sumaDebe = Money.add(sumaDebe, debeDec);
+      sumaHaber = Money.add(sumaHaber, haberDec);
+
+      const tieneTercero = Boolean(r.terceroNumDoc && r.terceroNumDoc.trim().length > 0);
+      const tipoDocTercero = tieneTercero ? sanitizarCampoPlano(r.terceroTipoDoc || '0') : '';
+      const numDocTercero = tieneTercero ? sanitizarCampoPlano(r.terceroNumDoc || '') : '';
+      const razonSocialTercero = sanitizarCampoPlano(r.terceroRazonSocial || '');
+      const glosaLimpia = sanitizarCampoPlano(r.glosa || 'Operacion bancaria') || 'Operacion bancaria';
+      const numTransaccion =
+        sanitizarCampoPlano(r.numeroOperacion || r.asientoNumero || '') ||
+        r.id.replace(/-/g, '').slice(0, 12);
+
+      const campos = [
+        `${periodoPle}00`, // 1. Periodo
+        cuo, // 2. CUO
+        correlativoAsiento, // 3. Correlativo del asiento
+        mapearEntidadFinancieraSunatTabla3(r.banco), // 4. Entidad financiera (Tabla 3)
+        sanitizarCampoPlano(r.cuentaNumero || '0000000000'), // 5. Cuenta corriente
+        formatearFechaDDMMYYYY(r.fecha), // 6. Fecha operacion DD/MM/AAAA
+        mapearMedioPagoSunatCat01(r.medioPago), // 7. Medio de pago (Catálogo 01)
+        glosaLimpia, // 8. Glosa
+        tipoDocTercero, // 9. Tipo doc tercero
+        numDocTercero, // 10. Num doc tercero
+        razonSocialTercero, // 11. Razón social tercero
+        numTransaccion, // 12. Número transacción
+        Money.format(debeDec), // 13. Debe
+        Money.format(haberDec), // 14. Haber
+        resolverEstadoAnotacion010200(r.fecha, fechaInicio, r.asientoEstado), // 15. Estado
+      ];
+
+      lineas.push(`${campos.join('|')}|`);
+    }
+
+    const nombreArchivo = `LE${ruc}${periodoPle}00010200001${lineas.length > 0 ? '1' : '0'}11.txt`;
+    const contenidoTxt = lineas.length > 0 ? lineas.join('\r\n') : '';
+    const hashSha256 = crypto.createHash('sha256').update(Buffer.from(contenidoTxt, 'utf8')).digest('hex');
+    const val = archivoValidadorService.validarArchivoTxt(contenidoTxt, '010200', nombreArchivo);
+
+    return {
+      codigoLibro: '010200',
+      nombreArchivo,
+      periodo: periodoIso,
+      ruc,
+      cuentaFinancieraId: cuentaFinancieraId ?? null,
+      contenidoTxt,
+      hashSha256,
+      totalFilas: lineas.length,
+      sumaDebe: Money.format(sumaDebe),
+      sumaHaber: Money.format(sumaHaber),
+      validacionEstructura: {
+        esValido: val.esValido,
+        totalErrores: val.totalErrores,
+        totalLineas: val.totalLineas,
+        errores: val.errores.map((e) => ({
+          linea: e.linea,
+          columna: e.columna,
+          nombreCampo: e.nombreCampo,
+          mensaje: e.mensaje,
+        })),
+      },
+    };
+  });
+}
+
 export const PLE_EXPORTACIONES_MEMORIA: PleExportacionModel[] = [];
 
 export const pleExportService = {
+  exportarLibro010200DesdePostgres,
   listarLibrosConfig(): PleLibroConfigModel[] {
     return PLE_LIBROS_CATALOGO;
   },
@@ -178,7 +455,7 @@ export const pleExportService = {
     codigoLibro: string,
     ruc = '20601234567',
     userId: string,
-    opciones: { sinMovimiento?: boolean; esOficial?: boolean; moneda?: 'PEN' | 'USD' } = {}
+    opciones: { sinMovimiento?: boolean; esOficial?: boolean; moneda?: 'PEN' | 'USD'; cuentaFinancieraId?: string } = {}
   ): Promise<PleExportacionModel> {
     const config = PLE_LIBROS_CATALOGO.find(l => l.codigoLibro === codigoLibro);
     if (!config) throw new Error('LIBRO_NO_ENCONTRADO: El libro electrónico no existe.');
@@ -610,41 +887,57 @@ export const pleExportService = {
         }
       }
     } else if (codigoLibro === '010200') {
-      // Libro Caja Bancos Cuenta Corriente 1.2 (15 campos oficiales)
-      const asientosBancos = ASIENTOS_MEMORIA.filter(
-        a => a.empresaId === empresaId && a.periodoId === `per-${periodo}` && a.estado === 'CONTABILIZADO' &&
-             (a.detalles || []).some((d: any) => (d.cuentaCodigo || d.cuentaId || '').startsWith('104'))
-      );
+      if (db.isPostgresConnected() && UUID_REGEX.test(empresaId)) {
+        const resultadoPg = await exportarLibro010200DesdePostgres(
+          empresaId,
+          periodo,
+          opciones.cuentaFinancieraId
+        );
+        if (resultadoPg.contenidoTxt.length > 0) {
+          lineas.push(...resultadoPg.contenidoTxt.split('\r\n').filter((l) => l.length > 0));
+        }
+        sumaDebe = Money.create(resultadoPg.sumaDebe);
+        sumaHaber = Money.create(resultadoPg.sumaHaber);
+        if (ruc === '20601234567' && resultadoPg.ruc) {
+          ruc = resultadoPg.ruc;
+        }
+      } else {
+        // Libro Caja Bancos Cuenta Corriente 1.2 (15 campos oficiales - fallback en memoria)
+        const asientosBancos = ASIENTOS_MEMORIA.filter(
+          a => a.empresaId === empresaId && a.periodoId === `per-${periodo}` && a.estado === 'CONTABILIZADO' &&
+               (a.detalles || []).some((d: any) => (d.cuentaCodigo || d.cuentaId || '').startsWith('104'))
+        );
 
-      let correlativo = 1;
-      for (const a of asientosBancos) {
-        const cuo = `BC${String(correlativo).padStart(6, '0')}`;
-        for (const d of a.detalles || []) {
-          if ((d.cuentaCodigo || d.cuentaId || '').startsWith('104')) {
-            const debeVal = Money.round(d.debe || 0);
-            const haberVal = Money.round(d.haber || 0);
-            sumaDebe = Money.add(sumaDebe, debeVal);
-            sumaHaber = Money.add(sumaHaber, haberVal);
+        let correlativo = 1;
+        for (const a of asientosBancos) {
+          const cuo = `BC${String(correlativo).padStart(6, '0')}`;
+          for (const d of a.detalles || []) {
+            if ((d.cuentaCodigo || d.cuentaId || '').startsWith('104')) {
+              const debeVal = Money.round(d.debe || 0);
+              const haberVal = Money.round(d.haber || 0);
+              sumaDebe = Money.add(sumaDebe, debeVal);
+              sumaHaber = Money.add(sumaHaber, haberVal);
 
-            const campos = [
-              `${anio}${mes}00`, // 1. Periodo
-              cuo, // 2. CUO
-              'M1', // 3. Correlativo
-              '002', // 4. Entidad financiera (BCP)
-              '191-12345678-0-99', // 5. Cuenta corriente
-              a.fecha.split('-').reverse().join('/'), // 6. Fecha operacion
-              '001', // 7. Medio de pago (deposito en cuenta)
-              sanitizarCampoPlano(a.glosa || 'Operacion bancaria'), // 8. Glosa
-              '6', // 9. Tipo doc tercero
-              '20000000001', // 10. Num doc tercero
-              'PROVEEDOR S.A.C.', // 11. Razon social
-              'OP-998822', // 12. Num transaccion
-              Money.format(debeVal), // 13. Debe
-              Money.format(haberVal), // 14. Haber
-              '1' // 15. Estado
-            ];
-            lineas.push(campos.join('|') + '|');
-            correlativo++;
+              const campos = [
+                `${anio}${mes}00`, // 1. Periodo
+                cuo, // 2. CUO
+                'M1', // 3. Correlativo
+                '002', // 4. Entidad financiera (BCP)
+                '191-12345678-0-99', // 5. Cuenta corriente
+                a.fecha.split('-').reverse().join('/'), // 6. Fecha operacion
+                '001', // 7. Medio de pago (deposito en cuenta)
+                sanitizarCampoPlano(a.glosa || 'Operacion bancaria'), // 8. Glosa
+                '6', // 9. Tipo doc tercero
+                '20000000001', // 10. Num doc tercero
+                'PROVEEDOR S.A.C.', // 11. Razon social
+                'OP-998822', // 12. Num transaccion
+                Money.format(debeVal), // 13. Debe
+                Money.format(haberVal), // 14. Haber
+                '1' // 15. Estado
+              ];
+              lineas.push(campos.join('|') + '|');
+              correlativo++;
+            }
           }
         }
       }

@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { asientosApi, AsientoDto } from '../api/asientosApi';
+import {
+  asientosApi,
+  AsientoDto,
+  FiltroOrigenAuditoria,
+  RegistroAuditoriaDto,
+} from '../api/asientosApi';
 
 export function useAsientosList(empresaId: string, filtros: Record<string, any> = {}) {
   return useQuery({
@@ -98,10 +103,14 @@ export function useReabrirPeriodo(empresaId: string) {
   });
 }
 
-export function useAuditoriaList(empresaId: string) {
-  return useQuery({
-    queryKey: ['auditoria', empresaId],
-    queryFn: () => asientosApi.listarAuditoria(empresaId),
+export function useAuditoriaList(
+  empresaId: string,
+  origen: FiltroOrigenAuditoria = 'TODOS',
+  limit = 100
+) {
+  return useQuery<RegistroAuditoriaDto[]>({
+    queryKey: ['auditoria', empresaId, origen, limit],
+    queryFn: () => asientosApi.listarAuditoria(empresaId, limit, origen),
     enabled: !!empresaId,
   });
 }

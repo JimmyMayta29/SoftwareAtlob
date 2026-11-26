@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type Decimal from 'decimal.js';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { db } from '../config/database';
 import { Money } from '../utils/decimal';
-import { auditoriaChainService } from './auditoriaChainService';
+import { auditoriaChainService, ordenarClavesComoJsonb } from './auditoriaChainService';
 import { obtenerRangoMesPeriodo } from '../../src/utils/periodoFecha';
 import {
   ActualizarConfigConciliacionV2Input,
@@ -17,6 +17,7 @@ import {
   ESTADOS_CONCILIACION_V2,
   EstadoConciliacionV2,
   EstadoLibroV2,
+  HistorialCierreConciliacionV2,
   IntegridadMayor104x,
   PartidaExtractoV2,
   PartidaLibroV2,
@@ -25,6 +26,7 @@ import {
   ResumenConciliacionV2,
   SemaforoConciliacion,
   TipoClasificacionExtracto,
+  TipoEventoCierreV2,
   VincularCuentaContableInput,
 } from '../types/conciliacionV2';
 
@@ -508,6 +510,11 @@ function mapPartidaExtractoRow(row: any): PartidaExtractoV2 {
     docExtraido: row.docExtraido ?? null,
     grupoConciliacionId: row.grupoConciliacionId ?? null,
   };
+}
+
+function calcularHashSnapshotSha256(snapshot: unknown): string {
+  const canonico = ordenarClavesComoJsonb(snapshot);
+  return createHash('sha256').update(JSON.stringify(canonico)).digest('hex');
 }
 
 function mapResultadoCierreRow(row: any, periodo: string): ResultadoCierreV2 {
@@ -2519,7 +2526,20 @@ export const conciliacionV2Service = {
         resumen.chequesNoCobrados
       );
 
-      const snapshotJson = {
+      const depositosEnTransitoIds = resumen.movimientosLibros
+        .filter((m) => !m.conciliado && m.tipo === 'INGRESO')
+        .map((m) => m.id);
+      const chequesNoCobradosIds = resumen.movimientosLibros
+        .filter((m) => !m.conciliado && m.tipo !== 'INGRESO')
+        .map((m) => m.id);
+      const abonosNoRegistradosIds = resumen.extractoLineas
+        .filter((l) => !l.conciliada && l.estadoConciliacion !== 'DUPLICADO' && Money.create(l.monto).gt(0))
+        .map((l) => l.id);
+      const cargosNoRegistradosIds = resumen.extractoLineas
+        .filter((l) => !l.conciliada && l.estadoConciliacion !== 'DUPLICADO' && Money.create(l.monto).lt(0))
+        .map((l) => l.id);
+
+      const snapshotJson = ordenarClavesComoJsonb({
         periodo: parsed.periodo,
         fechaCorte,
         saldoInicialBanco: resumen.saldoInicialExtracto,
@@ -2535,7 +2555,14 @@ export const conciliacionV2Service = {
         semaforo: resumen.semaforo,
         integridadMayor: resumen.integridadMayor,
         conteos: resumen.conteos,
-      };
+        partidasPendientesResumen: {
+          depositosEnTransitoIds,
+          chequesNoCobradosIds,
+          abonosNoRegistradosIds,
+          cargosNoRegistradosIds,
+        },
+      });
+      const hashSnapshotSha256 = calcularHashSnapshotSha256(snapshotJson);
 
       const conciliacionId = existente?.id ?? randomUUID();
       const upsertRes = await client.query(
@@ -2631,7 +2658,75 @@ export const conciliacionV2Service = {
         ]
       );
 
-      const resultado = mapResultadoCierreRow(upsertRes.rows[0], parsed.periodo);
+      const seqRes = await client.query<{ siguiente: number }>(
+        `SELECT COALESCE(MAX(numero_secuencia), 0) + 1 AS siguiente
+         FROM conciliacion_cierres_historial
+         WHERE empresa_id = $1
+           AND cuenta_financiera_id = $2
+           AND periodo_id = $3`,
+        [empresaId, parsed.cuentaFinancieraId, periodoId]
+      );
+      const numeroSecuencia = Number(seqRes.rows[0]?.siguiente ?? 1);
+
+      const histRes = await client.query<{ id: string }>(
+        `INSERT INTO conciliacion_cierres_historial (
+          empresa_id,
+          conciliacion_id,
+          cuenta_financiera_id,
+          periodo_id,
+          codigo_periodo,
+          tipo_evento,
+          numero_secuencia,
+          fecha_corte,
+          saldo_inicial_banco,
+          saldo_final_banco,
+          saldo_libros,
+          depositos_en_transito,
+          cheques_no_cobrados,
+          abonos_no_registrados,
+          cargos_no_registrados,
+          saldo_mayor_104x,
+          diferencia_integridad_mayor,
+          diferencia,
+          motivo,
+          snapshot_json,
+          hash_snapshot_sha256,
+          usuario_id
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'CIERRE', $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17, NULL, $18::jsonb, $19, $20
+        )
+        RETURNING id`,
+        [
+          empresaId,
+          upsertRes.rows[0].id,
+          parsed.cuentaFinancieraId,
+          periodoId,
+          parsed.periodo,
+          numeroSecuencia,
+          fechaCorte,
+          resumen.saldoInicialExtracto,
+          resumen.saldoFinalExtracto,
+          resumen.saldoLibros,
+          resumen.depositosEnTransito,
+          resumen.chequesNoCobrados,
+          resumen.abonosNoRegistrados,
+          resumen.cargosNoRegistrados,
+          resumen.integridadMayor.saldoMayor104x,
+          resumen.integridadMayor.diferenciaIntegridadMayor ?? '0.00',
+          resumen.diferencia,
+          JSON.stringify(snapshotJson),
+          hashSnapshotSha256,
+          userId,
+        ]
+      );
+      const cierreHistorialId = histRes.rows[0].id;
+
+      const resultado: ResultadoCierreV2 = {
+        ...mapResultadoCierreRow(upsertRes.rows[0], parsed.periodo),
+        cierreHistorialId,
+        hashSnapshotSha256,
+      };
 
       await registrarAuditoriaEnTx(client, {
         empresaId,
@@ -2659,6 +2754,28 @@ export const conciliacionV2Service = {
           diferencia: resultado.diferencia,
           cerradaPor: resultado.cerradaPor,
           fechaCierre: resultado.fechaCierre,
+          cierreHistorialId,
+          hashSnapshotSha256,
+        },
+      });
+
+      await registrarAuditoriaEnTx(client, {
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'conciliacion_cierres_historial',
+        registroId: cierreHistorialId,
+        accion: 'INSERT',
+        datosAnteriores: null,
+        datosNuevos: {
+          cierreHistorialId,
+          conciliacionId: resultado.id,
+          cuentaFinancieraId: resultado.cuentaFinancieraId,
+          periodoId: resultado.periodoId,
+          codigoPeriodo: parsed.periodo,
+          tipoEvento: 'CIERRE',
+          numeroSecuencia,
+          fechaCorte: resultado.fechaCorte,
+          hashSnapshotSha256,
         },
       });
 
@@ -2710,7 +2827,19 @@ export const conciliacionV2Service = {
                 estado,
                 fecha_corte::text AS "fechaCorte",
                 cerrada_por AS "cerradaPor",
-                fecha_cierre AS "fechaCierre"
+                fecha_cierre AS "fechaCierre",
+                saldo_segun_libros::text AS "saldoSegunLibros",
+                saldo_segun_banco::text AS "saldoSegunBanco",
+                saldo_inicial_banco::text AS "saldoInicialBanco",
+                saldo_final_banco::text AS "saldoFinalBanco",
+                depositos_en_transito::text AS "depositosEnTransito",
+                cheques_no_cobrados::text AS "chequesNoCobrados",
+                abonos_no_registrados::text AS "abonosNoRegistrados",
+                cargos_no_registrados::text AS "cargosNoRegistrados",
+                saldo_mayor_104x::text AS "saldoMayor104x",
+                diferencia_integridad_mayor::text AS "diferenciaIntegridadMayor",
+                diferencia::text AS diferencia,
+                snapshot_json AS "snapshotJson"
          FROM conciliaciones_bancarias
          WHERE empresa_id = $1
            AND cuenta_financiera_id = $2
@@ -2735,6 +2864,62 @@ export const conciliacionV2Service = {
           `La conciliación del periodo ${parsed.periodo} no se encuentra CERRADA (estado actual: ${actual.estado}).`
         );
       }
+
+      const saldoLibrosSnap = Money.format(actual.saldoSegunLibros ?? '0');
+      const saldoInicialBancoSnap =
+        actual.saldoInicialBanco !== null && actual.saldoInicialBanco !== undefined
+          ? Money.format(actual.saldoInicialBanco)
+          : null;
+      const saldoFinalBancoSnap =
+        actual.saldoFinalBanco !== null && actual.saldoFinalBanco !== undefined
+          ? Money.format(actual.saldoFinalBanco)
+          : null;
+      const depositosEnTransitoSnap = Money.format(actual.depositosEnTransito ?? '0');
+      const chequesNoCobradosSnap = Money.format(actual.chequesNoCobrados ?? '0');
+      const abonosNoRegistradosSnap = Money.format(actual.abonosNoRegistrados ?? '0');
+      const cargosNoRegistradosSnap = Money.format(actual.cargosNoRegistrados ?? '0');
+      const saldoMayor104xSnap =
+        actual.saldoMayor104x !== null && actual.saldoMayor104x !== undefined
+          ? Money.format(actual.saldoMayor104x)
+          : null;
+      const diferenciaIntegridadMayorSnap = Money.format(actual.diferenciaIntegridadMayor ?? '0');
+      const diferenciaSnap = Money.format(actual.diferencia ?? '0');
+
+      const snapshotPrevioBase =
+        actual.snapshotJson && typeof actual.snapshotJson === 'object' && !Array.isArray(actual.snapshotJson)
+          ? (actual.snapshotJson as Record<string, unknown>)
+          : {
+              periodo: parsed.periodo,
+              fechaCorte: actual.fechaCorte,
+              saldoInicialBanco: saldoInicialBancoSnap,
+              saldoFinalBanco: saldoFinalBancoSnap,
+              saldoLibros: saldoLibrosSnap,
+              depositosEnTransito: depositosEnTransitoSnap,
+              chequesNoCobrados: chequesNoCobradosSnap,
+              abonosNoRegistrados: abonosNoRegistradosSnap,
+              cargosNoRegistrados: cargosNoRegistradosSnap,
+              saldoMayor104x: saldoMayor104xSnap,
+              diferenciaIntegridadMayor: diferenciaIntegridadMayorSnap,
+              diferencia: diferenciaSnap,
+            };
+
+      const snapshotReapertura = ordenarClavesComoJsonb({
+        ...snapshotPrevioBase,
+        tipoEvento: 'REAPERTURA',
+        motivo: parsed.motivo,
+        fechaCorteAnterior: actual.fechaCorte,
+      });
+      const hashSnapshotSha256 = calcularHashSnapshotSha256(snapshotReapertura);
+
+      const seqRes = await client.query<{ siguiente: number }>(
+        `SELECT COALESCE(MAX(numero_secuencia), 0) + 1 AS siguiente
+         FROM conciliacion_cierres_historial
+         WHERE empresa_id = $1
+           AND cuenta_financiera_id = $2
+           AND periodo_id = $3`,
+        [empresaId, parsed.cuentaFinancieraId, periodoId]
+      );
+      const numeroSecuencia = Number(seqRes.rows[0]?.siguiente ?? 1);
 
       const updRes = await client.query(
         `UPDATE conciliaciones_bancarias
@@ -2768,7 +2953,66 @@ export const conciliacionV2Service = {
         [parsed.motivo, userId, actual.id, empresaId]
       );
 
-      const resultado = mapResultadoCierreRow(updRes.rows[0], parsed.periodo);
+      const histRes = await client.query<{ id: string }>(
+        `INSERT INTO conciliacion_cierres_historial (
+          empresa_id,
+          conciliacion_id,
+          cuenta_financiera_id,
+          periodo_id,
+          codigo_periodo,
+          tipo_evento,
+          numero_secuencia,
+          fecha_corte,
+          saldo_inicial_banco,
+          saldo_final_banco,
+          saldo_libros,
+          depositos_en_transito,
+          cheques_no_cobrados,
+          abonos_no_registrados,
+          cargos_no_registrados,
+          saldo_mayor_104x,
+          diferencia_integridad_mayor,
+          diferencia,
+          motivo,
+          snapshot_json,
+          hash_snapshot_sha256,
+          usuario_id
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'REAPERTURA', $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20, $21
+        )
+        RETURNING id`,
+        [
+          empresaId,
+          actual.id,
+          parsed.cuentaFinancieraId,
+          periodoId,
+          parsed.periodo,
+          numeroSecuencia,
+          actual.fechaCorte,
+          saldoInicialBancoSnap,
+          saldoFinalBancoSnap,
+          saldoLibrosSnap,
+          depositosEnTransitoSnap,
+          chequesNoCobradosSnap,
+          abonosNoRegistradosSnap,
+          cargosNoRegistradosSnap,
+          saldoMayor104xSnap,
+          diferenciaIntegridadMayorSnap,
+          diferenciaSnap,
+          parsed.motivo,
+          JSON.stringify(snapshotReapertura),
+          hashSnapshotSha256,
+          userId,
+        ]
+      );
+      const cierreHistorialId = histRes.rows[0].id;
+
+      const resultado: ResultadoCierreV2 = {
+        ...mapResultadoCierreRow(updRes.rows[0], parsed.periodo),
+        cierreHistorialId,
+        hashSnapshotSha256,
+      };
 
       await registrarAuditoriaEnTx(client, {
         empresaId,
@@ -2790,10 +3034,128 @@ export const conciliacionV2Service = {
           motivoReapertura: resultado.motivoReapertura,
           reabiertaPor: resultado.reabiertaPor,
           fechaReapertura: resultado.fechaReapertura,
+          cierreHistorialId,
+          hashSnapshotSha256,
+        },
+      });
+
+      await registrarAuditoriaEnTx(client, {
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'conciliacion_cierres_historial',
+        registroId: cierreHistorialId,
+        accion: 'INSERT',
+        datosAnteriores: null,
+        datosNuevos: {
+          cierreHistorialId,
+          conciliacionId: resultado.id,
+          cuentaFinancieraId: resultado.cuentaFinancieraId,
+          periodoId: resultado.periodoId,
+          codigoPeriodo: parsed.periodo,
+          tipoEvento: 'REAPERTURA',
+          numeroSecuencia,
+          fechaCorte: actual.fechaCorte,
+          motivo: parsed.motivo,
+          hashSnapshotSha256,
         },
       });
 
       return resultado;
+    });
+  },
+
+  async listarHistorialCierres(
+    empresaId: string,
+    cuentaFinancieraId: string,
+    periodo?: string
+  ): Promise<HistorialCierreConciliacionV2[]> {
+    asegurarPostgresDisponible();
+    asegurarUuid(empresaId, 'empresaId');
+    asegurarUuid(cuentaFinancieraId, 'cuentaFinancieraId');
+
+    if (periodo !== undefined) {
+      resolverRangoPeriodo(periodo);
+    }
+
+    return db.withEmpresaTransaction(empresaId, async (client) => {
+      await obtenerCuentaBancariaEnTx(client, empresaId, cuentaFinancieraId);
+
+      const params: unknown[] = [empresaId, cuentaFinancieraId];
+      let filtroPeriodoSql = '';
+      if (periodo !== undefined) {
+        params.push(periodo);
+        filtroPeriodoSql = ` AND h.codigo_periodo = $${params.length}`;
+      }
+
+      const res = await client.query(
+        `SELECT h.id,
+                h.empresa_id AS "empresaId",
+                h.conciliacion_id AS "conciliacionId",
+                h.cuenta_financiera_id AS "cuentaFinancieraId",
+                h.periodo_id AS "periodoId",
+                h.codigo_periodo AS "codigoPeriodo",
+                h.tipo_evento AS "tipoEvento",
+                h.numero_secuencia AS "numeroSecuencia",
+                h.fecha_corte::text AS "fechaCorte",
+                h.saldo_inicial_banco::text AS "saldoInicialBanco",
+                h.saldo_final_banco::text AS "saldoFinalBanco",
+                h.saldo_libros::text AS "saldoLibros",
+                h.depositos_en_transito::text AS "depositosEnTransito",
+                h.cheques_no_cobrados::text AS "chequesNoCobrados",
+                h.abonos_no_registrados::text AS "abonosNoRegistrados",
+                h.cargos_no_registrados::text AS "cargosNoRegistrados",
+                h.saldo_mayor_104x::text AS "saldoMayor104x",
+                h.diferencia_integridad_mayor::text AS "diferenciaIntegridadMayor",
+                h.diferencia::text AS diferencia,
+                h.motivo,
+                h.hash_snapshot_sha256 AS "hashSnapshotSha256",
+                h.usuario_id AS "usuarioId",
+                u.email AS "usuarioEmail",
+                h.created_at AS "createdAt"
+         FROM conciliacion_cierres_historial h
+         LEFT JOIN usuarios_estudio u
+           ON u.id = h.usuario_id
+         WHERE h.empresa_id = $1
+           AND h.cuenta_financiera_id = $2${filtroPeriodoSql}
+         ORDER BY h.created_at DESC, h.numero_secuencia DESC`,
+        params
+      );
+
+      return res.rows.map((row) => ({
+        id: row.id,
+        empresaId: row.empresaId,
+        conciliacionId: row.conciliacionId,
+        cuentaFinancieraId: row.cuentaFinancieraId,
+        periodoId: row.periodoId,
+        codigoPeriodo: row.codigoPeriodo,
+        tipoEvento: row.tipoEvento as TipoEventoCierreV2,
+        numeroSecuencia: Number(row.numeroSecuencia),
+        fechaCorte: row.fechaCorte,
+        saldoInicialBanco:
+          row.saldoInicialBanco !== null && row.saldoInicialBanco !== undefined
+            ? Money.format(row.saldoInicialBanco)
+            : null,
+        saldoFinalBanco:
+          row.saldoFinalBanco !== null && row.saldoFinalBanco !== undefined
+            ? Money.format(row.saldoFinalBanco)
+            : null,
+        saldoLibros: Money.format(row.saldoLibros ?? '0'),
+        depositosEnTransito: Money.format(row.depositosEnTransito ?? '0'),
+        chequesNoCobrados: Money.format(row.chequesNoCobrados ?? '0'),
+        abonosNoRegistrados: Money.format(row.abonosNoRegistrados ?? '0'),
+        cargosNoRegistrados: Money.format(row.cargosNoRegistrados ?? '0'),
+        saldoMayor104x:
+          row.saldoMayor104x !== null && row.saldoMayor104x !== undefined
+            ? Money.format(row.saldoMayor104x)
+            : null,
+        diferenciaIntegridadMayor: Money.format(row.diferenciaIntegridadMayor ?? '0'),
+        diferencia: Money.format(row.diferencia ?? '0'),
+        motivo: row.motivo ?? null,
+        hashSnapshotSha256: row.hashSnapshotSha256,
+        usuarioId: row.usuarioId ?? null,
+        usuarioEmail: row.usuarioEmail ?? null,
+        createdAt: new Date(row.createdAt).toISOString(),
+      }));
     });
   },
 };

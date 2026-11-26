@@ -53,6 +53,7 @@ export type {
   EstadoGrupoConciliacionV2,
   GenerarAsientoLineaInput,
   GrupoConciliacionV2,
+  HistorialCierreConciliacionV2,
   HistorialDesconciliacionV2,
   ItemConciliacionV2,
   LineaAsientoPreviewV2,
@@ -62,12 +63,15 @@ export type {
   PrevisualizarAsientoLineaInput,
   RechazarSugerenciaInput,
   ReglaAprendidaV2,
+  ReporteConciliacionOficialV2,
   ResultadoAplicarCarteraV2,
   ResultadoEjecucionMatchingV2,
   ResultadoGenerarAsientoLineaV2,
+  ResultadoPle010200V2,
   ResumenAlertasControlV2,
   SugerenciaDocumentoCarteraV2,
   TipoDocumentoCarteraV2,
+  TipoEventoCierreV2,
   TipoMatchV2,
   TipoOperacionCarteraEspecialV2,
   TipoOperacionPlantillaV2,
@@ -129,6 +133,18 @@ export const conciliacionV2Keys = {
     cuentaFinancieraId: string | null | undefined,
     periodo: string
   ) => ['conciliacionV2', 'alertas-control', empresaId, cuentaFinancieraId, periodo] as const,
+  historialCierres: (
+    empresaId: string | null | undefined,
+    cuentaFinancieraId: string | null | undefined,
+    periodo?: string | null
+  ) =>
+    [
+      'conciliacionV2',
+      'historial-cierres',
+      empresaId,
+      cuentaFinancieraId ?? 'NONE',
+      periodo || 'ALL',
+    ] as const,
 };
 
 export function extraerMensajeErrorConciliacion(err: unknown, fallback: string): string {
@@ -308,6 +324,9 @@ export function useCerrarConciliacionV2(empresaId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['conciliacionV2', 'historial-cierres', empresaId],
+      });
       toast.success('Conciliación bancaria del periodo cerrada exitosamente.', 'Cierre de Conciliación');
     },
     onError: (err) => {
@@ -332,6 +351,9 @@ export function useReabrirConciliacionV2(empresaId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['conciliacionV2', 'resumen', empresaId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['conciliacionV2', 'historial-cierres', empresaId],
+      });
       toast.success('Conciliación bancaria reabierta exitosamente.', 'Reapertura de Conciliación');
     },
     onError: (err) => {
@@ -1229,6 +1251,33 @@ export function useAlertasControlV2(
     enabled:
       enabled &&
       Boolean(empresaId && cuentaFinancieraId && /^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)),
+    retry: false,
+  });
+}
+
+// ============================================================================
+// FASE 6: HISTORIAL INMUTABLE DE CIERRES, REPORTE OFICIAL Y PLE 1.2 (010200)
+// ============================================================================
+
+export function useHistorialCierresV2(
+  empresaId: string | null | undefined,
+  cuentaFinancieraId: string | null | undefined,
+  periodo?: string | null,
+  enabled = true
+) {
+  const periodoFiltro = periodo && periodo.trim().length > 0 ? periodo.trim() : undefined;
+  return useQuery({
+    queryKey: conciliacionV2Keys.historialCierres(
+      empresaId,
+      cuentaFinancieraId,
+      periodoFiltro
+    ),
+    queryFn: () =>
+      conciliacionV2Api.listarHistorialCierres(empresaId!, cuentaFinancieraId!, periodoFiltro),
+    enabled:
+      enabled &&
+      Boolean(empresaId && cuentaFinancieraId) &&
+      (!periodoFiltro || /^\d{4}-(0[1-9]|1[0-2])$/.test(periodoFiltro)),
     retry: false,
   });
 }

@@ -281,6 +281,8 @@ export interface ResultadoCierreV2 {
   motivoReapertura: string | null;
   reabiertaPor: string | null;
   fechaReapertura: string | null;
+  cierreHistorialId?: string | null;
+  hashSnapshotSha256?: string | null;
 }
 
 export interface MapeoColumnasPerfil {
@@ -949,5 +951,116 @@ export interface ResumenAlertasControlV2 {
   chequesAntiguedad: AlertaChequeAntiguedadV2[];
   totalChequesNoCobradosAlerta: string;
   totalAlertas: number;
+}
+
+// ============================================================================
+// CONTRATOS DTO FASE 6 — HISTORIAL INMUTABLE DE CIERRES, REPORTE OFICIAL Y PLE 1.2
+// ============================================================================
+
+export type TipoEventoCierreV2 = 'CIERRE' | 'REAPERTURA';
+
+export interface HistorialCierreConciliacionV2 {
+  id: string;
+  empresaId: string;
+  conciliacionId: string;
+  cuentaFinancieraId: string;
+  periodoId: string;
+  codigoPeriodo: string;
+  tipoEvento: TipoEventoCierreV2;
+  numeroSecuencia: number;
+  fechaCorte: string;
+  saldoInicialBanco: string | null;
+  saldoFinalBanco: string | null;
+  saldoLibros: string;
+  depositosEnTransito: string;
+  chequesNoCobrados: string;
+  abonosNoRegistrados: string;
+  cargosNoRegistrados: string;
+  saldoMayor104x: string | null;
+  diferenciaIntegridadMayor: string;
+  diferencia: string;
+  motivo: string | null;
+  hashSnapshotSha256: string;
+  usuarioId: string | null;
+  usuarioEmail: string | null;
+  createdAt: string;
+}
+
+export interface ReporteConciliacionOficialV2 {
+  generadoEn: string;
+  hashReporteSha256: string;
+  empresa: {
+    id: string;
+    ruc: string;
+    razonSocial: string;
+    domicilioFiscal: string | null;
+  };
+  cuenta: CuentaBancariaV2;
+  periodo: string;
+  fechaInicio: string;
+  fechaFin: string;
+  estado: 'ABIERTA' | 'CERRADA';
+  fechaCorte: string;
+  cierreOficial: {
+    cierreHistorialId: string | null;
+    numeroSecuencia: number | null;
+    fechaCierre: string | null;
+    cerradaPor: string | null;
+    cerradaPorEmail: string | null;
+    hashSnapshotSha256: string | null;
+  } | null;
+  cuadre: {
+    saldoInicialExtracto: string | null;
+    saldoFinalExtracto: string | null;
+    depositosEnTransito: string;
+    chequesNoCobrados: string;
+    saldoAjustadoBanco: string | null;
+    saldoLibros: string;
+    abonosNoRegistrados: string;
+    cargosNoRegistrados: string;
+    saldoAjustadoLibros: string;
+    diferencia: string | null;
+    semaforo: SemaforoConciliacion;
+    toleranciaMonto: string;
+  };
+  integridadMayor: IntegridadMayor104x;
+  conteos: ResumenConciliacionV2['conteos'];
+  anexos: {
+    depositosEnTransito: PartidaLibroV2[];
+    chequesNoCobrados: PartidaLibroV2[];
+    abonosNoRegistrados: PartidaExtractoV2[];
+    cargosNoRegistrados: PartidaExtractoV2[];
+    chequesControlDetalle: ChequeBancarioV2[];
+  };
+  partidasConciliadasResumen: {
+    totalExtractoConciliadas: number;
+    montoExtractoConciliadas: string;
+    totalLibrosConciliados: number;
+    montoLibrosConciliados: string;
+  };
+}
+
+export interface ResultadoPle010200V2 {
+  codigoLibro: '010200';
+  nombreArchivo: string;
+  periodo: string;
+  ruc: string;
+  cuentaFinancieraId: string | null;
+  contenidoTxt: string;
+  hashSha256: string;
+  totalFilas: number;
+  sumaDebe: string;
+  sumaHaber: string;
+  validacionEstructura: {
+    esValido: boolean;
+    totalErrores: number;
+    totalLineas: number;
+    errores: Array<{
+      linea: number;
+      columna: number;
+      nombreCampo: string;
+      mensaje: string;
+    }>;
+  };
 }
 

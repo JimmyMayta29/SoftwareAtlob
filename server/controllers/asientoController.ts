@@ -291,8 +291,25 @@ export const asientoController = {
   async listarAuditoria(req: Request, res: Response) {
     try {
       const empresaId = req.params.id || req.empresaId!;
-      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
-      const registros = await auditoriaRepository.listarPorEmpresa(empresaId, limit);
+      const rawLimit = req.query.limit !== undefined ? Number(req.query.limit) : 50;
+      const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(500, Math.trunc(rawLimit))) : 50;
+
+      const rawOrigen =
+        req.query.origen !== undefined ? String(req.query.origen).trim().toUpperCase() : 'TODOS';
+      const origenNormalizado = rawOrigen === '' ? 'TODOS' : rawOrigen;
+      if (!['TODOS', 'OPERATIVA', 'ENCADENADA'].includes(origenNormalizado)) {
+        return errorResponse(
+          res,
+          'Parámetro origen inválido. Valores permitidos: TODOS, OPERATIVA, ENCADENADA.',
+          400
+        );
+      }
+
+      const registros = await auditoriaRepository.listarPorEmpresa(
+        empresaId,
+        limit,
+        origenNormalizado as 'TODOS' | 'OPERATIVA' | 'ENCADENADA'
+      );
       return successResponse(res, registros);
     } catch (err: any) {
       return errorResponse(res, sanitizarMensaje(err));

@@ -54,6 +54,28 @@ type AsientoLibroDiarioDto = Pick<AsientoContable, 'id' | 'empresaId' | 'periodo
   tipoCambio: number | string;
 };
 
+export type OrigenAuditoria = 'OPERATIVA' | 'ENCADENADA';
+export type FiltroOrigenAuditoria = 'TODOS' | OrigenAuditoria;
+
+export interface RegistroAuditoriaDto {
+  id: string;
+  tenantId?: string | null;
+  empresaId?: string;
+  usuarioId?: string;
+  usuarioEmail?: string | null;
+  tablaAfectada: string;
+  registroId: string;
+  accion: string;
+  datosAnteriores?: unknown;
+  datosNuevos?: unknown;
+  direccionIp?: string | null;
+  userAgent?: string | null;
+  createdAt?: string;
+  origen?: OrigenAuditoria;
+  hashActual?: string | null;
+  hashAnterior?: string | null;
+}
+
 export const asientosApi = {
   async listar(empresaId: string, params: Record<string, any> = {}): Promise<{ data: AsientoDto[]; total: number; page: number; totalPages: number }> {
     const res: any = await apiClient.get(`/empresas/${empresaId}/asientos`, { params });
@@ -110,8 +132,14 @@ export const asientosApi = {
     return res.data;
   },
 
-  async listarAuditoria(empresaId: string, limit = 50) {
-    const res: any = await apiClient.get(`/empresas/${empresaId}/auditoria`, { params: { limit } });
+  async listarAuditoria(
+    empresaId: string,
+    limit = 50,
+    origen: FiltroOrigenAuditoria = 'TODOS'
+  ): Promise<RegistroAuditoriaDto[]> {
+    const res: any = await apiClient.get(`/empresas/${empresaId}/auditoria`, {
+      params: { limit, origen },
+    });
     return res.data;
   },
 

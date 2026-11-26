@@ -199,11 +199,18 @@ const eventoHistoricoSellado = {
 
 try {
   // Simular primero un fallo de BD con credenciales en el error para verificar el log del servidor
+  const queryFallo = async () => {
+    throw new Error(
+      `FATAL 28P01 postgresql://contabilidad_app:${marcadores.dbPassword}@127.0.0.1:5432/sistema_contable clave_sol=${marcadores.claveSol}`
+    );
+  };
   setPostgresPool({
-    async query() {
-      throw new Error(
-        `FATAL 28P01 postgresql://contabilidad_app:${marcadores.dbPassword}@127.0.0.1:5432/sistema_contable clave_sol=${marcadores.claveSol}`
-      );
+    query: queryFallo,
+    async connect() {
+      return {
+        query: queryFallo,
+        release: () => {},
+      };
     },
   });
   // Limpiar cualquier entrada previa de empresaId e insertar el bloque histórico sellado original
@@ -247,10 +254,17 @@ console.log(
 );
 
 // Payload realista 5 y 6: Lectura HTTP / Exportación de auditoría y Respaldo ZIP cifrado
+const queryMockSonda = async (sql: string, params?: unknown[]) => {
+  if (sql.includes('INSERT INTO auditoria')) parametrosPersistidos = params;
+  return { rows: [eventoHistoricoSellado] };
+};
 setPostgresPool({
-  async query(sql: string, params?: unknown[]) {
-    if (sql.includes('INSERT INTO auditoria')) parametrosPersistidos = params;
-    return { rows: [eventoHistoricoSellado] };
+  query: queryMockSonda,
+  async connect() {
+    return {
+      query: queryMockSonda,
+      release: () => {},
+    };
   },
 });
 let lecturaHttpCuerpo: unknown;

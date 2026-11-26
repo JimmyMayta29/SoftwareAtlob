@@ -16,6 +16,12 @@ import { carteraConciliacionService } from '../services/conciliacion/cartera/car
 import { asientosConciliacionService } from '../services/conciliacion/asientos/asientosConciliacionService';
 import { chequesYControlService } from '../services/conciliacion/cheques/chequesYControlService';
 import {
+  construirReporteConciliacionOficial,
+  generarReporteConciliacionExcel,
+  generarReporteConciliacionPdfBuffer,
+} from '../services/conciliacion/reportes/conciliacionReporteService';
+import { exportarLibro010200DesdePostgres } from '../services/pleExportService';
+import {
   ESTADOS_CHEQUE_BANCARIO_V2,
   FORMATOS_EXTRACTO_V2,
   SENTIDOS_MONTO_REGLA,
@@ -30,6 +36,12 @@ import { sanitizarMensaje } from '../utils/seguridadDatos';
 
 const uuidSchema = z.string().uuid('Identificador UUID inválido.');
 const periodoSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'periodo debe tener formato YYYY-MM.');
+const periodoFase6Schema = z
+  .string()
+  .regex(
+    /^(\d{4}(0[1-9]|1[0-2])|\d{4}-(0[1-9]|1[0-2]))$/,
+    'periodo debe tener formato YYYYMM o YYYY-MM.'
+  );
 const fechaIsoSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe tener formato YYYY-MM-DD.');
@@ -475,8 +487,62 @@ const actualizarEstadoChequeBodySchema = z.object({
 
 const alertasControlQuerySchema = resumenQuerySchema;
 
+const historialCierresQuerySchema = z.object({
+  cuentaFinancieraId: uuidSchema,
+  periodo: periodoFase6Schema.optional(),
+});
+
+const reporteOficialQuerySchema = z.object({
+  cuentaFinancieraId: uuidSchema,
+  periodo: periodoFase6Schema,
+  fechaCorte: fechaIsoSchema.optional(),
+  formato: z.enum(['json', 'xlsx', 'pdf']).default('json'),
+});
+
+const exportarPle010200QuerySchema = z.object({
+  periodo: periodoFase6Schema,
+  cuentaFinancieraId: uuidSchema.optional(),
+  formato: z.enum(['json', 'txt']).default('json'),
+});
+
 function normalizarQueryOpcional(val: unknown): unknown {
   return typeof val === 'string' && val.trim() === '' ? undefined : val;
+}
+
+function normalizarPeriodoFase6AIso(periodo: string): string {
+  return periodo.includes('-') ? periodo : `${periodo.slice(0, 4)}-${periodo.slice(4, 6)}`;
+}
+
+function sanitizarNombreArchivoSegmento(valor: string | null | undefined, fallback = 'archivo'): string {
+  const sinControl = String(valor ?? '').replace(/[\r\n\0]/g, '');
+  const sinRutas = sinControl.split(/[\\/]/).pop() ?? '';
+  const limpio = sinRutas.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '');
+  return limpio.length > 0 ? limpio.slice(0, 120) : fallback;
+}
+
+function sanitizarValorHeader(valor: string | null | undefined): string {
+  return String(valor ?? '').replace(/[\r\n\0]/g, '');
+}
+
+function mapearErrorPle010200(err: unknown): unknown {
+  if (!(err instanceof Error) || err instanceof ConciliacionV2Error || err instanceof z.ZodError) {
+    return err;
+  }
+  const msg = err.message ?? '';
+  const mapa: Array<[string, number]> = [
+    ['POSTGRESQL_NO_DISPONIBLE', 503],
+    ['IDENTIFICADOR_INVALIDO', 400],
+    ['PERIODO_INVALIDO', 400],
+    ['EMPRESA_NO_ENCONTRADA', 404],
+    ['CUENTA_FINANCIERA_NO_ENCONTRADA', 404],
+  ];
+  for (const [codigo, statusCode] of mapa) {
+    const prefijo = `${codigo}:`;
+    if (msg.startsWith(prefijo)) {
+      return new ConciliacionV2Error(statusCode, codigo, msg.slice(prefijo.length).trim());
+    }
+  }
+  return err;
 }
 
 function resolverEmpresaId(req: Request): string {
@@ -1200,6 +1266,111 @@ export const conciliacionV2Controller = {
       return successResponse(res, alertas);
     } catch (err) {
       return manejarError(res, err, 'Error obteniendo alertas de control tributario');
+    }
+  },
+
+  async listarHistorialCierres(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = historialCierresQuerySchema.parse({
+        cuentaFinancieraId: req.query.cuentaFinancieraId,
+        periodo: normalizarQueryOpcional(req.query.periodo),
+      });
+      const periodoIso = query.periodo ? normalizarPeriodoFase6AIso(query.periodo) : undefined;
+      const historial = await conciliacionV2Service.listarHistorialCierres(
+        empresaId,
+        query.cuentaFinancieraId,
+        periodoIso
+      );
+      return res.json({ success: true, data: historial });
+    } catch (err) {
+      return manejarError(res, err, 'Error listando historial de cierres de conciliación');
+    }
+  },
+
+  async obtenerReporteOficial(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = reporteOficialQuerySchema.parse({
+        cuentaFinancieraId: req.query.cuentaFinancieraId,
+        periodo: req.query.periodo,
+        fechaCorte: normalizarQueryOpcional(req.query.fechaCorte),
+        formato: normalizarQueryOpcional(req.query.formato),
+      });
+      const periodoIso = normalizarPeriodoFase6AIso(query.periodo);
+      const reporte = await construirReporteConciliacionOficial(
+        empresaId,
+        query.cuentaFinancieraId,
+        periodoIso,
+        query.fechaCorte
+      );
+
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Report-Sha256', sanitizarValorHeader(reporte.hashReporteSha256));
+
+      const periodoSafe = sanitizarNombreArchivoSegmento(query.periodo, 'periodo');
+      const ctaSafe = sanitizarNombreArchivoSegmento(reporte.cuenta.numero, 'cuenta');
+
+      if (query.formato === 'xlsx') {
+        const buffer = await generarReporteConciliacionExcel(reporte);
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="conciliacion-${periodoSafe}-${ctaSafe}.xlsx"`
+        );
+        return res.status(200).send(buffer);
+      }
+
+      if (query.formato === 'pdf') {
+        const buffer = generarReporteConciliacionPdfBuffer(reporte);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="conciliacion-${periodoSafe}-${ctaSafe}.pdf"`
+        );
+        return res.status(200).send(buffer);
+      }
+
+      return res.json({ success: true, data: reporte });
+    } catch (err) {
+      return manejarError(res, err, 'Error obteniendo reporte oficial de conciliación');
+    }
+  },
+
+  async exportarPle010200(req: Request, res: Response) {
+    try {
+      const empresaId = resolverEmpresaId(req);
+      const query = exportarPle010200QuerySchema.parse({
+        periodo: req.query.periodo,
+        cuentaFinancieraId: normalizarQueryOpcional(req.query.cuentaFinancieraId),
+        formato: normalizarQueryOpcional(req.query.formato),
+      });
+
+      const resultado = await exportarLibro010200DesdePostgres(
+        empresaId,
+        query.periodo,
+        query.cuentaFinancieraId
+      );
+
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Ple-Sha256', sanitizarValorHeader(resultado.hashSha256));
+
+      if (query.formato === 'txt') {
+        const nombreSafe = sanitizarNombreArchivoSegmento(
+          resultado.nombreArchivo,
+          `LE_${sanitizarNombreArchivoSegmento(query.periodo, 'periodo')}_010200.txt`
+        );
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreSafe}"`);
+        return res.status(200).send(Buffer.from(resultado.contenidoTxt, 'utf8'));
+      }
+
+      return res.json({ success: true, data: resultado });
+    } catch (err) {
+      return manejarError(res, mapearErrorPle010200(err), 'Error exportando Libro PLE 010200');
     }
   },
 };

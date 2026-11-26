@@ -45,6 +45,7 @@ import {
   type FormatoExtractoV2,
   type GenerarAsientoLineaInput,
   type GrupoConciliacionV2,
+  type HistorialCierreConciliacionV2,
   type HistorialDesconciliacionV2,
   type ImportacionExtractoResumenV2,
   type IntegridadMayor104x,
@@ -64,11 +65,13 @@ import {
   type RechazarSugerenciaInput,
   type ReglaAprendidaV2,
   type ReglaClasificacionV2,
+  type ReporteConciliacionOficialV2,
   type ResultadoAplicarCarteraV2,
   type ResultadoCierreV2,
   type ResultadoConfirmacionImportacionV2,
   type ResultadoEjecucionMatchingV2,
   type ResultadoGenerarAsientoLineaV2,
+  type ResultadoPle010200V2,
   type ResultadoPrevisualizacionImportacionV2,
   type ResultadoReversionImportacionV2,
   type ResumenAlertasControlV2,
@@ -80,6 +83,7 @@ import {
   type TipoClasificacionExtracto,
   type TipoCoincidenciaRegla,
   type TipoDocumentoCarteraV2,
+  type TipoEventoCierreV2,
   type TipoMatchV2,
   type TipoOperacionCarteraEspecialV2,
   type TipoOperacionPlantillaV2,
@@ -135,6 +139,7 @@ export type {
   FormatoExtractoV2,
   GenerarAsientoLineaInput,
   GrupoConciliacionV2,
+  HistorialCierreConciliacionV2,
   HistorialDesconciliacionV2,
   ImportacionExtractoResumenV2,
   IntegridadMayor104x,
@@ -154,11 +159,13 @@ export type {
   RechazarSugerenciaInput,
   ReglaAprendidaV2,
   ReglaClasificacionV2,
+  ReporteConciliacionOficialV2,
   ResultadoAplicarCarteraV2,
   ResultadoCierreV2,
   ResultadoConfirmacionImportacionV2,
   ResultadoEjecucionMatchingV2,
   ResultadoGenerarAsientoLineaV2,
+  ResultadoPle010200V2,
   ResultadoPrevisualizacionImportacionV2,
   ResultadoReversionImportacionV2,
   ResumenAlertasControlV2,
@@ -170,6 +177,7 @@ export type {
   TipoClasificacionExtracto,
   TipoCoincidenciaRegla,
   TipoDocumentoCarteraV2,
+  TipoEventoCierreV2,
   TipoMatchV2,
   TipoOperacionCarteraEspecialV2,
   TipoOperacionPlantillaV2,
@@ -203,6 +211,84 @@ function extraerDataOpcional<T>(res: unknown): T | undefined {
 
 function baseUrl(empresaId: string): string {
   return `/empresas/${empresaId}/conciliacion-v2`;
+}
+
+async function leerErrorDesdeBlob(blob: Blob): Promise<string | null> {
+  try {
+    const texto = await blob.text();
+    const parsed = JSON.parse(texto) as {
+      error?: string;
+      message?: string;
+      details?: { message?: string };
+    };
+    if (typeof parsed?.details?.message === 'string' && parsed.details.message.trim().length > 0) {
+      return parsed.details.message;
+    }
+    if (typeof parsed?.error === 'string' && parsed.error.trim().length > 0) {
+      return parsed.error;
+    }
+    if (typeof parsed?.message === 'string' && parsed.message.trim().length > 0) {
+      return parsed.message;
+    }
+  } catch {
+    // No es un cuerpo JSON de error
+  }
+  return null;
+}
+
+async function solicitarBlob(
+  url: string,
+  params: Record<string, string | undefined> | undefined,
+  mimeFallback: string,
+  errorFallback: string
+): Promise<Blob> {
+  try {
+    const res: unknown = await apiClient.get(url, {
+      params,
+      responseType: 'blob',
+    });
+    if (res instanceof Blob) {
+      if (res.type.includes('application/json')) {
+        const msg = await leerErrorDesdeBlob(res);
+        throw new Error(msg ?? errorFallback);
+      }
+      return res;
+    }
+    if (typeof res === 'string') {
+      return new Blob([res], { type: mimeFallback });
+    }
+    if (res && typeof res === 'object' && 'error' in res) {
+      const msg = (res as { error?: unknown }).error;
+      throw new Error(typeof msg === 'string' && msg ? msg : errorFallback);
+    }
+    throw new Error(errorFallback);
+  } catch (err: unknown) {
+    const errObj = err as { response?: { data?: unknown } };
+    if (errObj?.response?.data instanceof Blob) {
+      const msg = await leerErrorDesdeBlob(errObj.response.data);
+      if (msg) {
+        throw new Error(msg);
+      }
+    }
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(errorFallback);
+  }
+}
+
+/**
+ * Dispara la descarga de un Blob en el navegador y libera el Object URL inmediatamente.
+ */
+export function descargarArchivoBlob(blob: Blob, nombreArchivo: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = nombreArchivo;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export const conciliacionV2Api = {
@@ -698,5 +784,92 @@ export const conciliacionV2Api = {
       { params }
     );
     return extraerData<ResumenAlertasControlV2>(res);
+  },
+
+  // --- Fase 6: Historial inmutable de cierres, reporte oficial y PLE 1.2 (010200) ---
+
+  async listarHistorialCierres(
+    empresaId: string,
+    cuentaFinancieraId: string,
+    periodo?: string
+  ): Promise<HistorialCierreConciliacionV2[]> {
+    const res = await apiClient.get<RespuestaApi<HistorialCierreConciliacionV2[]>>(
+      `${baseUrl(empresaId)}/cierres/historial`,
+      {
+        params: {
+          cuentaFinancieraId,
+          ...(periodo ? { periodo } : {}),
+        },
+      }
+    );
+    return extraerData<HistorialCierreConciliacionV2[]>(res);
+  },
+
+  async obtenerReporteOficial(
+    empresaId: string,
+    params: { cuentaFinancieraId: string; periodo: string; fechaCorte?: string }
+  ): Promise<ReporteConciliacionOficialV2> {
+    const res = await apiClient.get<RespuestaApi<ReporteConciliacionOficialV2>>(
+      `${baseUrl(empresaId)}/reporte/oficial`,
+      {
+        params: {
+          cuentaFinancieraId: params.cuentaFinancieraId,
+          periodo: params.periodo,
+          ...(params.fechaCorte ? { fechaCorte: params.fechaCorte } : {}),
+          formato: 'json',
+        },
+      }
+    );
+    return extraerData<ReporteConciliacionOficialV2>(res);
+  },
+
+  async descargarReporteOficialExcel(
+    empresaId: string,
+    params: { cuentaFinancieraId: string; periodo: string; fechaCorte?: string }
+  ): Promise<Blob> {
+    return solicitarBlob(
+      `${baseUrl(empresaId)}/reporte/oficial`,
+      {
+        cuentaFinancieraId: params.cuentaFinancieraId,
+        periodo: params.periodo,
+        ...(params.fechaCorte ? { fechaCorte: params.fechaCorte } : {}),
+        formato: 'xlsx',
+      },
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'No se pudo descargar el reporte oficial en Excel.'
+    );
+  },
+
+  async exportarPle010200Json(
+    empresaId: string,
+    params: { periodo: string; cuentaFinancieraId?: string }
+  ): Promise<ResultadoPle010200V2> {
+    const res = await apiClient.get<RespuestaApi<ResultadoPle010200V2>>(
+      `${baseUrl(empresaId)}/ple-010200`,
+      {
+        params: {
+          periodo: params.periodo,
+          ...(params.cuentaFinancieraId ? { cuentaFinancieraId: params.cuentaFinancieraId } : {}),
+          formato: 'json',
+        },
+      }
+    );
+    return extraerData<ResultadoPle010200V2>(res);
+  },
+
+  async descargarPle010200Txt(
+    empresaId: string,
+    params: { periodo: string; cuentaFinancieraId?: string }
+  ): Promise<Blob> {
+    return solicitarBlob(
+      `${baseUrl(empresaId)}/ple-010200`,
+      {
+        periodo: params.periodo,
+        ...(params.cuentaFinancieraId ? { cuentaFinancieraId: params.cuentaFinancieraId } : {}),
+        formato: 'txt',
+      },
+      'text/plain;charset=utf-8',
+      'No se pudo descargar el archivo PLE 1.2 (010200).'
+    );
   },
 };
