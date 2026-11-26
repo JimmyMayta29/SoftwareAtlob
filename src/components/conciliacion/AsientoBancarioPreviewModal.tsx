@@ -35,7 +35,7 @@ export interface AsientoBancarioPreviewModalProps {
   periodo: string;
   linea: PartidaExtractoV2 | null;
   config?: ConfigConciliacionV2;
-  puedeOperar: boolean;
+  puedeOperar?: boolean;
   esAdministrador: boolean;
   onAbrirConfiguracion: () => void;
 }
@@ -108,7 +108,7 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
   periodo,
   linea,
   config,
-  puedeOperar,
+  puedeOperar = true,
   esAdministrador,
   onAbrirConfiguracion,
 }) => {
@@ -241,6 +241,7 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
   };
 
   const handlePrevisualizar = async () => {
+    if (!puedeOperar) return;
     const payload = construirPayloadPreview();
     if (!payload || previewMutation.isPending) return;
     setErrorPreview(null);
@@ -281,6 +282,8 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
   const mostrarBannerInteresIngreso =
     alertaFaltaInteresProactiva || faltaCuentaInteresIngreso;
 
+  const observacionPrevia = linea?.observacionConciliacion?.trim() || '';
+
   const puedeGenerar = Boolean(
     puedeOperar &&
       preview &&
@@ -313,8 +316,13 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
           <button
             type="button"
             onClick={() => void handlePrevisualizar()}
-            disabled={!linea || !cuenta || previewMutation.isPending || generarMutation.isPending}
-            className="h-7 px-3 bg-[#FFFFFF] hover:bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 rounded-none"
+            disabled={!puedeOperar || !linea || !cuenta || previewMutation.isPending || generarMutation.isPending}
+            title={
+              !puedeOperar
+                ? 'Solo lectura: su rol o el estado de la conciliación no permite operar'
+                : 'Generar vista previa contable del asiento'
+            }
+            className="h-7 px-3 bg-[#FFFFFF] hover:bg-[#EFF6FF] text-[#1E3A5F] border border-[#1E3A5F] text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none"
           >
             <Eye className="w-3.5 h-3.5" />
             <span>
@@ -326,7 +334,9 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
             onClick={() => void handleContabilizarYConciliar()}
             disabled={!puedeGenerar}
             title={
-              !preview
+              !puedeOperar
+                ? 'Solo lectura: no tiene permisos para contabilizar ni conciliar'
+                : !preview
                 ? 'Debe ejecutar Vista Previa obligatoria antes de contabilizar'
                 : !preview.cuadrado
                 ? 'El asiento previsualizado no está cuadrado'
@@ -380,6 +390,27 @@ export const AsientoBancarioPreviewModal: React.FC<AsientoBancarioPreviewModalPr
               </div>
             </div>
           </div>
+
+          {!puedeOperar && (
+            <div className="p-2.5 bg-[#FEF3C7] border border-[#B45309] text-[#7C2D12] text-[12px] flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+              <span>
+                Modo solo lectura: no cuenta con permisos operativos o la conciliación está
+                bloqueada. No es posible previsualizar ni contabilizar el asiento.
+              </span>
+            </div>
+          )}
+
+          {observacionPrevia && (
+            <div className="p-2.5 bg-[#FEF3C7] border border-[#B45309] text-[#7C2D12] text-[12px] flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+              <span>
+                Esta partida tiene observación de conciliación previa ({observacionPrevia}).
+                Verifique en Libros si ya existe un movimiento o asiento registrado antes de crear
+                uno nuevo para evitar duplicados.
+              </span>
+            </div>
+          )}
 
           {/* Alerta obligatoria si falta cuentaInteresIngresoCodigo */}
           {mostrarBannerInteresIngreso && (

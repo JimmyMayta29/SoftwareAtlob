@@ -155,7 +155,10 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'usuarioId', 'confirmadoPor', 'confirmadoEn', 'itemsBanco', 'itemsLibro',
     'monto', 'origenLibro', 'extractoLineaIds', 'libroItems',
     'estadosPreviosBanco', 'estadosPreviosLibro', 'historialId',
-    'gruposRechazadosIds', 'asientoId'
+    'gruposRechazadosIds', 'asientoId',
+    'tipoCartera', 'tipoOperacionEspecial', 'extractoLineaId', 'movimientoTesoreriaId',
+    'asientoComisionPosId', 'documentosActualizados', 'saldoSinAplicar',
+    'alertaBancarizacion', 'hashVistaPrevia', 'docRef'
   ],
   conciliacion_item: [
     'grupoId', 'lado', 'origenLibro', 'extractoLineaId',
@@ -179,7 +182,8 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
   movimientos_tesoreria: [
     'cuentaFinancieraId', 'tipo', 'medioPago', 'numeroOperacion', 'anexoId',
     'importe', 'importeMe', 'saldoSinAplicar', 'conciliado',
-    'estadoConciliacionLibro', 'aplicaciones', 'documentoId', 'importeAplicado'
+    'estadoConciliacionLibro', 'aplicaciones', 'documentoId', 'importeAplicado',
+    'extractoLineaId', 'glosa'
   ],
   recibos_honorarios: [
     'proveedorId', 'proveedorNombre', 'proveedorRuc', 'serie', 'numero',

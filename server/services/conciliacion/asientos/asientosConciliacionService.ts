@@ -923,6 +923,94 @@ function mapTipoMovimientoDesdeOperacion(
   return Money.round(montoExtracto).gt(0) ? 'INGRESO' : 'EGRESO';
 }
 
+async function rechazarSugerenciasSuperpuestasAsientoEnTx(
+  client: PoolClient,
+  empresaId: string,
+  usuarioId: string,
+  grupoExcluidoId: string,
+  extractoLineaId: string
+): Promise<void> {
+  const sugRes = await client.query<{ id: string }>(
+    `SELECT cg.id
+     FROM conciliacion_grupo cg
+     WHERE cg.empresa_id = $1
+       AND cg.estado = 'SUGERIDO'
+       AND cg.id <> $2
+       AND EXISTS (
+         SELECT 1
+         FROM conciliacion_item ci
+         WHERE ci.empresa_id = cg.empresa_id
+           AND ci.grupo_id = cg.id
+           AND ci.lado = 'BANCO'
+           AND ci.extracto_linea_id = $3
+       )
+     ORDER BY cg.id ASC
+     FOR UPDATE OF cg`,
+    [empresaId, grupoExcluidoId, extractoLineaId]
+  );
+
+  if (sugRes.rows.length === 0) return;
+
+  const sugIds = sugRes.rows.map((r) => r.id);
+  const afectadasRes = await client.query<{ extractoLineaId: string }>(
+    `SELECT DISTINCT extracto_linea_id AS "extractoLineaId"
+     FROM conciliacion_item
+     WHERE empresa_id = $1
+       AND grupo_id = ANY($2::uuid[])
+       AND lado = 'BANCO'
+       AND extracto_linea_id IS NOT NULL`,
+    [empresaId, sugIds]
+  );
+
+  await client.query(
+    `UPDATE conciliacion_grupo
+     SET estado = 'RECHAZADO',
+         observacion = COALESCE(observacion || ' ', '') || '[Reemplazada por asiento bancario generado]',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE empresa_id = $1 AND id = ANY($2::uuid[])`,
+    [empresaId, sugIds]
+  );
+
+  const otrasLineas = afectadasRes.rows
+    .map((r) => r.extractoLineaId)
+    .filter((id) => id !== extractoLineaId);
+
+  if (otrasLineas.length > 0) {
+    await client.query(
+      `UPDATE extracto_lineas el
+       SET estado_conciliacion = 'PENDIENTE_LIBROS'
+       WHERE el.empresa_id = $1
+         AND el.id = ANY($2::uuid[])
+         AND el.conciliada = false
+         AND el.estado_conciliacion = 'SUGERIDO'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM conciliacion_item ci
+           JOIN conciliacion_grupo cg
+             ON cg.id = ci.grupo_id
+            AND cg.empresa_id = ci.empresa_id
+           WHERE ci.empresa_id = el.empresa_id
+             AND ci.lado = 'BANCO'
+             AND ci.extracto_linea_id = el.id
+             AND cg.estado IN ('SUGERIDO', 'CONCILIADO', 'CONCILIADO_MANUAL')
+         )`,
+      [empresaId, otrasLineas]
+    );
+  }
+
+  for (const grupoRechazadoId of sugIds) {
+    await registrarAuditoriaEnTx(client, {
+      empresaId,
+      usuarioId,
+      tablaAfectada: 'conciliacion_grupo',
+      registroId: grupoRechazadoId,
+      accion: 'UPDATE',
+      datosAnteriores: { estado: 'SUGERIDO' },
+      datosNuevos: { estado: 'RECHAZADO', motivo: 'Reemplazada por asiento bancario generado' },
+    });
+  }
+}
+
 // ============================================================================
 // SERVICIO PRINCIPAL: PLANTILLAS, VISTA PREVIA Y GENERACIÓN DE ASIENTOS
 // ============================================================================
@@ -1249,6 +1337,7 @@ export const asientosConciliacionService = {
           tipoCambio: Number(preview.tipoCambio),
           glosa: preview.glosa,
           origenModulo: 'TESORERIA',
+          prohibirAutoCreacionCuentas: true,
           lineas: preview.lineas.map((l) => ({
             linea: l.linea,
             cuentaId: l.cuentaId,
@@ -1374,34 +1463,14 @@ export const asientosConciliacionService = {
         );
       }
 
-      // Rechazar sugerencias previas superpuestas sobre esta línea de extracto
-      const sugRes = await client.query<{ id: string }>(
-        `SELECT cg.id
-         FROM conciliacion_grupo cg
-         WHERE cg.empresa_id = $1
-           AND cg.estado = 'SUGERIDO'
-           AND cg.id <> $2
-           AND EXISTS (
-             SELECT 1 FROM conciliacion_item ci
-             WHERE ci.empresa_id = cg.empresa_id
-               AND ci.grupo_id = cg.id
-               AND ci.lado = 'BANCO'
-               AND ci.extracto_linea_id = $3
-           )
-         FOR UPDATE OF cg`,
-        [empresaId, grupoId, linea.id]
+      // Rechazar sugerencias previas superpuestas sobre esta línea de extracto y restaurar otras líneas
+      await rechazarSugerenciasSuperpuestasAsientoEnTx(
+        client,
+        empresaId,
+        userId,
+        grupoId,
+        linea.id
       );
-      if (sugRes.rows.length > 0) {
-        const sugIds = sugRes.rows.map((r) => r.id);
-        await client.query(
-          `UPDATE conciliacion_grupo
-           SET estado = 'RECHAZADO',
-               observacion = COALESCE(observacion || ' ', '') || '[Superpuesto por asiento desde plantilla]',
-               updated_at = CURRENT_TIMESTAMP
-           WHERE empresa_id = $1 AND id = ANY($2::uuid[])`,
-          [empresaId, sugIds]
-        );
-      }
 
       await registrarAuditoriaEnTx(client, {
         empresaId,
@@ -1411,10 +1480,14 @@ export const asientosConciliacionService = {
         accion: 'INSERT',
         datosNuevos: {
           id: movId,
+          cuentaFinancieraId: cuentaBanco.id,
           tipo: tipoMovimiento,
+          medioPago: '003',
           importe: Money.format(montoAbsDec),
+          glosa: preview.glosa,
           asientoId: asiento.id,
           extractoLineaId: linea.id,
+          estadoConciliacionLibro: 'CONCILIADO',
         },
       });
 

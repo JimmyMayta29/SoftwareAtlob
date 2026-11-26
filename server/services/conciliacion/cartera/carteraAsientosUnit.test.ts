@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import {
   calcularImportesAplicacionCartera,
   calcularScoreDocumentoCartera,
+  formatearMontoLibroMovimiento,
+  obtenerCuentasSecundariasCartera,
+  validarCombinacionChequeCartera,
 } from './carteraConciliacionService';
 import {
   PLANTILLAS_ASIENTO_SISTEMA,
@@ -374,6 +377,42 @@ caso('6. Máquina de estados de cheques y control de antigüedad (20 / 30 días)
       `Debe rechazar transición ${desde} -> ${hasta}`
     );
   }
+});
+
+caso('7. Validación cheque cartera [M-03], cuentas secundarias [M-01] y flujo neto libro [A-01]', () => {
+  // [M-03] Rechazo de abono bancario con esCheque=true
+  assert.throws(
+    () => validarCombinacionChequeCartera(true, true),
+    /CHEQUE_CARTERA_SOLO_DEPOSITO/
+  );
+  // Egreso con cheque o abono sin esCheque permitido
+  validarCombinacionChequeCartera(false, true);
+  validarCombinacionChequeCartera(true, false);
+  validarCombinacionChequeCartera(true, undefined);
+
+  // [M-01] Cuentas secundarias obligatorias
+  const ctasRetChequeAnt = obtenerCuentasSecundariasCartera({
+    esAbono: true,
+    tipoOpEspecial: 'RETENCION_IGV',
+    tieneRetencion: true,
+    esDepositoCheque: true,
+    esAnticipo: true,
+    tipoDiferencia: 'GANANCIA',
+  }).map((c) => c.codigo);
+  assert.deepEqual(ctasRetChequeAnt, ['40114', '1031', '1221', '776']);
+
+  const ctasEgresoPerdida = obtenerCuentasSecundariasCartera({
+    esAbono: false,
+    tipoOpEspecial: 'ESTANDAR',
+    esCheque: true,
+    esAnticipo: true,
+    tipoDiferencia: 'PERDIDA',
+  }).map((c) => c.codigo);
+  assert.deepEqual(ctasEgresoPerdida, ['1031', '422', '676']);
+
+  // [A-01] Monto libro con signo sincronizado con mov.importe (flujo bancario neto)
+  assert.equal(formatearMontoLibroMovimiento(true, '2289.20'), '2289.20');
+  assert.equal(formatearMontoLibroMovimiento(false, '2289.20'), '-2289.20');
 });
 
 console.log(`\n✅ ${pasados} casos unitarios Fase 4.3 superados exitosamente.\n`);

@@ -339,6 +339,32 @@ const SELECT_CHEQUE_COLS = `
   updated_at AS "updatedAt"
 `;
 
+async function asegurarVinculoChequeUnicoEnTx(
+  client: PoolClient,
+  empresaId: string,
+  columna: 'movimiento_tesoreria_id' | 'extracto_linea_id',
+  valorId: string,
+  excluirChequeId: string | null
+): Promise<void> {
+  const res = await client.query<{ id: string }>(
+    `SELECT id
+     FROM cheques_bancarios
+     WHERE empresa_id = $1
+       AND ${columna} = $2
+       AND estado <> 'ANULADO'
+       AND ($3::uuid IS NULL OR id <> $3::uuid)
+     LIMIT 1`,
+    [empresaId, valorId, excluirChequeId]
+  );
+  if (res.rows.length > 0) {
+    throw new ConciliacionV2Error(
+      409,
+      'CHEQUE_VINCULO_DUPLICADO',
+      'La partida bancaria o el movimiento de tesorería ya se encuentra vinculado a otro cheque activo.'
+    );
+  }
+}
+
 async function validarReferenciasChequeEnTx(
   client: PoolClient,
   empresaId: string,
@@ -347,9 +373,11 @@ async function validarReferenciasChequeEnTx(
     movimientoTesoreriaId?: string | null;
     extractoLineaId?: string | null;
     anexoId?: string | null;
+    excluirChequeId?: string | null;
   }
 ): Promise<{ fechaExtractoLinea: string | null }> {
   let fechaExtractoLinea: string | null = null;
+  const excluirId = refs.excluirChequeId ?? null;
 
   if (refs.movimientoTesoreriaId) {
     const movRes = await client.query<{ cuentaFinancieraId: string; estado: string }>(
@@ -380,6 +408,13 @@ async function validarReferenciasChequeEnTx(
         'No se puede vincular un cheque a un movimiento de tesorería anulado.'
       );
     }
+    await asegurarVinculoChequeUnicoEnTx(
+      client,
+      empresaId,
+      'movimiento_tesoreria_id',
+      refs.movimientoTesoreriaId,
+      excluirId
+    );
   }
 
   if (refs.extractoLineaId) {
@@ -420,6 +455,13 @@ async function validarReferenciasChequeEnTx(
         'No se puede vincular un cheque a un extracto anulado.'
       );
     }
+    await asegurarVinculoChequeUnicoEnTx(
+      client,
+      empresaId,
+      'extracto_linea_id',
+      refs.extractoLineaId,
+      excluirId
+    );
     fechaExtractoLinea = elRes.rows[0].fecha;
   }
 
@@ -677,7 +719,10 @@ export const chequesYControlService = {
         client,
         empresaId,
         anterior.cuentaFinancieraId,
-        { extractoLineaId: parsed.extractoLineaId ?? null }
+        {
+          extractoLineaId: parsed.extractoLineaId ?? null,
+          excluirChequeId: chequeId,
+        }
       );
 
       const hoyIso = new Date().toISOString().slice(0, 10);

@@ -472,6 +472,9 @@ export const contabilizacionService = {
           docTipo: datos.docTipo,
           docSerie: datos.docSerie,
           docNumero: datos.docNumero,
+          tieneRetencion: (datos as any).tieneRetencion,
+          montoRetencion: (datos as any).montoRetencion,
+          porcentajeRetencion: (datos as any).porcentajeRetencion,
           esCheque: (datos as any).esCheque,
           esDepositoCheque: (datos as any).esDepositoCheque,
           esAnticipo: (datos as any).esAnticipo,
@@ -2299,6 +2302,37 @@ export const contabilizacionService = {
               debe: 0.00,
               haber: Money.toNumber(montoOriginal),
               glosaLinea: 'Cancelación de factura al tipo de cambio original',
+              anexoId: input.anexoId
+            });
+          } else if (input.tieneRetencion && input.montoRetencion && input.montoRetencion > 0) {
+            const retencion = Money.create(input.montoRetencion);
+            const neto = Money.sub(monto, retencion);
+            if (neto.lessThanOrEqualTo(0)) {
+              throw new Error('RETENCION_EXCEDE_IMPORTE: El monto neto bancario debe ser mayor a 0.00.');
+            }
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaFin,
+              denominacionCuenta: nomCtaFin,
+              debe: Money.toNumber(neto),
+              haber: 0.00,
+              glosaLinea: input.glosa || 'Cobranza bancaria neta deducida retención IGV'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: '40114',
+              denominacionCuenta: 'IGV - Régimen de retenciones (3%)',
+              debe: Money.toNumber(retencion),
+              haber: 0.00,
+              glosaLinea: 'Retención de IGV 3% aplicada por cliente'
+            });
+            lineas.push({
+              linea: lineaNum++,
+              codigoCuenta: ctaCobrar,
+              denominacionCuenta: nomCtaCobrar,
+              debe: 0.00,
+              haber: Money.toNumber(monto),
+              glosaLinea: input.esAnticipo ? 'Registro de anticipo recibido de cliente' : 'Cancelación total factura',
               anexoId: input.anexoId
             });
           } else {

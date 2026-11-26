@@ -356,6 +356,68 @@ export function calcularImportesAplicacionCartera(params: {
   };
 }
 
+/**
+ * [M-03] Impide usar esCheque=true en abonos bancarios (> 0); para cobros de cheques
+ * depositados debe usarse esDepositoCheque=true.
+ */
+export function validarCombinacionChequeCartera(esAbono: boolean, esCheque?: boolean): void {
+  if (esAbono && esCheque === true) {
+    throw new ConciliacionV2Error(
+      400,
+      'CHEQUE_CARTERA_SOLO_DEPOSITO',
+      'Para abonos bancarios de cheques de clientes use esDepositoCheque=true; esCheque=true aplica únicamente a egresos o cobros aún no depositados en banco.'
+    );
+  }
+}
+
+/**
+ * [M-01] Determina las cuentas PCGE secundarias que deben validarse activas en
+ * plan_cuentas antes de invocar tesoreriaService.registrarMovimiento.
+ */
+export function obtenerCuentasSecundariasCartera(params: {
+  esAbono: boolean;
+  tipoOpEspecial: TipoOperacionCarteraEspecialV2;
+  tieneRetencion?: boolean;
+  esCheque?: boolean;
+  esDepositoCheque?: boolean;
+  esAnticipo?: boolean;
+  tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
+}): Array<{ codigo: string; etiqueta: string }> {
+  const cuentas: Array<{ codigo: string; etiqueta: string }> = [];
+
+  if (params.tipoOpEspecial === 'RETENCION_IGV' || params.tieneRetencion === true) {
+    cuentas.push({ codigo: '40114', etiqueta: 'Retención IGV (40114)' });
+  }
+  if (params.esCheque === true || params.esDepositoCheque === true) {
+    cuentas.push({ codigo: '1031', etiqueta: 'Cheques / Efectivo en tránsito (1031)' });
+  }
+  if (params.esAbono && params.esAnticipo === true) {
+    cuentas.push({ codigo: '1221', etiqueta: 'Anticipos de clientes (1221)' });
+  }
+  if (!params.esAbono && params.esAnticipo === true) {
+    cuentas.push({ codigo: '422', etiqueta: 'Anticipos a proveedores (422)' });
+  }
+  if (params.tipoDiferencia === 'GANANCIA') {
+    cuentas.push({ codigo: '776', etiqueta: 'Ganancia por diferencia de cambio (776)' });
+  } else if (params.tipoDiferencia === 'PERDIDA') {
+    cuentas.push({ codigo: '676', etiqueta: 'Pérdida por diferencia de cambio (676)' });
+  }
+
+  return cuentas;
+}
+
+/**
+ * [A-01] Formatea el monto imputado en conciliacion_item del lado LIBRO usando
+ * exactamente el flujo bancario neto registrado en movimientos_tesoreria.importe con signo.
+ */
+export function formatearMontoLibroMovimiento(
+  esAbono: boolean,
+  importeMovimiento: string | number | Decimal
+): string {
+  const movDec = Money.round(importeMovimiento);
+  return Money.format(esAbono ? movDec : movDec.negated());
+}
+
 // ============================================================================
 // HELPERS INTERNOS EN TRANSACCIÓN
 // ============================================================================
@@ -458,7 +520,14 @@ async function resolverTipoCambioEnTx(
     `SELECT venta::text AS venta FROM tipos_cambio WHERE fecha <= $1 ORDER BY fecha DESC LIMIT 1`,
     [fecha]
   );
-  return res.rows[0]?.venta ? Number(res.rows[0].venta) : 1.0;
+  if (!res.rows[0]?.venta) {
+    throw new ConciliacionV2Error(
+      409,
+      'TIPO_CAMBIO_NO_DISPONIBLE',
+      `No existe tipo de cambio USD registrado en tipos_cambio para la fecha ${fecha}.`
+    );
+  }
+  return Number(res.rows[0].venta);
 }
 
 async function rechazarSugerenciasSuperpuestasLineaEnTx(
@@ -921,6 +990,7 @@ export const carteraConciliacionService = {
       }
 
       const esAbono = montoLineaDec.gt(0);
+      validarCombinacionChequeCartera(esAbono, parsed.esCheque);
       if (esAbono && parsed.tipoCartera === 'CXP') {
         throw new ConciliacionV2Error(
           409,
@@ -1096,7 +1166,7 @@ export const carteraConciliacionService = {
           : '4212';
       }
 
-      // Validar que cuenta 104x vinculada y contrapartida existan activas y permitan movimiento
+      // Validar que cuenta 104x vinculada, contrapartida y cuentas secundarias existan activas y permitan movimiento
       await validarCuentaPlanActivaEnTx(
         client,
         empresaId,
@@ -1110,6 +1180,18 @@ export const carteraConciliacionService = {
           cuentaContrapartidaCodigo,
           `Contrapartida ${tipoOpEspecial}`
         );
+      }
+      const cuentasSecundarias = obtenerCuentasSecundariasCartera({
+        esAbono,
+        tipoOpEspecial,
+        tieneRetencion: parsed.tieneRetencion,
+        esCheque: parsed.esCheque,
+        esDepositoCheque: parsed.esDepositoCheque,
+        esAnticipo: parsed.esAnticipo,
+        tipoDiferencia: parsed.tipoDiferencia,
+      });
+      for (const ctaSec of cuentasSecundarias) {
+        await validarCuentaPlanActivaEnTx(client, empresaId, ctaSec.codigo, ctaSec.etiqueta);
       }
 
       const moneda: 'PEN' | 'USD' = cuenta.moneda === 'USD' ? 'USD' : 'PEN';
@@ -1164,6 +1246,7 @@ export const carteraConciliacionService = {
             parsed.montoOriginalDoc !== null && parsed.montoOriginalDoc !== undefined
               ? Money.toNumber(parsed.montoOriginalDoc)
               : undefined,
+          prohibirAutoCreacionCuentas: true,
           aplicaciones:
             aplicacionesIn.length > 0 && parsed.tipoCartera !== 'OTRO_PERUANO'
               ? aplicacionesIn.map((a) => ({
@@ -1171,7 +1254,7 @@ export const carteraConciliacionService = {
                   importeAplicado: Money.toNumber(a.importeAplicado),
                 }))
               : undefined,
-        },
+        } as any,
         userId,
         client
       );
@@ -1217,6 +1300,7 @@ export const carteraConciliacionService = {
             tipoCambio,
             glosa: glosaComision,
             origenModulo: 'TESORERIA',
+            prohibirAutoCreacionCuentas: true,
             lineas: [
               {
                 linea: 1,
@@ -1290,6 +1374,24 @@ export const carteraConciliacionService = {
            WHERE empresa_id = $2 AND id = $3`,
           [Money.toNumber(nuevoSaldoTrasCom), empresaId, cuenta.id]
         );
+
+        await registrarAuditoriaEnTx(client, {
+          empresaId,
+          usuarioId: userId,
+          tablaAfectada: 'movimientos_tesoreria',
+          registroId: movComisionId,
+          accion: 'INSERT',
+          datosNuevos: {
+            cuentaFinancieraId: cuenta.id,
+            tipo: 'COMISION',
+            medioPago: '003',
+            importe: Money.format(comisionPosDec),
+            glosa: glosaComision,
+            asientoId: asientoComisionPosId,
+            extractoLineaId: linea.id,
+            estadoConciliacionLibro: 'CONCILIADO',
+          },
+        });
       }
 
       // 7. Consultar saldos actualizados de los documentos CxC/CxP
@@ -1349,14 +1451,7 @@ export const carteraConciliacionService = {
       const grupoId = insGrupoRes.rows[0].id;
 
       const montoBancoFmt = Money.format(linea.monto);
-      const montoLibroPrincipalFmt =
-        tipoOpEspecial === 'RETENCION_IGV'
-          ? montoBancoFmt
-          : Money.format(
-              esAbono
-                ? Money.create(calc.importeMovimientoTesoreria)
-                : Money.create(calc.importeMovimientoTesoreria).negated()
-            );
+      const montoLibroConSignoFmt = formatearMontoLibroMovimiento(esAbono, mov.importe);
 
       const itemBancoRes = await client.query<{ id: string }>(
         `INSERT INTO conciliacion_item (
@@ -1375,7 +1470,7 @@ export const carteraConciliacionService = {
          )
          VALUES ($1, $2, 'LIBRO', 'MOVIMIENTO_TESORERIA', NULL, $3, $4, NULL, $5)
          RETURNING id`,
-        [empresaId, grupoId, mov.id, mov.asientoId ?? null, montoLibroPrincipalFmt]
+        [empresaId, grupoId, mov.id, mov.asientoId ?? null, montoLibroConSignoFmt]
       );
 
       const itemsLibro: ItemConciliacionV2[] = [
@@ -1388,7 +1483,7 @@ export const carteraConciliacionService = {
           movimientoTesoreriaId: mov.id,
           asientoId: mov.asientoId ?? null,
           asientoDetalleId: null,
-          montoImputado: montoLibroPrincipalFmt,
+          montoImputado: montoLibroConSignoFmt,
           fecha: linea.fecha,
           descripcion: glosa,
           referencia: linea.referencia,

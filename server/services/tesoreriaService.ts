@@ -6,6 +6,7 @@ import { contabilizacionService } from './contabilizacionService';
 import { asientoService } from './asientoService';
 import { periodoService } from './periodoService';
 import { auditoriaRepository } from '../repositories/auditoriaRepository';
+import { auditoriaChainService } from './auditoriaChainService';
 import { CXP_MEMORIA } from './compraService';
 import { CXC_MEMORIA } from './ventaService';
 import { DETRACCIONES_MEMORIA } from './detraccionService';
@@ -365,6 +366,7 @@ export const tesoreriaService = {
       diferenciaCambio?: number;
       tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
       montoOriginalDoc?: number;
+      prohibirAutoCreacionCuentas?: boolean;
       aplicaciones?: Array<{
         documentoId: string;
         importeAplicado: number;
@@ -681,7 +683,7 @@ export const tesoreriaService = {
             try {
               await db.query(`
                 INSERT INTO aplicaciones_cobranza (
-                  empresa_id, cuenta_por_cobrar_id, asiento_id, fecha_cobro, importe_aplicado, moneda, tipo_cambio, referencia_banco
+                  empresa_id, cuenta_por_cobrar_id, asiento_id, fecha_cobranza, importe_aplicado, moneda, tipo_cambio, referencia_banco
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
               `, [
                 empresaId, app.documentoId,
@@ -735,6 +737,7 @@ export const tesoreriaService = {
       diferenciaCambio?: number;
       tipoDiferencia?: 'GANANCIA' | 'PERDIDA' | 'NINGUNA';
       montoOriginalDoc?: number;
+      prohibirAutoCreacionCuentas?: boolean;
       aplicaciones?: Array<{
         documentoId: string;
         importeAplicado: number;
@@ -809,6 +812,14 @@ export const tesoreriaService = {
     const importeTotal = Money.round(datos.importe);
     if (importeTotal.lessThanOrEqualTo(0)) {
       throw new Error('IMPORTE_INVALIDO: El importe del movimiento debe ser mayor a 0.00.');
+    }
+    let flujoBancarioNetoDec = importeTotal;
+    if (datos.tieneRetencion && datos.montoRetencion !== undefined && Money.create(datos.montoRetencion).gt(0)) {
+      const retencionDec = Money.create(datos.montoRetencion);
+      flujoBancarioNetoDec = Money.sub(importeTotal, retencionDec);
+      if (flujoBancarioNetoDec.lte(0)) {
+        throw new Error('RETENCION_EXCEDE_IMPORTE: El monto neto bancario debe ser mayor a 0.00.');
+      }
     }
     let totalAplicado = Money.create(0);
 
@@ -979,6 +990,7 @@ export const tesoreriaService = {
       tipoCambio,
       glosa: datos.glosa || `${datos.tipo} ${ctaRow.banco} ${ctaRow.numero}`,
       origenModulo: 'TESORERIA',
+      prohibirAutoCreacionCuentas: (datos as any).prohibirAutoCreacionCuentas,
       lineas: propuestaAsiento.lineas.map(l => ({
         codigoCuenta: l.codigoCuenta,
         debe: l.debe,
@@ -993,8 +1005,8 @@ export const tesoreriaService = {
     // 6. Calcular nuevo saldo de cuenta financiera con Money
     const saldoActualCuenta = Money.create(ctaRow.saldoActual);
     const nuevoSaldoCuenta = datos.tipo === 'INGRESO'
-      ? Money.add(saldoActualCuenta, importeTotal)
-      : Money.sub(saldoActualCuenta, importeTotal);
+      ? Money.add(saldoActualCuenta, flujoBancarioNetoDec)
+      : Money.sub(saldoActualCuenta, flujoBancarioNetoDec);
 
     // 7. Persistir Movimiento, saldo de cuenta y aplicaciones en la misma TX (sin tragar errores)
     const id = randomUUID();
@@ -1010,8 +1022,8 @@ export const tesoreriaService = {
       anexoId: datos.anexoId,
       moneda,
       tipoCambio,
-      importe: Money.toNumber(importeTotal),
-      importeMe: moneda === 'USD' ? Money.toNumber(importeTotal) : 0,
+      importe: Money.toNumber(flujoBancarioNetoDec),
+      importeMe: moneda === 'USD' ? Money.toNumber(flujoBancarioNetoDec) : 0,
       saldoSinAplicar: Money.toNumber(saldoSinAplicar),
       glosa: datos.glosa,
       estado: 'REGISTRADO',
@@ -1099,6 +1111,26 @@ export const tesoreriaService = {
       registroId: nuevoMovimiento.id,
       valoresNuevos: nuevoMovimiento
     }, conexion);
+
+    if (UUID_REGEX.test(userId)) {
+      await auditoriaChainService.registrar({
+        empresaId,
+        usuarioId: userId,
+        tablaAfectada: 'movimientos_tesoreria',
+        registroId: nuevoMovimiento.id,
+        accion: 'INSERT',
+        datosNuevos: {
+          cuentaFinancieraId: nuevoMovimiento.cuentaFinancieraId,
+          tipo: nuevoMovimiento.tipo,
+          medioPago: nuevoMovimiento.medioPago,
+          numeroOperacion: nuevoMovimiento.numeroOperacion,
+          anexoId: nuevoMovimiento.anexoId,
+          importe: Money.format(nuevoMovimiento.importe),
+          glosa: nuevoMovimiento.glosa,
+          estadoConciliacionLibro: 'PENDIENTE_BANCO'
+        }
+      }, conexion);
+    }
 
     return nuevoMovimiento;
   },

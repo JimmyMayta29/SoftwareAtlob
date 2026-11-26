@@ -452,6 +452,8 @@ export const AplicarCarteraModal: React.FC<AplicarCarteraModalProps> = ({
     }
   };
 
+  const observacionPrevia = linea?.observacionConciliacion?.trim() || '';
+
   const puedeConfirmar =
     Boolean(linea && cuenta && puedeOperar) &&
     !aplicarMutation.isPending &&
@@ -543,6 +545,17 @@ export const AplicarCarteraModal: React.FC<AplicarCarteraModalProps> = ({
               </div>
             </div>
           </div>
+
+          {observacionPrevia && (
+            <div className="p-2.5 bg-[#FEF3C7] border border-[#B45309] text-[#7C2D12] text-[12px] flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+              <span>
+                Esta partida tiene observación de conciliación previa ({observacionPrevia}).
+                Verifique en Libros si ya existe un movimiento o asiento registrado antes de crear
+                uno nuevo para evitar duplicados.
+              </span>
+            </div>
+          )}
 
           {errorValidacion && (
             <div className="p-2 bg-[#FEF2F2] border border-[#B91C1C] text-[#991B1B] text-[12px] flex items-start gap-2">

@@ -50,6 +50,7 @@ export interface AsientoInput {
   estadoOperacion?: '1' | '8' | '9' | string | null;
   validarNormativa?: boolean;
   contabilizarDirecto?: boolean;
+  prohibirAutoCreacionCuentas?: boolean;
   detalles: DetalleInput[];
 }
 
@@ -276,7 +277,7 @@ export const asientoService = {
         }
 
         // Verificar período abierto
-        const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1`, [resolvedPeriodoId]);
+        const pRes = await client.query(`SELECT estado FROM periodos WHERE id = $1 AND empresa_id = $2`, [resolvedPeriodoId, empresaId]);
         if (pRes.rows[0]?.estado === 'CERRADO' || pRes.rows[0]?.estado === 'BLOQUEADO_AUDITORIA') {
           throw new Error('PERIODO_CERRADO: No se puede crear asientos en un período contable cerrado.');
         }
@@ -349,6 +350,9 @@ export const asientoService = {
             ctaRow = ctaCheck.rows[0];
 
             if (!ctaRow) {
+              if (input.prohibirAutoCreacionCuentas === true) {
+                throw new Error(`CUENTA_PCGE_INEXISTENTE_EN_EMPRESA: La cuenta ${rawCuenta || d.cuentaId} no existe o no está imputable/activa en el plan de cuentas.`);
+              }
               const pbRes = await client.query(
                 `SELECT codigo, denominacion, elemento, nivel, tipo_cuenta, es_registro,
                         clasificacion_eeff, naturaleza_saldo, signo_eeff, es_correctora
@@ -394,6 +398,10 @@ export const asientoService = {
                 ctaRow = insCta.rows[0];
               }
             }
+          }
+
+          if (input.prohibirAutoCreacionCuentas === true && (!ctaRow || !ctaRow.is_active || ctaRow.es_inactiva || ctaRow.permite_movimiento === false)) {
+            throw new Error(`CUENTA_PCGE_INEXISTENTE_EN_EMPRESA: La cuenta ${rawCuenta || d.cuentaId} no existe o no está imputable/activa en el plan de cuentas.`);
           }
 
           if (!ctaRow) {
@@ -596,6 +604,9 @@ export const asientoService = {
             ctaRow = ctaCheck.rows[0];
 
             if (!ctaRow) {
+              if (input.prohibirAutoCreacionCuentas === true) {
+                throw new Error(`CUENTA_PCGE_INEXISTENTE_EN_EMPRESA: La cuenta ${rawCuenta || d.cuentaId} no existe o no está imputable/activa en el plan de cuentas.`);
+              }
               const pbRes = await client.query(
                 `SELECT codigo, denominacion, elemento, nivel, tipo_cuenta, es_registro,
                         clasificacion_eeff, naturaleza_saldo, signo_eeff, es_correctora
@@ -641,6 +652,10 @@ export const asientoService = {
                 ctaRow = insCta.rows[0];
               }
             }
+          }
+
+          if (input.prohibirAutoCreacionCuentas === true && (!ctaRow || !ctaRow.is_active || ctaRow.es_inactiva || ctaRow.permite_movimiento === false)) {
+            throw new Error(`CUENTA_PCGE_INEXISTENTE_EN_EMPRESA: La cuenta ${rawCuenta || d.cuentaId} no existe o no está imputable/activa en el plan de cuentas.`);
           }
 
           if (!ctaRow) {
@@ -748,8 +763,8 @@ export const asientoService = {
           FROM asientos a
           JOIN periodos p ON p.id = a.periodo_id
           JOIN subdiarios s ON s.id = a.subdiario_id
-          WHERE a.id = $1 FOR UPDATE OF a
-        `, [asientoId]);
+          WHERE a.id = $1 AND a.empresa_id = $2 FOR UPDATE OF a
+        `, [asientoId, empresaId]);
 
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');
         const asiento = aRes.rows[0];
@@ -769,19 +784,19 @@ export const asientoService = {
         // Validación matemática estricta de partida doble y existencia de líneas en BD
         const dRes = await client.query(`
           SELECT COALESCE(SUM(debe), 0) as total_debe, COALESCE(SUM(haber), 0) as total_haber, COUNT(*) as count
-          FROM asiento_detalle WHERE asiento_id = $1
-        `, [asientoId]);
-        const totDebe = parseFloat(dRes.rows[0].total_debe);
-        const totHaber = parseFloat(dRes.rows[0].total_haber);
+          FROM asiento_detalle WHERE asiento_id = $1 AND empresa_id = $2
+        `, [asientoId, empresaId]);
+        const totDebeDec = Money.create(dRes.rows[0].total_debe);
+        const totHaberDec = Money.create(dRes.rows[0].total_haber);
         const cantLineas = parseInt(dRes.rows[0].count, 10);
 
         if (cantLineas < 2) {
           throw new Error('ASIENTO_INCOMPLETO: El asiento debe contener al menos 2 líneas de apunte contable.');
         }
-        if (Math.abs(totDebe - totHaber) >= 0.001) {
-          throw new Error(`ASIENTO_DESCUADRADO: El asiento está descuadrado (Debe S/ ${totDebe.toFixed(2)} != Haber S/ ${totHaber.toFixed(2)}). Tolerancia permitida: 0.00.`);
+        if (!Money.isEqual(totDebeDec, totHaberDec)) {
+          throw new Error(`ASIENTO_DESCUADRADO: El asiento está descuadrado (Debe S/ ${Money.format(totDebeDec)} != Haber S/ ${Money.format(totHaberDec)}). Tolerancia permitida: 0.00.`);
         }
-        if (totDebe <= 0) {
+        if (totDebeDec.lte(0)) {
           throw new Error('ASIENTO_DESCUADRADO: El importe total del asiento debe ser estrictamente mayor a 0.00.');
         }
 
@@ -819,9 +834,9 @@ export const asientoService = {
           UPDATE asientos SET
             numero = $1, cuo = $2, estado = 'CONTABILIZADO', version = version + 1,
             updated_by = $3, updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4
+          WHERE id = $4 AND empresa_id = $5
           RETURNING *
-        `, [numeroCorrelativo, cuoOficial, userId, asientoId]);
+        `, [numeroCorrelativo, cuoOficial, userId, asientoId, empresaId]);
 
         return updateRes.rows[0];
       };
@@ -904,7 +919,7 @@ export const asientoService = {
         await client.query('BEGIN');
         await establecerContextoEmpresa(client, empresaId, userId);
 
-        const aRes = await client.query(`SELECT * FROM asientos WHERE id = $1 FOR UPDATE`, [asientoId]);
+        const aRes = await client.query(`SELECT * FROM asientos WHERE id = $1 AND empresa_id = $2 FOR UPDATE`, [asientoId, empresaId]);
         if (aRes.rows.length === 0) throw new Error('ASIENTO_NO_ENCONTRADO');
         const original = aRes.rows[0];
 
@@ -913,7 +928,7 @@ export const asientoService = {
         }
 
         // Consultar líneas originales
-        const dRes = await client.query(`SELECT * FROM asiento_detalle WHERE asiento_id = $1 ORDER BY linea`, [asientoId]);
+        const dRes = await client.query(`SELECT * FROM asiento_detalle WHERE asiento_id = $1 AND empresa_id = $2 ORDER BY linea`, [asientoId, empresaId]);
         const lineasOriginales = dRes.rows;
 
         // 1. Crear Asiento de Extorno (Invierte Debe y Haber) como BORRADOR
@@ -947,15 +962,15 @@ export const asientoService = {
         }
 
         // Sellar asiento de extorno a CONTABILIZADO una vez insertado el detalle
-        await client.query(`UPDATE asientos SET estado = 'CONTABILIZADO' WHERE id = $1`, [extornoAsiento.id]);
+        await client.query(`UPDATE asientos SET estado = 'CONTABILIZADO' WHERE id = $1 AND empresa_id = $2`, [extornoAsiento.id, empresaId]);
 
         // 2. Marcar asiento original como ANULADO
         await client.query(`
           UPDATE asientos SET
             estado = 'ANULADO', asiento_extorno_id = $1, motivo_anulacion = $2,
             anulado_by = $3, anulado_at = CURRENT_TIMESTAMP, version = version + 1
-          WHERE id = $4
-        `, [extornoAsiento.id, motivo, userId, asientoId]);
+          WHERE id = $4 AND empresa_id = $5
+        `, [extornoAsiento.id, motivo, userId, asientoId, empresaId]);
 
         await client.query('COMMIT');
 
@@ -1237,6 +1252,7 @@ export const asientoService = {
       origen: datos.origenModulo || datos.origen || 'SISTEMA',
       origenId: datos.origenId,
       cuo: datos.cuo,
+      prohibirAutoCreacionCuentas: datos.prohibirAutoCreacionCuentas,
       detalles: (datos.lineas || datos.detalles || []).map((l: any, idx: number) => ({
         linea: l.linea || (idx + 1),
         cuentaId: l.cuentaId || `cta-${l.codigoCuenta}`,

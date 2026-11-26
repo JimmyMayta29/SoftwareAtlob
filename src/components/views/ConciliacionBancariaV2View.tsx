@@ -1025,7 +1025,7 @@ export const ConciliacionBancariaV2View: React.FC = () => {
         periodo={periodo}
         linea={lineaAsientoModal}
         config={configQuery.data}
-        puedeOperar={!operacionesBloqueadas}
+        puedeOperar={puedeOperarPartidas && !operacionesBloqueadas}
         esAdministrador={esAdministrador}
         onAbrirConfiguracion={() => setModalConfigAbierto(true)}
       />

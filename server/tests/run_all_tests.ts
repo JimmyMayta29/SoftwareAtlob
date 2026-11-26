@@ -54,7 +54,8 @@ const suites: SuitePrueba[] = [
   { name: 'Voucher Libre, Validación Zod, Conteo de Subdiarios y Persistencia', path: 'server/tests/test_voucher_libre_y_subdiarios.ts' },
   { name: 'Conciliación Bancaria V2 (Fase 1: Unitarias y Regresión Pura)', path: 'server/tests/test_conciliacion_v2_fase1.ts', args: ['--solo-unitarias'] },
   { name: 'Conciliación Bancaria V2 (Fase 2: Importación, Perfiles, Seguridad y Clasificador)', path: 'server/tests/test_conciliacion_v2_fase2.ts', args: ['--solo-unitarias'] },
-  { name: 'Conciliación Bancaria V2 (Fase 3: Motor de Matching, 1:N, ASIENTO_MANUAL y Desconciliación)', path: 'server/tests/test_conciliacion_v2_fase3.ts', args: ['--solo-unitarias'] }
+  { name: 'Conciliación Bancaria V2 (Fase 3: Motor de Matching, 1:N, ASIENTO_MANUAL y Desconciliación)', path: 'server/tests/test_conciliacion_v2_fase3.ts', args: ['--solo-unitarias'] },
+  { name: 'Conciliación Bancaria V2 (Fase 4: Cartera CxC/CxP, Plantillas, Asientos, Cheques y Control Tributario)', path: 'server/tests/test_conciliacion_v2_fase4.ts', args: ['--solo-unitarias'] }
 ];
 
 console.log('========================================================================');
