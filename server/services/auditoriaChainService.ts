@@ -42,6 +42,31 @@ function esUuidValido(valor: unknown): valor is string {
 }
 
 /**
+ * Obtiene la cadena de auditoría de una empresa desde PostgreSQL bajo contexto RLS
+ * estricto (`withEmpresaTransaction`) o desde el almacenamiento en memoria si no hay Postgres.
+ */
+async function obtenerLogsAuditoriaEmpresa(empresaId: string): Promise<AuditoriaLogEntry[]> {
+  if (db.isPostgresConnected()) {
+    if (!esUuidValido(empresaId)) {
+      throw new Error('EMPRESA_ID_INVALIDO');
+    }
+    const res = await db.withEmpresaTransaction(empresaId, async (client) =>
+      client.query<AuditoriaLogEntry>(`
+        SELECT id, empresa_id as "empresaId", usuario_id as "usuarioId",
+               tabla_afectada as "tablaAfectada", registro_id as "registroId",
+               accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
+               hash_previo as "hashPrevio", hash_actual as "hashActual", created_at as "createdAt"
+        FROM auditoria_log
+        WHERE empresa_id = $1
+        ORDER BY created_at ASC, id ASC
+      `, [empresaId])
+    );
+    return res.rows;
+  }
+  return AUDITORIA_LOG_CHAIN_MEMORIA.filter(l => l.empresaId === empresaId);
+}
+
+/**
  * Ordena recursivamente las claves de objetos siguiendo la regla interna de PostgreSQL JSONB
  * (longitud de clave UTF-8 ascendente, luego orden lexicográfico UTF-8/codepoint) para que el hash
  * calculado coincida exactamente con el JSONB recuperado por `verificarIntegridad`.
@@ -469,22 +494,7 @@ export const auditoriaChainService = {
     indiceCorrupto?: number;
     ultimoHash?: string;
   }> {
-    let logs: AuditoriaLogEntry[] = [];
-
-    if (db.isPostgresConnected()) {
-      const res = await db.query(`
-        SELECT id, empresa_id as "empresaId", usuario_id as "usuarioId",
-               tabla_afectada as "tablaAfectada", registro_id as "registroId",
-               accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
-               hash_previo as "hashPrevio", hash_actual as "hashActual", created_at as "createdAt"
-        FROM auditoria_log
-        WHERE empresa_id = $1
-        ORDER BY created_at ASC, id ASC
-      `, [empresaId]);
-      logs = res.rows;
-    } else {
-      logs = AUDITORIA_LOG_CHAIN_MEMORIA.filter(l => l.empresaId === empresaId);
-    }
+    const logs = await obtenerLogsAuditoriaEmpresa(empresaId);
 
     if (logs.length === 0) {
       return {
@@ -543,21 +553,7 @@ export const auditoriaChainService = {
    * ni alterar hashPrevio / hashActual de la cadena inmutable.
    */
   async exportarPorEmpresa(empresaId: string): Promise<AuditoriaLogEntry[]> {
-    let logs: AuditoriaLogEntry[] = [];
-    if (db.isPostgresConnected()) {
-      const res = await db.query<AuditoriaLogEntry>(`
-        SELECT id, empresa_id as "empresaId", usuario_id as "usuarioId",
-               tabla_afectada as "tablaAfectada", registro_id as "registroId",
-               accion, datos_anteriores as "datosAnteriores", datos_nuevos as "datosNuevos",
-               hash_previo as "hashPrevio", hash_actual as "hashActual", created_at as "createdAt"
-        FROM auditoria_log
-        WHERE empresa_id = $1
-        ORDER BY created_at ASC, id ASC
-      `, [empresaId]);
-      logs = res.rows;
-    } else {
-      logs = AUDITORIA_LOG_CHAIN_MEMORIA.filter(l => l.empresaId === empresaId);
-    }
+    const logs = await obtenerLogsAuditoriaEmpresa(empresaId);
 
     return logs.map(entrada => ({
       id: entrada.id,

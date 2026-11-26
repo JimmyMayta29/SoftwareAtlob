@@ -102,7 +102,7 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'createdBy', 'updatedBy'
   ],
   conciliacion_cierres_historial: [
-    'conciliacionId', 'cuentaFinancieraId', 'periodoId', 'codigoPeriodo',
+    'conciliacionId', 'cierreHistorialId', 'cuentaFinancieraId', 'periodoId', 'codigoPeriodo',
     'tipoEvento', 'numeroSecuencia', 'fechaCorte', 'saldoInicialBanco',
     'saldoFinalBanco', 'saldoLibros', 'depositosEnTransito', 'chequesNoCobrados',
     'abonosNoRegistrados', 'cargosNoRegistrados', 'saldoMayor104x',
@@ -150,7 +150,8 @@ const LISTA_BLANCA_POR_TABLA: Record<string, readonly string[]> = {
     'partidasConciliadas', 'partidasEnTransito', 'diferencia', 'cerradaPor', 'fechaCierre',
     'saldoInicialBanco', 'saldoFinalBanco', 'depositosEnTransito', 'chequesNoCobrados',
     'abonosNoRegistrados', 'cargosNoRegistrados', 'saldoMayor104x', 'diferenciaIntegridadMayor',
-    'motivoReapertura', 'reabiertaPor', 'fechaReapertura'
+    'motivoReapertura', 'reabiertaPor', 'fechaReapertura',
+    'cierreHistorialId', 'hashSnapshotSha256'
   ],
   conciliacion_config_empresa: [
     'conciliacionV2Habilitada', 'toleranciaDias', 'toleranciaMonto',
